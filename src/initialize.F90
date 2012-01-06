@@ -116,8 +116,8 @@ contains
        leakage_mesh % upper_right = leakage_mesh % origin + &
             leakage_mesh % dimension * leakage_mesh % width
 
-       allocate(leakage(lmesh_nx,lmesh_ny,lmesh_nz,1))
-       allocate(starting_source(lmesh_nx,lmesh_ny,lmesh_nz))
+       allocate(leakage(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
+       allocate(starting_source(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
        leakage = ZERO
        starting_source = 0
 

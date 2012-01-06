@@ -35,6 +35,9 @@ module constants
   integer, parameter :: MAX_WORD_LEN = 150
   integer, parameter :: MAX_FILE_LEN = 255
 
+  ! Maximum number of stages for domain decomposition leakage analysis
+  integer, parameter :: MAX_STAGES = 100
+
   ! ============================================================================
   ! PHYSICAL CONSTANTS
 

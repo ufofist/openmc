@@ -48,19 +48,20 @@ contains
     logical :: in_mesh
 
     ! determine what mesh starting neutron is in
+    stage = 1
+    last_stage = 1
     if (tallies_on) then
        m => leakage_mesh
        call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
        if (in_mesh) then
-          starting_source(ijk(1),ijk(2),ijk(3)) = &
-               starting_source(ijk(1),ijk(2),ijk(3)) + p % wgt
-          ijk_start = ijk
+          starting_source(ijk(1),ijk(2),ijk(3),stage) = &
+               starting_source(ijk(1),ijk(2),ijk(3),stage) + p % wgt
+          ijk_current = ijk
        else
           message = "Could not locate starting particle in leakage mesh."
           call fatal_error()
        end if
     end if
-    check_mesh = .true.
 
     if (p % coord % cell == NONE) then
        call find_cell(p, found_cell)
@@ -114,12 +115,23 @@ contains
        end do
 
        ! Check for particle outside original leakage mesh cell
-       if (tallies_on .and. check_mesh) then
+       if (tallies_on) then
           call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
-          if (any(ijk /= ijk_start)) then
-             leakage(ijk_start(1),ijk_start(2),ijk_start(3),1) = &
-                  leakage(ijk_start(1),ijk_start(2),ijk_start(3),1) + ONE
-             check_mesh = .false.
+          if (any(ijk /= ijk_current)) then
+             ! tally stage leakage
+             leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) = &
+                  leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) + ONE
+
+             ! tally next stage source
+             stage = stage + 1
+             starting_source(ijk(1),ijk(2),ijk(3),stage) = &
+                  starting_source(ijk(1),ijk(2),ijk(3),stage) + ONE
+
+             ! check for last stage
+             if (stage > last_stage) last_stage = stage
+
+             ! Set new mesh coordinates
+             ijk_current = ijk
           end if
        end if
 
