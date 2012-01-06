@@ -22,9 +22,6 @@ program main
   implicit none
 
   integer :: i, j, k
-  real(8) :: src
-  real(8) :: leak
-  real(8) :: leak_fraction
 
   ! start timer for total run time
   call timer_start(time_total)
@@ -47,25 +44,7 @@ program main
      if (master) call print_runtime()
   end if
 
-  write(50,*) lmesh_nx, lmesh_ny, lmesh_nz
-  write(52,*) lmesh_nx, lmesh_ny, lmesh_nz
-  write(51,*) lmesh_nx, lmesh_ny, lmesh_nz
-  do i = 1, lmesh_nx
-     do j = 1, lmesh_ny
-        do k = 1, lmesh_nz
-           src = starting_source(i,j,k)/(n_particles*(n_cycles - n_inactive))
-           leak = leakage(i,j,k,1)/(n_particles*(n_cycles - n_inactive))
-           if (starting_source(i,j,k) > ZERO) then
-              leak_fraction = leakage(i,j,k,1)/starting_source(i,j,k)
-           else
-              leak_fraction = ZERO
-           end if
-           write(50,*) i,j,k,src
-           write(51,*) i,j,k,leak
-           write(52,*) i,j,k,leak_fraction
-        end do
-     end do
-  end do
+  call calculate_leakage()
 
   ! deallocate arrays
   call free_memory()
@@ -191,5 +170,77 @@ contains
     if (master) call header("SIMULATION FINISHED", level=1)
 
   end subroutine run_problem
+
+!===============================================================================
+! CALCULATE_LEAKAGE
+!===============================================================================
+
+  subroutine calculate_leakage()
+
+    integer :: n
+    real(8) :: src
+    real(8) :: leak
+    real(8) :: leak_fraction
+
+#ifdef MPI
+    ! If running in parallel, we first need to combine the values from all
+    ! processors
+    n = lmesh_nx * lmesh_ny * lmesh_nz
+    if (master) then
+       call MPI_REDUCE(MPI_IN_PLACE, starting_source, n, MPI_REAL8, MPI_SUM, &
+            0, MPI_COMM_WORLD, mpi_err)
+       call MPI_REDUCE(MPI_IN_PLACE, leakage, n, MPI_REAL8, MPI_SUM, &
+            0, MPI_COMM_WORLD, mpi_err)
+    else
+       call MPI_REDUCE(starting_source, starting_source, n, MPI_REAL8, MPI_SUM, &
+            0, MPI_COMM_WORLD, mpi_err)
+       call MPI_REDUCE(leakage, leakage, n, MPI_REAL8, MPI_SUM, &
+            0, MPI_COMM_WORLD, mpi_err)
+    end if
+#endif
+
+    if (master) then
+       ! open files for writing
+       open(UNIT=50, FILE='source.out', STATUS='replace', ACTION='write')
+       open(UNIT=51, FILE='leakage.out', STATUS='replace', ACTION='write')
+       open(UNIT=52, FILE='leakage_fraction.out', STATUS='replace', ACTION='write')
+
+       ! Write dimension of mesh on each file
+       write(50,*) lmesh_nx, lmesh_ny, lmesh_nz
+       write(51,*) lmesh_nx, lmesh_ny, lmesh_nz
+       write(52,*) lmesh_nx, lmesh_ny, lmesh_nz
+
+       ! Loop over all mesh cells
+       do i = 1, lmesh_nx
+          do j = 1, lmesh_ny
+             do k = 1, lmesh_nz
+                ! calculate fraction of source sites in each mesh
+                src = starting_source(i,j,k)/(n_particles*(n_cycles - n_inactive))
+
+                ! calculate absolute leakage
+                leak = leakage(i,j,k,1)/(n_particles*(n_cycles - n_inactive))
+
+                ! calculate leakage fraction
+                if (starting_source(i,j,k) > ZERO) then
+                   leak_fraction = leakage(i,j,k,1)/starting_source(i,j,k)
+                else
+                   leak_fraction = ZERO
+                end if
+
+                ! write values to each file
+                write(50,*) i,j,k,src
+                write(51,*) i,j,k,leak
+                write(52,*) i,j,k,leak_fraction
+             end do
+          end do
+       end do
+
+       ! close files
+       close(UNIT=50)
+       close(UNIT=51)
+       close(UNIT=52)
+    end if
+
+  end subroutine calculate_leakage
 
 end program main
