@@ -83,8 +83,8 @@ module global
   type(TallyObject),    allocatable, target :: tallies(:)
 
   ! Leakage for each stage
-  integer :: lmesh_nx = 20
-  integer :: lmesh_ny = 20
+  integer :: lmesh_nx = 17
+  integer :: lmesh_ny = 17
   integer :: lmesh_nz = 20
   integer :: ijk_start(3)
   logical :: check_mesh
