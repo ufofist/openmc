@@ -104,6 +104,23 @@ contains
        ! Create tally map
        call create_tally_map()
 
+       ! set up leakage mesh
+       leakage_mesh % n_dimension = 3
+       allocate(leakage_mesh % dimension(3))
+       allocate(leakage_mesh % origin(3))
+       allocate(leakage_mesh % upper_right(3))
+       allocate(leakage_mesh % width(3))
+       leakage_mesh % dimension = (/ lmesh_nx, lmesh_ny, lmesh_nz /)
+       leakage_mesh % origin = (/ -182.07, -182.07, -183.0 /)
+       leakage_mesh % width = (/ 364.14/lmesh_nx, 364.14/lmesh_ny, 366.0/lmesh_nz /)
+       leakage_mesh % upper_right = leakage_mesh % origin + &
+            leakage_mesh % dimension * leakage_mesh % width
+
+       allocate(leakage(lmesh_nx,lmesh_ny,lmesh_nz,1))
+       allocate(starting_source(lmesh_nx,lmesh_ny,lmesh_nz))
+       leakage = ZERO
+       starting_source = 0
+
        ! create source particles
        call initialize_source()
     end if

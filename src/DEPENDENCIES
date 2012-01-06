@@ -154,6 +154,8 @@ physics.o: geometry.o
 physics.o: geometry_header.o
 physics.o: global.o
 physics.o: interpolation.o
+physics.o: mesh.o
+physics.o: mesh_header.o
 physics.o: output.o
 physics.o: particle_header.o
 physics.o: random_lcg.o

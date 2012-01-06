@@ -82,6 +82,16 @@ module global
   type(StructuredMesh), allocatable, target :: meshes(:)
   type(TallyObject),    allocatable, target :: tallies(:)
 
+  ! Leakage for each stage
+  integer :: lmesh_nx = 20
+  integer :: lmesh_ny = 20
+  integer :: lmesh_nz = 20
+  integer :: ijk_start(3)
+  logical :: check_mesh
+  type(StructuredMesh), target :: leakage_mesh
+  real(8), allocatable :: leakage(:,:,:,:)
+  real(8), allocatable :: starting_source(:,:,:)
+
   ! Tally map structure
   type(TallyMap), allocatable :: tally_maps(:)
 

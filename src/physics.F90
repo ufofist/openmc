@@ -18,6 +18,9 @@ module physics
   use string,          only: to_str
   use tally,           only: score_tally, score_surface_current
 
+  use mesh,            only: get_mesh_indices
+  use mesh_header,     only: StructuredMesh
+
   implicit none
 
 contains
@@ -39,6 +42,25 @@ contains
     real(8) :: distance        ! distance particle travels
     logical :: found_cell      ! found cell which particle is in?
     type(LocalCoord), pointer :: coord => null()
+
+    type(StructuredMesh), pointer :: m
+    integer :: ijk(3)
+    logical :: in_mesh
+
+    ! determine what mesh starting neutron is in
+    if (tallies_on) then
+       m => leakage_mesh
+       call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
+       if (in_mesh) then
+          starting_source(ijk(1),ijk(2),ijk(3)) = &
+               starting_source(ijk(1),ijk(2),ijk(3)) + p % wgt
+          ijk_start = ijk
+       else
+          message = "Could not locate starting particle in leakage mesh."
+          call fatal_error()
+       end if
+    end if
+    check_mesh = .true.
 
     if (p % coord % cell == NONE) then
        call find_cell(p, found_cell)
@@ -90,6 +112,16 @@ contains
           coord % xyz = coord % xyz + distance * coord % uvw
           coord => coord % next
        end do
+
+       ! Check for particle outside original leakage mesh cell
+       if (tallies_on .and. check_mesh) then
+          call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
+          if (any(ijk /= ijk_start)) then
+             leakage(ijk_start(1),ijk_start(2),ijk_start(3),1) = &
+                  leakage(ijk_start(1),ijk_start(2),ijk_start(3),1) + ONE
+             check_mesh = .false.
+          end if
+       end if
 
        if (d_collision > d_boundary) then
           last_cell = p % coord % cell

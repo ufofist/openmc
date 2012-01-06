@@ -21,6 +21,11 @@ program main
 
   implicit none
 
+  integer :: i, j, k
+  real(8) :: src
+  real(8) :: leak
+  real(8) :: leak_fraction
+
   ! start timer for total run time
   call timer_start(time_total)
 
@@ -41,6 +46,26 @@ program main
      call timer_stop(time_total)
      if (master) call print_runtime()
   end if
+
+  write(50,*) lmesh_nx, lmesh_ny, lmesh_nz
+  write(52,*) lmesh_nx, lmesh_ny, lmesh_nz
+  write(51,*) lmesh_nx, lmesh_ny, lmesh_nz
+  do i = 1, lmesh_nx
+     do j = 1, lmesh_ny
+        do k = 1, lmesh_nz
+           src = starting_source(i,j,k)/(n_particles*(n_cycles - n_inactive))
+           leak = leakage(i,j,k,1)/(n_particles*(n_cycles - n_inactive))
+           if (starting_source(i,j,k) > ZERO) then
+              leak_fraction = leakage(i,j,k,1)/starting_source(i,j,k)
+           else
+              leak_fraction = ZERO
+           end if
+           write(50,*) i,j,k,src
+           write(51,*) i,j,k,leak
+           write(52,*) i,j,k,leak_fraction
+        end do
+     end do
+  end do
 
   ! deallocate arrays
   call free_memory()
