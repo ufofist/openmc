@@ -45,21 +45,18 @@ contains
 
     type(StructuredMesh), pointer :: m
     integer :: ijk(3)
-    logical :: in_mesh
+    logical :: in_mesh, was_in_mesh
 
     ! determine what mesh starting neutron is in
     stage = 1
     last_stage = 1
     if (tallies_on) then
        m => leakage_mesh
-       call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
-       if (in_mesh) then
+       call get_mesh_indices(m, p % coord0 % xyz, ijk, was_in_mesh)
+       if (was_in_mesh) then
           starting_source(ijk(1),ijk(2),ijk(3),stage) = &
                starting_source(ijk(1),ijk(2),ijk(3),stage) + p % wgt
           ijk_current = ijk
-       else
-          message = "Could not locate starting particle in leakage mesh."
-          call fatal_error()
        end if
     end if
 
@@ -119,13 +116,20 @@ contains
           call get_mesh_indices(m, p % coord0 % xyz, ijk, in_mesh)
           if (any(ijk /= ijk_current)) then
              ! tally stage leakage
-             leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) = &
-                  leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) + ONE
+             if (was_in_mesh) then
+                leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) = &
+                     leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) + ONE
+             end if
 
              ! tally next stage source
-             stage = stage + 1
-             starting_source(ijk(1),ijk(2),ijk(3),stage) = &
-                  starting_source(ijk(1),ijk(2),ijk(3),stage) + ONE
+             if (in_mesh) then
+                stage = stage + 1
+                starting_source(ijk(1),ijk(2),ijk(3),stage) = &
+                     starting_source(ijk(1),ijk(2),ijk(3),stage) + ONE
+                was_in_mesh = .true.
+             else
+                was_in_mesh = .false.
+             end if
 
              ! check for last stage
              if (stage > last_stage) last_stage = stage

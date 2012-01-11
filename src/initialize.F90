@@ -119,7 +119,7 @@ contains
        allocate(leakage(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
        allocate(starting_source(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
        leakage = ZERO
-       starting_source = 0
+       starting_source = ZERO
 
        ! create source particles
        call initialize_source()
