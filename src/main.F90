@@ -160,7 +160,9 @@ contains
   subroutine calculate_leakage()
 
     integer :: i, j, k, m
+#ifdef MPI
     integer :: n
+#endif
     real(8) :: src
     real(8) :: leak
     real(8) :: leak_fraction

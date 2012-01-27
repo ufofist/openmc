@@ -50,7 +50,6 @@ contains
 
     ! determine what mesh starting neutron is in
     stage = 1
-    last_stage = 1
     if (tallies_on) then
        m => leakage_mesh
        call get_mesh_indices(m, p % coord0 % xyz, ijk, was_in_mesh)

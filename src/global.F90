@@ -90,7 +90,7 @@ module global
   integer :: lmesh_nx = 17
   integer :: lmesh_ny = 17
   integer :: lmesh_nz = 20
-  integer :: last_stage
+  integer :: last_stage = 1
   integer :: ijk_current(3)
   integer :: stage
   logical :: check_mesh
