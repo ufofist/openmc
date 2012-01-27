@@ -1,6 +1,6 @@
 module particle_header
 
-  use constants, only: NEUTRON, ONE, NONE
+  use constants, only: NEUTRON, ONE, NONE, ZERO
   use geometry_header, only: BASE_UNIVERSE
 
   implicit none
@@ -23,9 +23,8 @@ module particle_header
      real(8) :: xyz(3)
      real(8) :: uvw(3)
 
-     ! Pointers to next (lower) and previous (higher) universe
+     ! Pointer to next (more local) set of coordinates
      type(LocalCoord), pointer :: next => null()
-     type(LocalCoord), pointer :: prev => null()
   end type LocalCoord
      
 !===============================================================================
@@ -39,7 +38,6 @@ module particle_header
      integer    :: type          ! Particle type (n, p, e, etc)
 
      ! Particle coordinates
-     logical :: in_lower_universe                  ! is particle in lower universe?
      type(LocalCoord), pointer :: coord0 => null() ! coordinates on universe 0
      type(LocalCoord), pointer :: coord  => null() ! coordinates on lowest universe
 
@@ -53,6 +51,9 @@ module particle_header
      real(8)    :: last_xyz(3)   ! previous coordinates
      real(8)    :: last_wgt      ! last particle weight
      real(8)    :: last_E        ! last energy
+
+     ! What event last took place
+     integer    :: event
 
      ! Post-collision physical data
      integer    :: n_bank        ! number of fission sites banked
@@ -107,7 +108,6 @@ contains
     allocate(p % coord0)
     p % coord0 % universe = BASE_UNIVERSE
     p % coord             => p % coord0
-    p % in_lower_universe = .false.
 
   end subroutine initialize_particle
 

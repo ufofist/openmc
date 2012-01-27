@@ -6,7 +6,7 @@ module output
   use constants
   use datatypes,       only: dict_get_key
   use endf,            only: reaction_name
-  use geometry_header, only: Cell, Universe, Surface
+  use geometry_header, only: Cell, Universe, Surface, BASE_UNIVERSE
   use global
   use mesh_header,     only: StructuredMesh
   use particle_header, only: Particle, LocalCoord
@@ -251,8 +251,8 @@ contains
        end if
 
        ! Print local coordinates
-       write(ou,'(1X,A,3ES11.4)') '    xyz = ', coord % xyz
-       write(ou,'(1X,A,3ES11.4)') '    uvw = ', coord % uvw
+       write(ou,'(1X,A,3ES12.4)') '    xyz = ', coord % xyz
+       write(ou,'(1X,A,3ES12.4)') '    uvw = ', coord % uvw
 
        coord => coord % next
        i = i + 1
@@ -260,8 +260,8 @@ contains
 
     ! Print surface
     if (p % surface /= NONE) then
-       s => surfaces(p % surface)
-       write(ou,*) '    Surface = ' // to_str(s % id)
+       s => surfaces(abs(p % surface))
+       write(ou,*) '  Surface = ' // to_str(sign(s % id, p % surface))
     end if
 
     write(ou,*) '  Weight = ' // to_str(p % wgt)
@@ -336,7 +336,6 @@ contains
        m => materials(c % material)
        write(unit_,*) '    Material = ' // to_str(m % id)
     end if
-    write(unit_,*) '    Parent Cell = ' // to_str(c % parent)
     string = ""
     do i = 1, c % n_surfaces
        select case (c % surfaces(i))
@@ -370,6 +369,7 @@ contains
     integer :: unit_
     character(MAX_LINE_LEN) :: string
     type(Cell), pointer     :: c => null()
+    type(Universe), pointer :: base_u
 
     if (present(unit)) then
        unit_ = unit
@@ -377,8 +377,12 @@ contains
        unit_ = OUTPUT_UNIT
     end if
 
+    base_u => universes(BASE_UNIVERSE)
+
     write(unit_,*) 'Universe ' // to_str(univ % id)
-    write(unit_,*) '    Level = ' // to_str(univ % level)
+    if (associated(univ, base_u)) then
+       write(unit_,*) '    Base Universe'
+    end if
     string = ""
     do i = 1, univ % n_cells
        c => cells(univ % cells(i))
@@ -571,9 +575,9 @@ contains
 
     write(unit_,*) 'Tally ' // to_str(t % id)
 
-    if (t % n_bins(T_CELL) > 0) then
+    if (t % n_filter_bins(FILTER_CELL) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_CELL)
+       do i = 1, t % n_filter_bins(FILTER_CELL)
           id = t % cell_bins(i) % scalar
           c => cells(id)
           string = trim(string) // ' ' // trim(to_str(c % id))
@@ -581,9 +585,9 @@ contains
        write(unit_, *) '    Cell Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_SURFACE) > 0) then
+    if (t % n_filter_bins(FILTER_SURFACE) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_SURFACE)
+       do i = 1, t % n_filter_bins(FILTER_SURFACE)
           id = t % surface_bins(i) % scalar
           s => surfaces(id)
           string = trim(string) // ' ' // trim(to_str(s % id))
@@ -591,9 +595,9 @@ contains
        write(unit_, *) '    Surface Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_UNIVERSE) > 0) then
+    if (t % n_filter_bins(FILTER_UNIVERSE) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_UNIVERSE)
+       do i = 1, t % n_filter_bins(FILTER_UNIVERSE)
           id = t % universe_bins(i) % scalar
           u => universes(id)
           string = trim(string) // ' ' // trim(to_str(u % id))
@@ -601,9 +605,9 @@ contains
        write(unit_, *) '    Material Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_MATERIAL) > 0) then
+    if (t % n_filter_bins(FILTER_MATERIAL) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_MATERIAL)
+       do i = 1, t % n_filter_bins(FILTER_MATERIAL)
           id = t % material_bins(i) % scalar
           m => materials(id)
           string = trim(string) // ' ' // trim(to_str(m % id))
@@ -611,7 +615,7 @@ contains
        write(unit_, *) '    Material Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_MESH) > 0) then
+    if (t % n_filter_bins(FILTER_MESH) > 0) then
        string = ""
        id = t % mesh
        sm => meshes(id)
@@ -622,9 +626,9 @@ contains
        write(unit_, *) '    Mesh Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_CELLBORN) > 0) then
+    if (t % n_filter_bins(FILTER_CELLBORN) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_CELLBORN)
+       do i = 1, t % n_filter_bins(FILTER_CELLBORN)
           id = t % cellborn_bins(i) % scalar
           c => cells(id)
           string = trim(string) // ' ' // trim(to_str(c % id))
@@ -632,39 +636,39 @@ contains
        write(unit_, *) '    Birth Region Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_ENERGYIN) > 0) then
+    if (t % n_filter_bins(FILTER_ENERGYIN) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_ENERGYIN) + 1
+       do i = 1, t % n_filter_bins(FILTER_ENERGYIN) + 1
           string = trim(string) // ' ' // trim(to_str(&
                t % energy_in(i)))
        end do
        write(unit_,*) '    Incoming Energy Bins:' // trim(string)
     end if
 
-    if (t % n_bins(T_ENERGYOUT) > 0) then
+    if (t % n_filter_bins(FILTER_ENERGYOUT) > 0) then
        string = ""
-       do i = 1, t % n_bins(T_ENERGYOUT) + 1
+       do i = 1, t % n_filter_bins(FILTER_ENERGYOUT) + 1
           string = trim(string) // ' ' // trim(to_str(&
                t % energy_out(i)))
        end do
        write(unit_,*) '    Outgoing Energy Bins:' // trim(string)
     end if
 
-    if (t % n_macro_bins > 0) then
+    if (t % n_score_bins > 0) then
        string = ""
-       do i = 1, t % n_macro_bins
-          select case (t % macro_bins(i) % scalar)
-          case (MACRO_FLUX)
+       do i = 1, t % n_score_bins
+          select case (t % score_bins(i) % scalar)
+          case (SCORE_FLUX)
              string = trim(string) // ' flux'
-          case (MACRO_TOTAL)
+          case (SCORE_TOTAL)
              string = trim(string) // ' total'
-          case (MACRO_SCATTER)
+          case (SCORE_SCATTER)
              string = trim(string) // ' scatter'
-          case (MACRO_ABSORPTION)
+          case (SCORE_ABSORPTION)
              string = trim(string) // ' absorption'
-          case (MACRO_FISSION)
+          case (SCORE_FISSION)
              string = trim(string) // ' fission'
-          case (MACRO_NU_FISSION)
+          case (SCORE_NU_FISSION)
              string = trim(string) // ' nu-fission'
           end select
        end do

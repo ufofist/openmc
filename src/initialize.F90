@@ -25,6 +25,11 @@ module initialize
   use mpi
 #endif
 
+#ifdef HDF5
+  use hdf5_interface,   only: hdf5_create_output, hdf5_write_header, &
+                              hdf5_write_summary
+#endif
+
   implicit none
 
   type(DictionaryII), pointer :: build_dict => null()
@@ -40,9 +45,8 @@ contains
 
   subroutine initialize_run()
 
-    type(Universe), pointer :: univ
-
-    ! Start initialization timer
+    ! Start total and initialization timer
+    call timer_start(time_total)
     call timer_start(time_initialize)
 
     ! Setup MPI
@@ -50,13 +54,21 @@ contains
 
     ! Read command line arguments
     call read_command_line()
-    if (master) call create_summary_file()
 
-    ! Print the OpenMC title and version/date/time information
-    if (master) call title()
+    if (master) then
+       ! Create summary.out file
+       call create_summary_file()
 
-    ! Print initialization header block
-    if (master) call header("INITIALIZATION", level=1)
+#ifdef HDF5
+       ! Open HDF5 output file for writing and write header information
+       call hdf5_create_output()
+       call hdf5_write_header()
+#endif
+
+       ! Display title and initialization header
+       call title()
+       call header("INITIALIZATION", level=1)
+    end if
 
     ! Initialize random number generator
     call initialize_prng()
@@ -72,10 +84,6 @@ contains
 
     ! Use dictionaries to redefine index pointers
     call adjust_indices()
-
-    ! determine at which level universes are and link cells to parenting cells
-    univ => universes(BASE_UNIVERSE)
-    call build_universe(univ, 0, 0)
 
     ! After reading input and basic geometry setup is complete, build lists of
     ! neighboring cells for efficient tracking
@@ -132,6 +140,9 @@ contains
           call print_plot()
        else
           call print_summary()
+#ifdef HDF5
+          call hdf5_write_summary()
+#endif
        end if
     end if
 
@@ -317,27 +328,27 @@ contains
     ! We also need to allocate the cell count lists for each universe. The logic
     ! for this is a little more convoluted. In universe_dict, the (key,value)
     ! pairs are the id of the universe and the index in the array. In
-    ! ucount_dict, it's the id of the universe and the number of cells.
+    ! cells_in_univ_dict, it's the id of the universe and the number of cells.
 
     key_list => dict_keys(universe_dict)
     do while (associated(key_list))
        ! find index of universe in universes array
-       i_univ = key_list%data%value
+       i_univ = key_list % data % value
        univ => universes(i_univ)
-       univ % id = key_list%data%key
+       univ % id = key_list % data % key
 
        ! check for lowest level universe
        if (univ % id == 0) BASE_UNIVERSE = i_univ
        
        ! find cell count for this universe
-       n_cells_in_univ = dict_get_key(cells_in_univ_dict, key_list%data%key)
+       n_cells_in_univ = dict_get_key(cells_in_univ_dict, univ % id)
 
        ! allocate cell list for universe
        allocate(univ % cells(n_cells_in_univ))
        univ % n_cells = n_cells_in_univ
        
        ! move to next universe
-       key_list => key_list%next
+       key_list => key_list % next
     end do
 
     ! Also allocate a list for keeping track of where cells have been assigned
@@ -465,8 +476,8 @@ contains
        ! =======================================================================
        ! ADJUST CELL INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_CELL) > 0) then
-          do j = 1, t % n_bins(T_CELL)
+       if (t % n_filter_bins(FILTER_CELL) > 0) then
+          do j = 1, t % n_filter_bins(FILTER_CELL)
              id = t % cell_bins(j) % scalar
              if (dict_has_key(cell_dict, id)) then
                 t % cell_bins(j) % scalar = dict_get_key(cell_dict, id)
@@ -481,8 +492,8 @@ contains
        ! =======================================================================
        ! ADJUST SURFACE INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_SURFACE) > 0) then
-          do j = 1, t % n_bins(T_SURFACE)
+       if (t % n_filter_bins(FILTER_SURFACE) > 0) then
+          do j = 1, t % n_filter_bins(FILTER_SURFACE)
              id = t % surface_bins(j) % scalar
              if (dict_has_key(surface_dict, id)) then
                 t % surface_bins(j) % scalar = dict_get_key(surface_dict, id)
@@ -497,8 +508,8 @@ contains
        ! =======================================================================
        ! ADJUST UNIVERSE INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_UNIVERSE) > 0) then
-          do j = 1, t % n_bins(T_UNIVERSE)
+       if (t % n_filter_bins(FILTER_UNIVERSE) > 0) then
+          do j = 1, t % n_filter_bins(FILTER_UNIVERSE)
              id = t % universe_bins(j) % scalar
              if (dict_has_key(universe_dict, id)) then
                 t % universe_bins(j) % scalar = dict_get_key(universe_dict, id)
@@ -513,8 +524,8 @@ contains
        ! =======================================================================
        ! ADJUST MATERIAL INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_MATERIAL) > 0) then
-          do j = 1, t % n_bins(T_MATERIAL)
+       if (t % n_filter_bins(FILTER_MATERIAL) > 0) then
+          do j = 1, t % n_filter_bins(FILTER_MATERIAL)
              id = t % material_bins(j) % scalar
              if (dict_has_key(material_dict, id)) then
                 t % material_bins(j) % scalar = dict_get_key(material_dict, id)
@@ -529,8 +540,8 @@ contains
        ! =======================================================================
        ! ADJUST CELLBORN INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_CELLBORN) > 0) then
-          do j = 1, t % n_bins(T_CELLBORN)
+       if (t % n_filter_bins(FILTER_CELLBORN) > 0) then
+          do j = 1, t % n_filter_bins(FILTER_CELLBORN)
              id = t % cellborn_bins(j) % scalar
              if (dict_has_key(cell_dict, id)) then
                 t % cellborn_bins(j) % scalar = dict_get_key(cell_dict, id)
@@ -545,7 +556,7 @@ contains
        ! =======================================================================
        ! ADJUST MESH INDICES FOR EACH TALLY
 
-       if (t % n_bins(T_MESH) > 0) then
+       if (t % n_filter_bins(FILTER_MESH) > 0) then
           id = t % mesh
           if (dict_has_key(mesh_dict, id)) then
              t % mesh = dict_get_key(mesh_dict, id)
@@ -558,62 +569,6 @@ contains
     end do
 
   end subroutine adjust_indices
-
-!===============================================================================
-! BUILD_UNIVERSE determines what level each universe is at and determines what
-! the parent cell of each cell in a subuniverse is.
-!===============================================================================
-
-  recursive subroutine build_universe(univ, parent, level)
-
-    type(Universe), pointer :: univ   ! univese pointer
-    integer,     intent(in) :: parent ! cell containing universe
-    integer,     intent(in) :: level  ! level of universe
-
-    integer :: i      ! index for cells in universe
-    integer :: x,y    ! indices for lattice positions
-    integer :: i_cell ! index in cells array
-    integer :: universe_num
-    type(Cell),     pointer :: c => null()
-    type(Universe), pointer :: subuniverse => null()
-    type(Lattice),  pointer :: lat => null()
-
-    ! set level of the universe
-    univ % level = level
-
-    ! loop over all cells in the universe
-    do i = 1, univ % n_cells
-       i_cell = univ % cells(i)
-       c => cells(i_cell)
-       c % parent = parent
-
-       ! if this cell is filled with another universe, recursively
-       ! call this subroutine
-       if (c % type == CELL_FILL) then
-          subuniverse => universes(c % fill)
-          call build_universe(subuniverse, i_cell, level + 1)
-       end if
-
-       ! if this cell is filled by a lattice, need to build the
-       ! universe for each unique lattice element
-       if (c % type == CELL_LATTICE) then
-          lat => lattices(c % fill)
-          do x = 1, lat % n_x
-             do y = 1, lat % n_y
-                lat => lattices(cells(i_cell) % fill)
-                universe_num = lat % element(x,y)
-                if (.not. dict_has_key(build_dict, universe_num)) then
-                   call dict_add_key(build_dict, universe_num, 0)
-                   subuniverse => universes(universe_num)
-                   call build_universe(subuniverse, i_cell, level + 1)
-                end if
-             end do
-          end do
-       end if
-
-    end do
-
-  end subroutine build_universe
 
 !===============================================================================
 ! NORMALIZE_AO normalizes the atom or weight percentages for each material

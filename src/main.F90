@@ -2,17 +2,17 @@ program main
 
   use constants
   use global
+  use finalize,        only: finalize_run
   use initialize,      only: initialize_run
   use intercycle,      only: shannon_entropy, calculate_keff, synchronize_bank
-  use output,          only: write_message, header, print_runtime
+  use output,          only: write_message, header
   use particle_header, only: Particle
   use plot,            only: run_plot
   use physics,         only: transport
   use random_lcg,      only: set_particle_seed
   use source,          only: get_source_particle
   use string,          only: to_str
-  use tally,           only: synchronize_tallies, write_tallies, &
-                             tally_statistics
+  use tally,           only: synchronize_tallies 
   use timing,          only: timer_start, timer_stop
 
 #ifdef MPI
@@ -20,9 +20,6 @@ program main
 #endif
 
   implicit none
-
-  ! start timer for total run time
-  call timer_start(time_total)
 
   ! set up problem
   call initialize_run()
@@ -32,25 +29,12 @@ program main
      call run_plot()
   else
      call run_problem()
-
-     ! Calculate statistics for tallies and write to tallies.out
-     call tally_statistics()
-     if (master) call write_tallies()
-
-     ! show timing statistics
-     call timer_stop(time_total)
-     if (master) call print_runtime()
   end if
 
   call calculate_leakage()
 
-  ! deallocate arrays
-  call free_memory()
-
-#ifdef MPI
-  ! If MPI is in use and enabled, terminate it
-  call MPI_FINALIZE(mpi_err)
-#endif
+  ! finalize run
+  call finalize_run()
   
 contains
 
