@@ -46,6 +46,7 @@ contains
   subroutine run_problem()
 
     integer                 :: i_cycle     ! cycle index
+    integer                 :: final_stage
     integer(8)              :: i_particle  ! history index
     type(Particle), pointer :: p => null()
 
@@ -132,6 +133,16 @@ contains
 
        ! print cycle information
 
+       if (tallies_on) then
+#ifdef MPI
+          call MPI_REDUCE(last_stage, final_stage, 1, MPI_INTEGER, MPI_MAX, &
+               0, MPI_COMM_WORLD, mpi_err)
+#else
+          final_stage = last_stage
+#endif
+          final_stage_count(final_stage) = final_stage_count(final_stage) + 1
+       end if
+
        ! Turn tallies on once inactive cycles are complete
        if (i_cycle == n_inactive) then
           tallies_on = .true.
@@ -193,6 +204,7 @@ contains
        open(UNIT=50, FILE='source.out', STATUS='replace', ACTION='write')
        open(UNIT=51, FILE='leakage.out', STATUS='replace', ACTION='write')
        open(UNIT=52, FILE='leakage_fraction.out', STATUS='replace', ACTION='write')
+       open(UNIT=53, FILE='stage_counts.out', STATUS='replace', ACTION='write')
 
        ! Write dimension of mesh on each file
        write(50,*) lmesh_nx, lmesh_ny, lmesh_nz, last_stage
@@ -226,10 +238,16 @@ contains
           end do
        end do
 
+       ! Write stage counts
+       do m = 1, MAX_STAGES
+          write(53,*) m, final_stage_count(m)
+       end do
+
        ! close files
        close(UNIT=50)
        close(UNIT=51)
        close(UNIT=52)
+       close(UNIT=53)
     end if
 
   end subroutine calculate_leakage

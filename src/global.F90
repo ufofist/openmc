@@ -93,6 +93,7 @@ module global
   integer :: last_stage = 1
   integer :: ijk_current(3)
   integer :: stage
+  integer :: final_stage_count(MAX_STAGES) = 0
   logical :: check_mesh
   type(StructuredMesh), target :: leakage_mesh
   real(8), allocatable :: leakage(:,:,:,:)
