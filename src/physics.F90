@@ -12,12 +12,12 @@ module physics
   use global
   use interpolation,   only: interpolate_tab1
   use output,          only: write_message
-  use particle_header, only: Particle, LocalCoord
+  use particle_header, only: LocalCoord
   use random_lcg,      only: prn
   use search,          only: binary_search
   use string,          only: to_str
   use tally,           only: score_analog_tally, score_tracklength_tally, &
-                             score_surface_current
+                             score_surface_current, add_to_score
 
   use mesh,            only: get_mesh_indices
   use mesh_header,     only: StructuredMesh
@@ -30,9 +30,7 @@ contains
 ! TRANSPORT encompasses the main logic for moving a particle through geometry.
 !===============================================================================
 
-  subroutine transport(p)
-
-    type(Particle), pointer :: p
+  subroutine transport()
 
     integer :: surface_crossed ! surface which particle is on
     integer :: lattice_crossed ! lattice boundary which particle crossed
@@ -54,14 +52,14 @@ contains
        m => leakage_mesh
        call get_mesh_indices(m, p % coord0 % xyz, ijk, was_in_mesh)
        if (was_in_mesh) then
-          starting_source(ijk(1),ijk(2),ijk(3),stage) = &
-               starting_source(ijk(1),ijk(2),ijk(3),stage) + p % wgt
+          stage_source(ijk(1),ijk(2),ijk(3),stage) = &
+               stage_source(ijk(1),ijk(2),ijk(3),stage) + p % wgt
           ijk_current = ijk
        end if
     end if
 
     if (p % coord % cell == NONE) then
-       call find_cell(p, found_cell)
+       call find_cell(found_cell)
        ! Particle couldn't be located
        if (.not. found_cell) then
           message = "Could not locate particle " // trim(to_str(p % id))
@@ -92,10 +90,10 @@ contains
        ! material is the same as the last material and the energy of the
        ! particle hasn't changed, we don't need to lookup cross sections again.
 
-       if (p % material /= p % last_material) call calculate_xs(p)
+       if (p % material /= p % last_material) call calculate_xs()
 
        ! Find the distance to the nearest boundary
-       call distance_to_boundary(p, d_boundary, surface_crossed, lattice_crossed)
+       call distance_to_boundary(d_boundary, surface_crossed, lattice_crossed)
 
        ! Sample a distance to collision
        if (material_xs % total == ZERO) then
@@ -120,15 +118,15 @@ contains
           if (any(ijk /= ijk_current)) then
              ! tally stage leakage
              if (was_in_mesh) then
-                leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) = &
-                     leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) + ONE
+                stage_leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) = &
+                     stage_leakage(ijk_current(1),ijk_current(2),ijk_current(3),stage) + ONE
              end if
 
              ! tally next stage source
              if (in_mesh) then
                 stage = stage + 1
-                starting_source(ijk(1),ijk(2),ijk(3),stage) = &
-                     starting_source(ijk(1),ijk(2),ijk(3),stage) + ONE
+                stage_source(ijk(1),ijk(2),ijk(3),stage) = &
+                     stage_source(ijk(1),ijk(2),ijk(3),stage) + ONE
                 was_in_mesh = .true.
              else
                 was_in_mesh = .false.
@@ -142,27 +140,45 @@ contains
           end if
        end if
 
-       ! Score track-length tallies
-       if (tallies_on) call score_tracklength_tally(p, distance)
+       if (tallies_on) then
+          ! Score track-length tallies
+          if (n_tracklength_tallies > 0) &
+               call score_tracklength_tally(distance)
+
+          ! Score track-length estimate of k-eff
+          call add_to_score(global_tallies(K_TRACKLENGTH), &
+               p % wgt * distance * material_xs % nu_fission)
+       end if
 
        if (d_collision > d_boundary) then
+          ! ====================================================================
+          ! PARTICLE CROSSES SURFACE
+
           last_cell = p % coord % cell
           p % coord % cell = NONE
           if (lattice_crossed /= NONE) then
              ! Particle crosses lattice boundary
              p % surface = NONE
-             call cross_lattice(p, lattice_crossed)
+             call cross_lattice(lattice_crossed)
              p % event = EVENT_LATTICE
           else
              ! Particle crosses surface
              p % surface = surface_crossed
-             call cross_surface(p, last_cell)
+             call cross_surface(last_cell)
              p % event = EVENT_SURFACE
           end if
        else
-          ! collision
+          ! ====================================================================
+          ! PARTICLE HAS COLLISION
+
+          ! Score collision estimate of keff
+          if (tallies_on) then
+             call add_to_score(global_tallies(K_COLLISION), &
+                  p % wgt * material_xs % nu_fission / material_xs % total)
+          end if
+
           p % surface = NONE
-          call collision(p)
+          call collision()
 
           ! Save coordinates at collision for tallying purposes
           p % last_xyz = p % coord0 % xyz
@@ -198,9 +214,7 @@ contains
 ! routine for that reaction
 !===============================================================================
 
-  subroutine collision(p)
-
-    type(Particle), pointer :: p
+  subroutine collision()
 
     ! Store pre-collision particle properties
     p % last_wgt = p % wgt
@@ -213,10 +227,11 @@ contains
     ! since the direction of the particle will change and we need to use the
     ! pre-collision direction to figure out what mesh surfaces were crossed
 
-    if (tallies_on) call score_surface_current(p)
+    if (tallies_on .and. n_current_tallies > 0) &
+         call score_surface_current()
 
     ! Sample nuclide/reaction for the material the particle is in
-    call sample_reaction(p)
+    call sample_reaction()
 
     ! Display information about collision
     if (verbosity >= 10 .or. trace) then
@@ -237,7 +252,8 @@ contains
     ! information on the outgoing energy for any tallies with an outgoing energy
     ! filter
 
-    if (tallies_on) call score_analog_tally(p)
+    if (tallies_on .and. n_analog_tallies > 0) &
+         call score_analog_tally()
 
     ! Reset number of particles banked during collision
     p % n_bank = 0
@@ -252,9 +268,7 @@ contains
 ! disappearance are treated implicitly.
 !===============================================================================
 
-  subroutine sample_reaction(p)
-
-    type(Particle), pointer :: p
+  subroutine sample_reaction()
 
     integer :: i             ! index over nuclides in a material
     integer :: index_nuclide ! index in nuclides array
@@ -368,7 +382,7 @@ contains
           end if
 
           ! Bank expected number of fission neutrons
-          call create_fission_sites(p, index_nuclide, rxn)
+          call create_fission_sites(index_nuclide, rxn)
 
        else
           ! If survival biasing is not turned on, then fission events can occur
@@ -384,7 +398,7 @@ contains
              prob = prob + micro_xs(index_nuclide) % fission
              if (prob > cutoff) then
                 rxn => nuc % reactions(nuc % index_fission(1))
-                call create_fission_sites(p, index_nuclide, rxn, .true.)
+                call create_fission_sites(index_nuclide, rxn, .true.)
                 p % alive = .false.
                 p % event = EVENT_FISSION
                 return
@@ -411,7 +425,7 @@ contains
 
                 ! Create fission bank sites if fission occus
                 if (prob > cutoff) then
-                   call create_fission_sites(p, index_nuclide, rxn, .true.)
+                   call create_fission_sites(index_nuclide, rxn, .true.)
                    p % alive = .false.
                    p % event = EVENT_FISSION
                    return
@@ -455,14 +469,14 @@ contains
 
        if (micro_xs(index_nuclide) % use_sab) then
           ! S(a,b) scattering
-          call sab_scatter(p, index_nuclide, mat % sab_table)
+          call sab_scatter(index_nuclide, mat % sab_table)
 
        else
           ! get pointer to elastic scattering reaction
           rxn => nuc % reactions(1)
 
           ! Perform collision physics for elastic scattering
-          call elastic_scatter(p, index_nuclide, rxn)
+          call elastic_scatter(index_nuclide, rxn)
 
        end if
 
@@ -504,7 +518,7 @@ contains
        end do
 
        ! Perform collision physics for inelastics scattering
-       call inelastic_scatter(p, nuc, rxn)
+       call inelastic_scatter(nuc, rxn)
 
     end if
 
@@ -520,9 +534,8 @@ contains
 ! need to be fixed
 !===============================================================================
 
-  subroutine elastic_scatter(p, index_nuclide, rxn)
+  subroutine elastic_scatter(index_nuclide, rxn)
 
-    type(Particle), pointer :: p
     integer, intent(in)     :: index_nuclide
     type(Reaction), pointer :: rxn
 
@@ -549,7 +562,7 @@ contains
 
     ! Sample velocity of target nucleus
     if (.not. micro_xs(index_nuclide) % use_ptable) then
-       call sample_target_velocity(p, nuc, v_t)
+       call sample_target_velocity(nuc, v_t)
     else
        v_t = ZERO
     end if
@@ -599,9 +612,8 @@ contains
 ! according to a specified S(a,b) table.
 !===============================================================================
 
-  subroutine sab_scatter(p, index_nuclide, index_sab)
+  subroutine sab_scatter(index_nuclide, index_sab)
 
-    type(Particle), pointer :: p
     integer, intent(in)     :: index_nuclide ! index in micro_xs
     integer, intent(in)     :: index_sab     ! index in sab_tables
 
@@ -765,9 +777,8 @@ contains
 ! for this method can be found in FRA-TM-123.
 !===============================================================================
 
-  subroutine sample_target_velocity(p, nuc, v_target)
+  subroutine sample_target_velocity(nuc, v_target)
 
-    type(Particle), pointer :: p
     type(Nuclide),  pointer :: nuc
     real(8), intent(out)    :: v_target(3)
 
@@ -854,9 +865,8 @@ contains
 ! neutrons produced from fission and creates appropriate bank sites.
 !===============================================================================
 
-  subroutine create_fission_sites(p, index_nuclide, rxn, event)
+  subroutine create_fission_sites(index_nuclide, rxn, event)
 
-    type(Particle), pointer :: p
     integer, intent(in)     :: index_nuclide
     type(Reaction), pointer :: rxn
     logical, optional       :: event
@@ -965,6 +975,11 @@ contains
              lc = lc + 2 + 2*NR + 2*NE + 1
           end do
 
+          ! if the sum of the probabilities is slightly less than one and the
+          ! random number is greater, j will be greater than nuc %
+          ! n_precursor -- check for this condition
+          j = min(j, nuc % n_precursor)
+
           ! select energy distribution for group j
           law = nuc % nu_d_edist(j) % law
           edist => nuc % nu_d_edist(j)
@@ -1039,9 +1054,8 @@ contains
 ! than fission), i.e. level scattering, (n,np), (n,na), etc.
 !===============================================================================
 
-  subroutine inelastic_scatter(p, nuc, rxn)
+  subroutine inelastic_scatter(nuc, rxn)
 
-    type(Particle), pointer :: p
     type(Nuclide),  pointer :: nuc
     type(Reaction), pointer :: rxn
 
@@ -1189,17 +1203,24 @@ contains
        xi = prn()
        lc = lc + 2
        c_k = rxn % adist % data(lc + 2*NP + 1)
-       do k = 1, NP-1
+       do k = 1, NP - 1
           c_k1 = rxn % adist % data(lc + 2*NP + k+1)
           if (xi < c_k1) exit
           c_k = c_k1
        end do
 
+       ! check to make sure k is <= NP - 1
+       k = min(k, NP - 1)
+
        p0  = rxn % adist % data(lc + NP + k)
        mu0 = rxn % adist % data(lc + k)
        if (interp == HISTOGRAM) then
           ! Histogram interpolation
-          mu = mu0 + (xi - c_k)/p0
+          if (p0 > ZERO) then
+             mu = mu0 + (xi - c_k)/p0
+          else
+             mu = mu0
+          end if
 
        elseif (interp == LINEAR_LINEAR) then
           ! Linear-linear interpolation
@@ -1210,19 +1231,18 @@ contains
           if (frac == ZERO) then
              mu = mu0 + (xi - c_k)/p0
           else
-             mu = mu0 + (sqrt(p0*p0 + 2*frac*(xi - c_k))-p0)/frac
+             mu = mu0 + (sqrt(max(ZERO, p0*p0 + 2*frac*(xi - c_k))) - p0)/frac
           end if
        else
           message = "Unknown interpolation type: " // trim(to_str(interp))
           call fatal_error()
        end if
 
-       if (abs(mu) > ONE) then
-          message = "Sampled cosine of angle outside [-1, 1)."
-          call warning()
+       ! Because of floating-point roundoff, it may be possible for mu to be
+       ! outside of the range [-1,1). In these cases, we just set mu to exactly
+       ! -1 or 1
 
-          mu = sign(ONE,mu)
-       end if
+       if (abs(mu) > ONE) mu = sign(ONE,mu)
          
     else
        message = "Unknown angular distribution type: " // trim(to_str(type))
@@ -1239,15 +1259,19 @@ contains
 
   subroutine rotate_angle(u, v, w, mu)
 
-!    type(Particle), pointer :: p
     real(8), intent(inout) :: u
     real(8), intent(inout) :: v
     real(8), intent(inout) :: w
     real(8), intent(in)    :: mu ! cosine of angle in lab
 
-    real(8) :: phi, sinphi, cosphi
-    real(8) :: a,b
-    real(8) :: u0, v0, w0
+    real(8) :: phi    ! azimuthal angle
+    real(8) :: sinphi ! sine of azimuthal angle
+    real(8) :: cosphi ! cosine of azimuthal angle
+    real(8) :: a      ! sqrt(1 - mu^2)
+    real(8) :: b      ! sqrt(1 - w^2)
+    real(8) :: u0     ! original cosine in x direction
+    real(8) :: v0     ! original cosine in y direction
+    real(8) :: w0     ! original cosine in z direction
 
     ! Copy original directional cosines
     u0 = u
@@ -1260,8 +1284,8 @@ contains
     ! Precompute factors to save flops
     sinphi = sin(phi)
     cosphi = cos(phi)
-    a = sqrt(ONE - mu*mu)
-    b = sqrt(ONE - w0*w0)
+    a = sqrt(max(ZERO, ONE - mu*mu))
+    b = sqrt(max(ZERO, ONE - w0*w0))
 
     ! Need to treat special case where sqrt(1 - w**2) is close to zero by
     ! expanding about the v component rather than the w component
@@ -1279,17 +1303,18 @@ contains
   end subroutine rotate_angle
     
 !===============================================================================
-! SAMPLE_ENERGY
+! SAMPLE_ENERGY samples an outgoing energy distribution, either for a secondary
+! neutron from a collision or for a prompt/delayed fission neutron
 !===============================================================================
 
   recursive subroutine sample_energy(edist, E_in, E_out, mu_out, A, Q)
 
     type(DistEnergy),  pointer       :: edist
-    real(8), intent(in)              :: E_in
-    real(8), intent(out)             :: E_out
-    real(8), intent(inout), optional :: mu_out
-    real(8), intent(in),    optional :: A
-    real(8), intent(in),    optional :: Q
+    real(8), intent(in)              :: E_in   ! incoming energy of neutron
+    real(8), intent(out)             :: E_out  ! outgoing energy
+    real(8), intent(inout), optional :: mu_out ! outgoing cosine of angle
+    real(8), intent(in),    optional :: A      ! mass number of nuclide
+    real(8), intent(in),    optional :: Q      ! Q-value of reaction
 
     integer :: i           ! index on incoming energy grid
     integer :: k           ! sampled index on outgoing grid
@@ -1327,7 +1352,6 @@ contains
     real(8) :: p_k     ! angular pdf in bin k
     real(8) :: p_k1    ! angular pdf in bin k+1
 
-    real(8) :: E_cm
     real(8) :: r           ! interpolation factor on incoming energy
     real(8) :: frac        ! interpolation factor on outgoing energy
     real(8) :: U           ! restriction energy
@@ -1378,7 +1402,7 @@ contains
 
        ! determine index on incoming energy grid and interpolation factor
        lc = 2 + 2*NR
-       i = binary_search(edist % data(lc+1), NE, E_in)
+       i = binary_search(edist % data(lc+1:lc+NE), NE, E_in)
        r = (E_in - edist%data(lc+i)) / &
             (edist%data(lc+i+1) - edist%data(lc+i))
 
@@ -1426,9 +1450,7 @@ contains
        ! =======================================================================
        ! INELASTIC LEVEL SCATTERING
 
-       E_cm = edist%data(2) * (E_in - edist%data(1))
-       
-       E_out = E_cm
+       E_out = edist%data(2) * (E_in - edist%data(1))
 
     case (4)
        ! =======================================================================
@@ -1454,7 +1476,7 @@ contains
           i = NE - 1
           r = ONE
        else
-          i = binary_search(edist % data(lc+1), NE, E_in)
+          i = binary_search(edist % data(lc+1:lc+NE), NE, E_in)
           r = (E_in - edist%data(lc+i)) / & 
                (edist%data(lc+i+1) - edist%data(lc+i))
        end if
@@ -1506,17 +1528,24 @@ contains
        r1 = prn()
        lc = lc + 2 ! start of EOUT
        c_k = edist % data(lc + 2*NP + 1)
-       do k = 1, NP-1
+       do k = 1, NP - 1
           c_k1 = edist % data(lc + 2*NP + k+1)
           if (r1 < c_k1) exit
           c_k = c_k1
        end do
 
+       ! check to make sure k is <= NP - 1
+       k = min(k, NP - 1)
+
        E_l_k = edist % data(lc+k)
        p_l_k = edist % data(lc+NP+k)
        if (INTT == HISTOGRAM) then
           ! Histogram interpolation
-          E_out = E_l_k + (r1 - c_k)/p_l_k
+          if (p_l_k > ZERO) then
+             E_out = E_l_k + (r1 - c_k)/p_l_k
+          else
+             E_out = E_l_k
+          end if
 
        elseif (INTT == LINEAR_LINEAR) then
           ! Linear-linear interpolation -- not sure how you come about the
@@ -1528,8 +1557,8 @@ contains
           if (frac == ZERO) then
              E_out = E_l_k + (r1 - c_k)/p_l_k
           else
-             E_out = E_l_k + (sqrt(p_l_k*p_l_k + 2*frac*(r1 - c_k)) - & 
-                  p_l_k)/frac
+             E_out = E_l_k + (sqrt(max(ZERO, p_l_k*p_l_k + &
+                  2*frac*(r1 - c_k))) - p_l_k)/frac
           end if
        else
           message = "Unknown interpolation type: " // trim(to_str(INTT))
@@ -1680,7 +1709,7 @@ contains
           i = NE - 1
           r = ONE
        else
-          i = binary_search(edist % data(lc+1), NE, E_in)
+          i = binary_search(edist % data(lc+1:lc+NE), NE, E_in)
           r = (E_in - edist%data(lc+i)) / & 
                (edist%data(lc+i+1) - edist%data(lc+i))
        end if
@@ -1733,17 +1762,24 @@ contains
        r1 = prn()
        lc = lc + 2 ! start of EOUT
        c_k = edist % data(lc + 2*NP + 1)
-       do k = 1, NP-1
+       do k = 1, NP - 1
           c_k1 = edist % data(lc + 2*NP + k+1)
           if (r1 < c_k1) exit
           c_k = c_k1
        end do
 
+       ! check to make sure k is <= NP - 1
+       k = min(k, NP - 1)
+
        E_l_k = edist % data(lc+k)
        p_l_k = edist % data(lc+NP+k)
        if (INTT == HISTOGRAM) then
           ! Histogram interpolation
-          E_out = E_l_k + (r1 - c_k)/p_l_k
+          if (p_l_k > ZERO) then
+             E_out = E_l_k + (r1 - c_k)/p_l_k
+          else
+             E_out = E_l_k
+          end if
 
           ! Determine Kalbach-Mann parameters
           KM_R = edist % data(lc + 3*NP + k)
@@ -1760,8 +1796,8 @@ contains
           if (frac == ZERO) then
              E_out = E_l_k + (r1 - c_k)/p_l_k
           else
-             E_out = E_l_k + (sqrt(p_l_k*p_l_k + 2*frac*(r1 - c_k)) - & 
-                  p_l_k)/frac
+             E_out = E_l_k + (sqrt(max(ZERO, p_l_k*p_l_k + &
+                  2*frac*(r1 - c_k))) - p_l_k)/frac
           end if
 
           ! Determine Kalbach-Mann parameters
@@ -1823,7 +1859,7 @@ contains
           i = NE - 1
           r = ONE
        else
-          i = binary_search(edist % data(lc+1), NE, E_in)
+          i = binary_search(edist % data(lc+1:lc+NE), NE, E_in)
           r = (E_in - edist%data(lc+i)) / & 
                (edist%data(lc+i+1) - edist%data(lc+i))
        end if
@@ -1876,17 +1912,24 @@ contains
        r1 = prn()
        lc = lc + 2 ! start of EOUT
        c_k = edist % data(lc + 2*NP + 1)
-       do k = 1, NP-1
+       do k = 1, NP - 1
           c_k1 = edist % data(lc + 2*NP + k+1)
           if (r1 < c_k1) exit
           c_k = c_k1
        end do
 
+       ! check to make sure k is <= NP - 1
+       k = min(k, NP - 1)
+
        E_l_k = edist % data(lc+k)
        p_l_k = edist % data(lc+NP+k)
        if (INTT == HISTOGRAM) then
           ! Histogram interpolation
-          E_out = E_l_k + (r1 - c_k)/p_l_k
+          if (p_l_k > ZERO) then
+             E_out = E_l_k + (r1 - c_k)/p_l_k
+          else
+             E_out = E_l_k
+          end if
 
        elseif (INTT == LINEAR_LINEAR) then
           ! Linear-linear interpolation -- not sure how you come about the
@@ -1899,8 +1942,8 @@ contains
           if (frac == ZERO) then
              E_out = E_l_k + (r1 - c_k)/p_l_k
           else
-             E_out = E_l_k + (sqrt(p_l_k*p_l_k + 2*frac*(r1 - c_k)) - & 
-                  p_l_k)/frac
+             E_out = E_l_k + (sqrt(max(ZERO, p_l_k*p_l_k + &
+                  2*frac*(r1 - c_k))) - p_l_k)/frac
           end if
        else
           message = "Unknown interpolation type: " // trim(to_str(INTT))
@@ -1931,17 +1974,24 @@ contains
        r3 = prn()
        lc = lc + 2
        c_k = edist % data(lc + 2*NP + 1)
-       do k = 1, NP-1
+       do k = 1, NP - 1
           c_k1 = edist % data(lc + 2*NP + k+1)
           if (r3 < c_k1) exit
           c_k = c_k1
        end do
 
+       ! check to make sure k is <= NP - 1
+       k = min(k, NP - 1)
+
        p_k  = edist % data(lc + NP + k)
        mu_k = edist % data(lc + k)
        if (JJ == HISTOGRAM) then
           ! Histogram interpolation
-          mu_out = mu_k + (r3 - c_k)/p_k
+          if (p_k > ZERO) then
+             mu_out = mu_k + (r3 - c_k)/p_k
+          else
+             mu_out = mu_k
+          end if
 
        elseif (JJ == LINEAR_LINEAR) then
           ! Linear-linear interpolation -- not sure how you come about the

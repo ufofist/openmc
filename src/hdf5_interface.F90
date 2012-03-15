@@ -1,6 +1,8 @@
 module hdf5_interface
 
+  use ace_header,      only: Reaction, UrrData
   use constants
+  use endf,            only: reaction_name
   use geometry_header, only: Cell, Surface, Universe, Lattice
   use global
   use material_header, only: Material
@@ -77,7 +79,7 @@ contains
        ! Use H5LT interface to write n_cycles, n_inactive, and n_active
        call hdf5_make_integer(hdf5_output_file, "n_cycles", n_cycles)
        call hdf5_make_integer(hdf5_output_file, "n_inactive", n_inactive)
-       call hdf5_make_integer(hdf5_output_file, "n_active", n_cycles - n_inactive)
+       call hdf5_make_integer(hdf5_output_file, "n_active", n_active)
 
        ! Add description of each variable
        call h5ltset_attribute_string_f(hdf5_output_file, "n_particles", &
@@ -92,11 +94,23 @@ contains
 
     call hdf5_write_geometry()
     call hdf5_write_materials()
+    call hdf5_write_nuclides()
     if (n_tallies > 0) then
        call hdf5_write_tallies()
     end if
 
   end subroutine hdf5_write_summary
+
+!===============================================================================
+! HDF5_WRITE_RESULTS
+!===============================================================================
+
+  subroutine hdf5_write_results()
+
+    call hdf5_write_timing()
+    call hdf5_write_global_tallies()
+
+  end subroutine hdf5_write_results
 
 !===============================================================================
 ! HDF5_WRITE_GEOMETRY
@@ -408,6 +422,30 @@ contains
   end subroutine hdf5_write_materials
 
 !===============================================================================
+! HDF5_WRITE_GLOBAL_TALLIES
+!===============================================================================
+
+  subroutine hdf5_write_global_tallies()
+
+    integer          :: rank = 1
+    integer(HSIZE_T) :: dims(1) = (/ 2 /)
+
+    call h5ltmake_dataset_double_f(hdf5_output_file, "k_analog", &
+         rank, dims, (/ global_tallies(K_ANALOG) % sum, &
+         global_tallies(K_ANALOG) % sum_sq /), hdf5_err)
+    call h5ltmake_dataset_double_f(hdf5_output_file, "k_collision", &
+         rank, dims, (/ global_tallies(K_COLLISION) % sum, &
+         global_tallies(K_COLLISION) % sum_sq /), hdf5_err)
+    call h5ltmake_dataset_double_f(hdf5_output_file, "k_tracklength", &
+         rank, dims, (/ global_tallies(K_TRACKLENGTH) % sum, &
+         global_tallies(K_TRACKLENGTH) % sum_sq /), hdf5_err)
+    call h5ltmake_dataset_double_f(hdf5_output_file, "leakage", &
+         rank, dims, (/ global_tallies(LEAKAGE) % sum, &
+         global_tallies(LEAKAGE) % sum_sq /), hdf5_err)
+
+  end subroutine hdf5_write_global_tallies
+
+!===============================================================================
 ! HDF5_WRITE_TALLIES
 !===============================================================================
 
@@ -490,14 +528,14 @@ contains
 
        ! Write incoming energy filter
        if (t % n_filter_bins(FILTER_ENERGYIN) > 0) then
-          dims(1) = t % n_filter_bins(FILTER_ENERGYIN)
+          dims(1) = t % n_filter_bins(FILTER_ENERGYIN) + 1
           call h5ltmake_dataset_double_f(temp_group, "energy_in", 1, &
                dims, t % energy_in, hdf5_err)
        end if
 
        ! Write outgoing energy filter
        if (t % n_filter_bins(FILTER_ENERGYOUT) > 0) then
-          dims(1) = t % n_filter_bins(FILTER_ENERGYOUT)
+          dims(1) = t % n_filter_bins(FILTER_ENERGYOUT) + 1
           call h5ltmake_dataset_double_f(temp_group, "energy_out", 1, &
                dims, t % energy_out, hdf5_err)
        end if
@@ -513,7 +551,7 @@ contains
 
           ! Write mesh lower-left corner
           call h5ltmake_dataset_double_f(temp_group, "mesh_lower_left", 1, &
-               dims, m % origin, hdf5_err)
+               dims, m % lower_left, hdf5_err)
           
           ! Write mesh element width
           call h5ltmake_dataset_double_f(temp_group, "mesh_element_width", 1, &
@@ -599,6 +637,121 @@ contains
   end subroutine hdf5_write_tallies
 
 !===============================================================================
+! HDF5_WRITE_NUCLIDES
+!===============================================================================
+
+  subroutine hdf5_write_nuclides()
+
+    integer        :: i, j
+    integer        :: size_total
+    integer        :: size_xs
+    integer        :: size_angle
+    integer        :: size_energy
+    integer(HID_T) :: group
+    integer(HID_T) :: nuclide_group
+    integer(HID_T) :: reactions_group
+    integer(HID_T) :: rxn_group
+    type(Nuclide),  pointer :: nuc => null()
+    type(Reaction), pointer :: rxn => null()
+    type(UrrData),  pointer :: urr => null()
+     
+    ! Create group for nuclides
+    call h5gcreate_f(hdf5_output_file, "/nuclides", group, hdf5_err)
+
+    ! Use H5LT interface to write number of nuclides
+    call hdf5_make_integer(group, "n_nuclides", n_nuclides_total)
+
+    ! Write information on each nuclide
+    do i = 1, n_nuclides_total
+       nuc => nuclides(i)
+
+       ! Determine size of cross-sections
+       size_xs = (5 + nuc % n_reaction) * nuc % n_grid * 8
+       size_total = size_xs
+
+       ! Create group for i-th nuclide
+       call h5gcreate_f(group, trim(nuc % name), nuclide_group, hdf5_err)
+
+       ! Write some basic attributes
+       call hdf5_make_integer(nuclide_group, "zaid", nuc % zaid)
+       call hdf5_make_double(nuclide_group, "awr", nuc % awr)
+       call hdf5_make_double(nuclide_group, "kT", nuc % kT)
+       call hdf5_make_integer(nuclide_group, "n_grid", nuc % n_grid)
+       call hdf5_make_integer(nuclide_group, "n_reactions", nuc % n_reaction)
+       call hdf5_make_integer(nuclide_group, "n_fission", nuc % n_fission)
+       call hdf5_make_integer(nuclide_group, "size_xs", size_xs)
+
+       ! =======================================================================
+       ! WRITE INFORMATION ON EACH REACTION
+
+       ! Create overall group 
+       call h5gcreate_f(nuclide_group, "reactions", reactions_group, hdf5_err)
+
+       do j = 1, nuc % n_reaction
+          ! Information on each reaction
+          rxn => nuc % reactions(j)
+
+          ! Determine size of angle distribution
+          if (rxn % has_angle_dist) then
+             size_angle = rxn % adist % n_energy * 16 + size(rxn % adist % data) * 8
+          else
+             size_angle = 0
+          end if
+
+          ! Determine size of energy distribution
+          if (rxn % has_energy_dist) then
+             size_energy = size(rxn % edist % data) * 8
+          else
+             size_energy = 0
+          end if
+
+          ! Create reaction group 
+          call h5gcreate_f(reactions_group, reaction_name(rxn % MT), &
+               rxn_group, hdf5_err)
+
+          ! Write information on reaction
+          call hdf5_make_double(rxn_group, "Q_value", rxn % Q_value)
+          call hdf5_make_integer(rxn_group, "n_neutrons", rxn % TY)
+          call hdf5_make_integer(rxn_group, "grid_index", rxn % IE)
+          call hdf5_make_integer(rxn_group, "size_angle", size_angle)
+          call hdf5_make_integer(rxn_group, "size_energy", size_energy)
+
+          call h5gclose_f(rxn_group, hdf5_err)
+
+          ! Accumulate data size
+          size_total = size_total + size_angle + size_energy
+       end do
+
+       ! Close overall group for reactions
+       call h5gclose_f(reactions_group, hdf5_err)
+
+       ! =======================================================================
+       ! WRITE INFORMATION ON URR PROBABILITY TABLES
+
+       if (nuc % urr_present) then
+          urr => nuc % urr_data
+          call hdf5_make_integer(nuclide_group, "urr_n_energy", urr % n_energy)
+          call hdf5_make_integer(nuclide_group, "urr_n_prob", urr % n_prob)
+          call hdf5_make_integer(nuclide_group, "urr_interp", urr % interp)
+          call hdf5_make_integer(nuclide_group, "urr_inelastic", urr % inelastic_flag)
+          call hdf5_make_integer(nuclide_group, "urr_absorption", urr % absorption_flag)
+          call hdf5_make_double(nuclide_group, "urr_min_E", urr % energy(1))
+          call hdf5_make_double(nuclide_group, "urr_max_E", urr % energy(urr % n_energy))
+       end if
+
+       ! Write total memory used
+       call hdf5_make_integer(nuclide_group, "size_total", size_total)
+
+       ! Close group for i-th nuclide
+       call h5gclose_f(nuclide_group, hdf5_err)
+    end do
+
+    ! Close group for nuclides
+    call h5gclose_f(group, hdf5_err)
+
+  end subroutine hdf5_write_nuclides
+
+!===============================================================================
 ! HDF5_WRITE_TIMING
 !===============================================================================
 
@@ -615,14 +768,14 @@ contains
     call hdf5_make_double(timing_group, "time_initialize", time_initialize % elapsed)
     call hdf5_make_double(timing_group, "time_read_xs", time_read_xs % elapsed)
     call hdf5_make_double(timing_group, "time_unionize", time_unionize % elapsed)
-    call hdf5_make_double(timing_group, "time_compute", time_compute % elapsed)
+    call hdf5_make_double(timing_group, "time_transport", time_transport % elapsed)
     call hdf5_make_double(timing_group, "time_intercycle", time_intercycle % elapsed)
     call hdf5_make_double(timing_group, "time_tallies", time_ic_tallies % elapsed)
     call hdf5_make_double(timing_group, "time_sample", time_ic_sample % elapsed)
     call hdf5_make_double(timing_group, "time_sendrecv", time_ic_sendrecv % elapsed)
-    call hdf5_make_double(timing_group, "time_rebuild", time_ic_rebuild % elapsed)
     call hdf5_make_double(timing_group, "time_inactive", time_inactive % elapsed)
     call hdf5_make_double(timing_group, "time_active", time_active % elapsed)
+    call hdf5_make_double(timing_group, "time_finalize", time_finalize % elapsed)
     call hdf5_make_double(timing_group, "time_total", time_total % elapsed)
 
     ! Add descriptions to timing data
@@ -632,8 +785,8 @@ contains
          "description", "Time reading cross-section libraries (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_unionize", &
          "description", "Time unionizing energy grid (s)", hdf5_err)
-    call h5ltset_attribute_string_f(timing_group, "time_compute", &
-         "description", "Total time in computation (s)", hdf5_err)
+    call h5ltset_attribute_string_f(timing_group, "time_transport", &
+         "description", "Time in transport only (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_intercycle", &
          "description", "Total time between cycles (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_tallies", &
@@ -642,18 +795,19 @@ contains
          "description", "Time between cycles sampling source sites (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_sendrecv", &
          "description", "Time between cycles SEND/RECVing source sites (s)", hdf5_err)
-    call h5ltset_attribute_string_f(timing_group, "time_rebuild", &
-         "description", "Time between cycles reconstructing source bank (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_inactive", &
          "description", "Total time in inactive cycles (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_active", &
          "description", "Total time in active cycles (s)", hdf5_err)
+    call h5ltset_attribute_string_f(timing_group, "time_finalize", &
+         "description", "Total time for finalization (s)", hdf5_err)
     call h5ltset_attribute_string_f(timing_group, "time_total", &
          "description", "Total time elapsed (s)", hdf5_err)
 
     ! Write calculation rate
     total_particles = n_particles * n_cycles
-    speed = real(total_particles) / time_compute % elapsed
+    speed = real(total_particles) / (time_inactive % elapsed + &
+         time_active % elapsed)
     call hdf5_make_double(timing_group, "neutrons_per_second", speed)
 
     ! Close timing group

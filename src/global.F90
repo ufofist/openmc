@@ -9,8 +9,9 @@ module global
   use material_header,  only: Material
   use mesh_header,      only: StructuredMesh
   use particle_header,  only: Particle
+  use plot_header,      only: Plot
   use source_header,    only: ExtSource
-  use tally_header,     only: TallyObject, TallyMap
+  use tally_header,     only: TallyObject, TallyMap, TallyScore
   use timing,           only: Timer
 
 #ifdef MPI
@@ -25,6 +26,11 @@ module global
   save
 
   ! ============================================================================
+  ! THE PARTICLE
+
+  type(Particle), pointer :: p => null()
+
+  ! ============================================================================
   ! GEOMETRY-RELATED VARIABLES
 
   ! Main arrays
@@ -33,6 +39,7 @@ module global
   type(Lattice),  allocatable, target :: lattices(:)
   type(Surface),  allocatable, target :: surfaces(:)
   type(Material), allocatable, target :: materials(:)
+  type(Plot),     allocatable, target :: plots(:)
 
   ! Size of main arrays
   integer :: n_cells     ! # of cells
@@ -40,6 +47,7 @@ module global
   integer :: n_lattices  ! # of lattices
   integer :: n_surfaces  ! # of surfaces
   integer :: n_materials ! # of materials
+  integer :: n_plots     ! # of plots
 
   ! These dictionaries provide a fast lookup mechanism -- the key is the
   ! user-specified identifier and the value is the index in the corresponding
@@ -86,6 +94,17 @@ module global
   type(StructuredMesh), allocatable, target :: meshes(:)
   type(TallyObject),    allocatable, target :: tallies(:)
 
+  ! Global tallies
+  !   1) analog estimate of k-eff
+  !   2) collision estimate of k-eff
+  !   3) track-length estimate of k-eff
+  !   4) leakage fraction
+
+  type(TallyScore) :: global_tallies(N_GLOBAL_TALLIES)
+
+  ! Tally map structure
+  type(TallyMap), allocatable :: tally_maps(:)
+
   ! Leakage for each stage
   integer :: lmesh_nx = 17
   integer :: lmesh_ny = 17
@@ -96,17 +115,25 @@ module global
   integer :: final_stage_count(MAX_STAGES) = 0
   logical :: check_mesh
   type(StructuredMesh), target :: leakage_mesh
-  real(8), allocatable :: leakage(:,:,:,:)
-  real(8), allocatable :: starting_source(:,:,:,:)
+  real(8), allocatable :: stage_leakage(:,:,:,:)
+  real(8), allocatable :: stage_source(:,:,:,:)
 
-  ! Tally map structure
-  type(TallyMap), allocatable :: tally_maps(:)
+  ! Pointers for analog, track-length, and surface-current tallies
+  integer, allocatable :: analog_tallies(:)
+  integer, allocatable :: tracklength_tallies(:)
+  integer, allocatable :: current_tallies(:)
 
-  integer :: n_meshes         ! # of structured meshes
-  integer :: n_tallies        ! # of tallies
+  integer :: n_meshes                  ! # of structured meshes
+  integer :: n_tallies                 ! # of tallies
+  integer :: n_analog_tallies      = 0 ! # of analog tallies
+  integer :: n_tracklength_tallies = 0 ! # of track-length tallies
+  integer :: n_current_tallies     = 0 ! # of surface current tallies
 
   ! Flag for turning tallies on
   logical :: tallies_on
+
+  ! Assume all tallies are spatially distinct
+  logical :: assume_separate = .false.
 
   ! ============================================================================
   ! CRITICALITY SIMULATION VARIABLES
@@ -114,18 +141,20 @@ module global
   integer(8) :: n_particles = 10000 ! # of particles per cycle
   integer    :: n_cycles    = 500   ! # of cycles
   integer    :: n_inactive  = 50    ! # of inactive cycles
+  integer    :: n_active            ! # of active cycles
+  integer    :: current_cycle = 0   ! current cycle
 
   ! External source
   type(ExtSource), target :: external_source
 
   ! Source and fission bank
-  type(Particle), allocatable, target :: source_bank(:)
-  type(Bank),     allocatable, target :: fission_bank(:)
+  type(Bank), allocatable, target :: source_bank(:)
+  type(Bank), allocatable, target :: fission_bank(:)
   integer(8) :: n_bank       ! # of sites in fission bank
   integer(8) :: bank_first   ! index of first particle in bank
   integer(8) :: bank_last    ! index of last particle in bank
   integer(8) :: work         ! number of particles per processor
-  integer(8) :: source_index ! index for source particles
+  integer(8) :: maxwork      ! maximum number of particles per processor
 
   ! cycle keff
   real(8) :: keff = ONE
@@ -133,10 +162,9 @@ module global
 
   ! Shannon entropy
   logical :: entropy_on = .false.
-  real(8) :: entropy                ! value of shannon entropy
-  real(8) :: entropy_lower_left(3)  ! lower-left corner for entropy box
-  real(8) :: entropy_upper_right(3) ! upper-right corner for entropy box
-  real(8), allocatable :: entropy_p(:,:,:)
+  real(8) :: entropy                   ! value of shannon entropy
+  real(8), allocatable :: entropy_p(:) ! fraction of source sites in each cell
+  type(StructuredMesh), pointer :: entropy_mesh
 
   ! ============================================================================
   ! PARALLEL PROCESSING VARIABLES
@@ -159,10 +187,10 @@ module global
   type(Timer) :: time_ic_tallies  ! timer for intercycle accumulate tallies
   type(Timer) :: time_ic_sample   ! timer for intercycle sampling
   type(Timer) :: time_ic_sendrecv ! timer for intercycle SEND/RECV
-  type(Timer) :: time_ic_rebuild  ! timer for intercycle source bank rebuild
   type(Timer) :: time_inactive    ! timer for inactive cycles
   type(Timer) :: time_active      ! timer for active cycles
-  type(Timer) :: time_compute     ! timer for computation
+  type(Timer) :: time_transport   ! timer for transport only
+  type(Timer) :: time_finalize    ! timer for finalization
 
   ! ===========================================================================
   ! VARIANCE REDUCTION VARIABLES
@@ -175,10 +203,6 @@ module global
   ! PLOTTING VARIABLES
 
   logical :: plotting = .false.
-  real(8) :: plot_origin(3)
-  real(8) :: plot_width(2)
-  real(8) :: plot_basis(6)
-  real(8) :: pixel
 
   ! ============================================================================
   ! HDF5 VARIABLES
@@ -212,29 +236,40 @@ module global
 contains
 
 !===============================================================================
-! FREE_MEMORY deallocates all allocatable arrays in the program, namely the
-! cells, surfaces, materials, and sources
+! FREE_MEMORY deallocates all global allocatable arrays in the program
 !===============================================================================
 
   subroutine free_memory()
 
     ! Deallocate cells, surfaces, materials
     if (allocated(cells)) deallocate(cells)
+    if (allocated(universes)) deallocate(universes)
+    if (allocated(lattices)) deallocate(lattices)
     if (allocated(surfaces)) deallocate(surfaces)
     if (allocated(materials)) deallocate(materials)
-    if (allocated(lattices)) deallocate(lattices)
+    if (allocated(plots)) deallocate(plots)
 
-    ! Deallocate cross section data and listings
+    ! Deallocate cross section data, listings, and cache
     if (allocated(nuclides)) deallocate(nuclides)
     if (allocated(sab_tables)) deallocate(sab_tables)
     if (allocated(xs_listings)) deallocate(xs_listings)
+    if (allocated(micro_xs)) deallocate(micro_xs)
+
+    ! Deallocate tally-related arrays
+    if (allocated(meshes)) deallocate(meshes)
+    if (allocated(tallies)) deallocate(tallies)
+    if (allocated(analog_tallies)) deallocate(analog_tallies)
+    if (allocated(tracklength_tallies)) deallocate(tracklength_tallies)
+    if (allocated(current_tallies)) deallocate(current_tallies)
+    if (allocated(tally_maps)) deallocate(tally_maps)
 
     ! Deallocate energy grid
     if (allocated(e_grid)) deallocate(e_grid)
 
-    ! Deallocate fission and source bank
+    ! Deallocate fission and source bank and entropy
     if (allocated(fission_bank)) deallocate(fission_bank)
     if (allocated(source_bank)) deallocate(source_bank)
+    if (allocated(entropy_p)) deallocate(entropy_p)
 
   end subroutine free_memory
 

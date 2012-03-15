@@ -6,8 +6,7 @@ program main
   use initialize,      only: initialize_run
   use intercycle,      only: shannon_entropy, calculate_keff, synchronize_bank
   use output,          only: write_message, header
-  use particle_header, only: Particle
-  use plot,            only: run_plot
+  use plotter,         only: run_plot
   use physics,         only: transport
   use random_lcg,      only: set_particle_seed
   use source,          only: get_source_particle
@@ -45,15 +44,16 @@ contains
 
   subroutine run_problem()
 
-    integer                 :: i_cycle     ! cycle index
-    integer                 :: final_stage
-    integer(8)              :: i_particle  ! history index
-    type(Particle), pointer :: p => null()
+    integer(8) :: i  ! index over histories in single cycle
+    integer    :: final_stage
 
     if (master) call header("BEGIN SIMULATION", level=1)
 
     tallies_on = .false.
     call timer_start(time_inactive)
+
+    ! Allocate particle
+    allocate(p)
 
     ! Display column titles
     if (entropy_on) then
@@ -70,12 +70,9 @@ contains
 
     ! ==========================================================================
     ! LOOP OVER CYCLES
-    CYCLE_LOOP: do i_cycle = 1, n_cycles
+    CYCLE_LOOP: do current_cycle = 1, n_cycles
 
-       ! Start timer for computation
-       call timer_start(time_compute)
-
-       message = "Simulating cycle " // trim(to_str(i_cycle)) // "..."
+       message = "Simulating cycle " // trim(to_str(current_cycle)) // "..."
        call write_message(8)
 
        ! Set all tallies to zero
@@ -83,31 +80,22 @@ contains
 
        ! =======================================================================
        ! LOOP OVER HISTORIES
-       HISTORY_LOOP: do
+
+       ! Start timer for transport
+       call timer_start(time_transport)
+
+       HISTORY_LOOP: do i = 1, work
 
           ! grab source particle from bank
-          p => get_source_particle()
-          if ( .not. associated(p) ) then
-             ! no particles left in source bank
-             exit HISTORY_LOOP
-          end if
-
-          ! set random number seed
-          i_particle = (i_cycle-1)*n_particles + p % id
-          call set_particle_seed(i_particle)
-          
-          ! set particle trace
-          trace = .false.
-          if (i_cycle == trace_cycle .and. &
-               p % id == trace_particle) trace = .true.
+          call get_source_particle(i)
 
           ! transport particle
-          call transport(p)
+          call transport()
 
        end do HISTORY_LOOP
 
-       ! Accumulate time for computation
-       call timer_stop(time_compute)
+       ! Accumulate time for transport
+       call timer_stop(time_transport)
 
        ! =======================================================================
        ! WRAP UP FISSION BANK AND COMPUTE TALLIES, KEFF, ETC
@@ -126,10 +114,10 @@ contains
        if (entropy_on) call shannon_entropy()
 
        ! Distribute fission bank across processors evenly
-       call synchronize_bank(i_cycle)
+       call synchronize_bank()
 
        ! Collect results and statistics
-       call calculate_keff(i_cycle)
+       call calculate_keff()
 
        ! print cycle information
 
@@ -144,7 +132,7 @@ contains
        end if
 
        ! Turn tallies on once inactive cycles are complete
-       if (i_cycle == n_inactive) then
+       if (current_cycle == n_inactive) then
           tallies_on = .true.
           call timer_stop(time_inactive)
           call timer_start(time_active)
@@ -183,16 +171,16 @@ contains
     ! processors
     n = lmesh_nx * lmesh_ny * lmesh_nz * MAX_STAGES
     if (master) then
-       call MPI_REDUCE(MPI_IN_PLACE, starting_source, n, MPI_REAL8, MPI_SUM, &
+       call MPI_REDUCE(MPI_IN_PLACE, stage_source, n, MPI_REAL8, MPI_SUM, &
             0, MPI_COMM_WORLD, mpi_err)
-       call MPI_REDUCE(MPI_IN_PLACE, leakage, n, MPI_REAL8, MPI_SUM, &
+       call MPI_REDUCE(MPI_IN_PLACE, stage_leakage, n, MPI_REAL8, MPI_SUM, &
             0, MPI_COMM_WORLD, mpi_err)
        call MPI_REDUCE(MPI_IN_PLACE, last_stage, 1, MPI_INTEGER, MPI_MAX, &
             0, MPI_COMM_WORLD, mpi_err)
     else
-       call MPI_REDUCE(starting_source, starting_source, n, MPI_REAL8, MPI_SUM, &
+       call MPI_REDUCE(stage_source, stage_source, n, MPI_REAL8, MPI_SUM, &
             0, MPI_COMM_WORLD, mpi_err)
-       call MPI_REDUCE(leakage, leakage, n, MPI_REAL8, MPI_SUM, &
+       call MPI_REDUCE(stage_leakage, stage_leakage, n, MPI_REAL8, MPI_SUM, &
             0, MPI_COMM_WORLD, mpi_err)
        call MPI_REDUCE(last_stage, last_stage, 1, MPI_INTEGER, MPI_MAX, &
             0, MPI_COMM_WORLD, mpi_err)
@@ -217,14 +205,14 @@ contains
              do j = 1, lmesh_ny
                 do i = 1, lmesh_nx
                    ! calculate fraction of source sites in each mesh
-                   src = starting_source(i,j,k,m)/(n_particles*(n_cycles - n_inactive))
+                   src = stage_source(i,j,k,m)/(n_particles*(n_cycles - n_inactive))
 
                    ! calculate absolute leakage
-                   leak = leakage(i,j,k,m)/(n_particles*(n_cycles - n_inactive))
+                   leak = stage_leakage(i,j,k,m)/(n_particles*(n_cycles - n_inactive))
 
                    ! calculate leakage fraction
-                   if (starting_source(i,j,k,m) > ZERO) then
-                      leak_fraction = leakage(i,j,k,m)/starting_source(i,j,k,m)
+                   if (stage_source(i,j,k,m) > ZERO) then
+                      leak_fraction = stage_leakage(i,j,k,m)/stage_source(i,j,k,m)
                    else
                       leak_fraction = ZERO
                    end if

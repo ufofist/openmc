@@ -1,6 +1,6 @@
 module output
 
-  use ISO_FORTRAN_ENV
+  use, intrinsic :: ISO_FORTRAN_ENV
 
   use ace_header,      only: Nuclide, Reaction, UrrData
   use constants
@@ -9,7 +9,8 @@ module output
   use geometry_header, only: Cell, Universe, Surface, BASE_UNIVERSE
   use global
   use mesh_header,     only: StructuredMesh
-  use particle_header, only: Particle, LocalCoord
+  use particle_header, only: LocalCoord
+  use plot_header
   use string,          only: upper_case, to_str
   use tally_header,    only: TallyObject
 
@@ -81,14 +82,14 @@ contains
 
   subroutine header(msg, unit, level)
 
-    character(*), intent(in) :: msg
-    integer, optional :: unit
-    integer, optional :: level
+    character(*), intent(in) :: msg ! header message
+    integer, optional :: unit       ! unit to write to
+    integer, optional :: level      ! specified header level
 
     integer :: n
     integer :: m
-    integer :: unit_
-    integer :: header_level
+    integer :: unit_        ! unit to write to
+    integer :: header_level ! actual header level
     character(MAX_LINE_LEN) :: line
 
     ! set default level
@@ -199,9 +200,7 @@ contains
 ! PRINT_PARTICLE displays the attributes of a particle
 !===============================================================================
 
-  subroutine print_particle(p)
-
-    type(Particle),   pointer :: p
+  subroutine print_particle()
 
     integer                   :: i
     type(Cell),       pointer :: c => null()
@@ -740,7 +739,7 @@ contains
     integer :: size_angle
     integer :: size_energy
     type(Reaction), pointer :: rxn => null()
-    type(UrrData), pointer :: urr => null()
+    type(UrrData),  pointer :: urr => null()
 
     ! set default unit for writing information
     if (present(unit)) then
@@ -893,21 +892,37 @@ contains
 
   subroutine print_plot()
 
+    integer i
+    type(Plot),    pointer :: pl => null()
+
     ! Display header for plotting
     call header("PLOTTING SUMMARY")
 
-    ! Print plotting origin
-    write(ou,100) "Plotting Origin:", trim(to_str(plot_origin(1))) // &
-         " " // trim(to_str(plot_origin(2))) // " " // &
-         trim(to_str(plot_origin(3)))
+    do i=1,n_plots
+      pl => plots(i)
 
-    ! Print plotting width
-    write(ou,100) "Plotting Width:", trim(to_str(plot_width(1))) // &
-         " " // trim(to_str(plot_width(2)))
+      ! Print plot id
+      write(ou,100) "Plot ID:", trim(to_str(pl % id))
 
-    ! Print pixel width
-    write(ou,100) "Pixel Width:", trim(to_str(pixel))
-    write(ou,*)
+      ! Print plotting origin
+      write(ou,100) "Origin:", trim(to_str(pl % origin(1))) // &
+           " " // trim(to_str(pl % origin(2))) // " " // &
+           trim(to_str(pl % origin(3)))
+
+      ! Print plotting width
+      if (pl % type == PLOT_TYPE_SLICE) then
+
+        write(ou,100) "Width:", trim(to_str(pl % width(1))) // &
+             " " // trim(to_str(pl % width(2)))
+        write(ou,100) "Coloring:", trim(to_str(pl % color_by))
+        write(ou,100) "Basis:", trim(to_str(pl % basis))
+        write(ou,100) "Pixels:", trim(to_str(pl % pixels(1))) // " " // &
+                                 trim(to_str(pl % pixels(2)))
+      end if
+
+      write(ou,*)
+
+    end do
 
     ! Format descriptor for columns
 100 format (1X,A,T25,A)
@@ -932,31 +947,43 @@ contains
     write(ou,100) "Total time for initialization", time_initialize % elapsed
     write(ou,100) "  Reading cross sections", time_read_xs % elapsed
     write(ou,100) "  Unionizing energy grid", time_unionize % elapsed
-    write(ou,100) "Total time in computation", time_compute % elapsed
-    write(ou,100) "Total time between cycles", time_intercycle % elapsed
-    write(ou,100) "  Accumulating tallies", time_ic_tallies % elapsed
-    write(ou,100) "  Sampling source sites", time_ic_sample % elapsed
-    write(ou,100) "  SEND/RECV source sites", time_ic_sendrecv % elapsed
-    write(ou,100) "  Reconstruct source bank", time_ic_rebuild % elapsed
-    write(ou,100) "Total time in inactive cycles", time_inactive % elapsed
-    write(ou,100) "Total time in active cycles", time_active % elapsed
+    write(ou,100) "Total time in simulation", time_inactive % elapsed + &
+         time_active % elapsed
+    write(ou,100) "  Time in transport only", time_transport % elapsed
+    write(ou,100) "  Time in inactive cycles", time_inactive % elapsed
+    write(ou,100) "  Time in active cycles", time_active % elapsed
+    write(ou,100) "  Time between cycles", time_intercycle % elapsed
+    write(ou,100) "    Accumulating tallies", time_ic_tallies % elapsed
+    write(ou,100) "    Sampling source sites", time_ic_sample % elapsed
+    write(ou,100) "    SEND/RECV source sites", time_ic_sendrecv % elapsed
+    write(ou,100) "Total time for finalization", time_finalize % elapsed
     write(ou,100) "Total time elapsed", time_total % elapsed
-
-    ! display header block
-    call header("Run Statistics")
 
     ! display calculate rate and final keff
     total_particles = n_particles * n_cycles
-    speed = real(total_particles) / time_compute % elapsed
+    speed = real(total_particles) / (time_inactive % elapsed + &
+         time_active % elapsed)
     string = to_str(speed)
     write(ou,101) "Calculation Rate", trim(string)
-    write(ou,102) "Final Keff", keff, keff_std
+
+    ! display header block for results
+    call header("Results")
+
+    ! write global tallies
+    write(ou,102) "k-effective (Analog)", global_tallies(K_ANALOG) % sum, &
+         global_tallies(K_ANALOG) % sum_sq
+    write(ou,102) "k-effective (Collision)", global_tallies(K_COLLISION) % sum, &
+         global_tallies(K_COLLISION) % sum_sq
+    write(ou,102) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH) % sum, &
+         global_tallies(K_TRACKLENGTH) % sum_sq
+    write(ou,102) "Leakage Fraction", global_tallies(LEAKAGE) % sum, &
+         global_tallies(LEAKAGE) % sum_sq
     write(ou,*)
 
     ! format for write statements
 100 format (1X,A,T35,"= ",ES11.4," seconds")
-101 format (1X,A,T20,"= ",A," neutrons/second")
-102 format (1X,A,T20,"= ",F8.5," +/- ",F8.5)
+101 format (1X,A,T35,"=  ",A," neutrons/second")
+102 format (1X,A,T30,"= ",F8.5," +/- ",F8.5)
  
   end subroutine print_runtime
 
@@ -967,7 +994,6 @@ contains
 
   subroutine create_summary_file()
 
-    integer :: io_error
     logical :: file_exists  ! does log file already exist?
     character(MAX_FILE_LEN) :: path ! path of summary file
 
@@ -982,8 +1008,32 @@ contains
 
     ! Open log file for writing
     open(UNIT=UNIT_SUMMARY, FILE=path, STATUS='replace', &
-         ACTION='write', IOSTAT=io_error)
+         ACTION='write')
 
   end subroutine create_summary_file
+
+!===============================================================================
+! CREATE_XS_SUMMARY_FILE
+!===============================================================================
+
+  subroutine create_xs_summary_file()
+
+    logical :: file_exists  ! does log file already exist?
+    character(MAX_FILE_LEN) :: path ! path of summary file
+
+    ! Create filename for log file
+    path = "cross_sections.out"
+
+    ! Check if log file already exists
+    inquire(FILE=path, EXIST=file_exists)
+    if (file_exists) then
+       ! Possibly copy old log file
+    end if
+
+    ! Open log file for writing
+    open(UNIT=UNIT_XS, FILE=path, STATUS='replace', &
+         ACTION='write')
+
+  end subroutine create_xs_summary_file
 
 end module output

@@ -14,25 +14,25 @@ contains
 
   subroutine get_mesh_bin(m, xyz, bin)
 
-    type(StructuredMesh), pointer :: m
-    real(8), intent(in)           :: xyz(:)
-    integer, intent(out)          :: bin
+    type(StructuredMesh), pointer :: m      ! mesh pointer
+    real(8), intent(in)           :: xyz(:) ! coordinates
+    integer, intent(out)          :: bin    ! tally bin
 
-    integer :: n
-    integer :: ijk(3)
-    logical :: in_mesh
+    integer :: n       ! size of mesh (2 or 3)
+    integer :: ijk(3)  ! indices in mesh
+    logical :: in_mesh ! was given coordinate in mesh at all?
 
     ! Get number of dimensions
     n = m % n_dimension
 
     ! Check for cases where particle is outside of mesh
-    if (xyz(1) < m % origin(1)) then
+    if (xyz(1) < m % lower_left(1)) then
        bin = NO_BIN_FOUND
        return
     elseif (xyz(1) > m % upper_right(1)) then
        bin = NO_BIN_FOUND
        return
-    elseif (xyz(2) < m % origin(2)) then
+    elseif (xyz(2) < m % lower_left(2)) then
        bin = NO_BIN_FOUND
        return
     elseif (xyz(2) > m % upper_right(2)) then
@@ -40,7 +40,7 @@ contains
        return
     end if
     if (n > 2) then
-       if (xyz(3) < m % origin(3)) then
+       if (xyz(3) < m % lower_left(3)) then
           bin = NO_BIN_FOUND
           return
        elseif (xyz(3) > m % upper_right(3)) then
@@ -68,12 +68,12 @@ contains
   subroutine get_mesh_indices(m, xyz, ijk, in_mesh)
 
     type(StructuredMesh), pointer :: m
-    real(8), intent(in)           :: xyz(:)
-    integer, intent(out)          :: ijk(:)
-    logical, intent(out)          :: in_mesh
+    real(8), intent(in)           :: xyz(:)  ! coordinates to check
+    integer, intent(out)          :: ijk(:)  ! indices in mesh
+    logical, intent(out)          :: in_mesh ! were given coords in mesh?
 
     ! Find particle in mesh
-    ijk = ceiling((xyz - m % origin)/m % width)
+    ijk = ceiling((xyz - m % lower_left)/m % width)
 
     ! Determine if particle is in mesh
     if (any(ijk < 1) .or. any(ijk > m % dimension)) then
@@ -95,11 +95,9 @@ contains
     integer, intent(in)           :: ijk(:)
     integer                       :: bin
 
-    integer :: n_x
-    integer :: n_y
-    integer :: n_z
+    integer :: n_y ! number of mesh cells in y direction
+    integer :: n_z ! number of mesh cells in z direction
 
-    n_x = m % dimension(1)
     n_y = m % dimension(2)
 
     if (m % n_dimension == 2) then
@@ -122,18 +120,16 @@ contains
     integer, intent(in)           :: bin
     integer, intent(out)          :: ijk(:)
 
-    integer :: n_y
-    integer :: n_z
+    integer :: n_y ! number of mesh cells in y direction
+    integer :: n_z ! number of mesh cells in z direction
+
+    n_y = m % dimension(2)
 
     if (m % n_dimension == 2) then
-       n_y = m % dimension(2)
-
        ijk(1) = (bin - 1)/n_y + 1
        ijk(2) = mod(bin - 1, n_y) + 1
     else if (m % n_dimension == 3) then
-       n_y = m % dimension(2)
        n_z = m % dimension(3)
-
        ijk(1) = (bin - 1)/(n_y*n_z) + 1
        ijk(2) = mod(bin - 1, n_y*n_z)/n_z + 1
        ijk(3) = mod(bin - 1, n_z) + 1

@@ -11,7 +11,6 @@ module tally
   use tally_header,  only: TallyScore, TallyMapItem, TallyMapElement
 
 #ifdef MPI
-  use intercycle,    only: reduce_tallies
   use mpi
 #endif
 
@@ -237,20 +236,18 @@ contains
 ! triggered at every collision, not every event
 !===============================================================================
 
-  subroutine score_analog_tally(p)
+  subroutine score_analog_tally()
 
-    type(Particle), pointer :: p
-
-    integer :: i
-    integer :: j
-    integer :: bins(N_FILTER_TYPES)
-    integer :: score_index
-    integer :: score_bin
-    real(8) :: score
-    real(8) :: last_wgt
-    real(8) :: wgt
-    real(8) :: mu
-    logical :: found_bin
+    integer :: i                    ! loop index for analog tallies
+    integer :: j                    ! loop index for scoring bins
+    integer :: bins(N_FILTER_TYPES) ! scoring bin combination
+    integer :: score_index          ! single index for single bin
+    integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
+    real(8) :: score                ! analog tally score
+    real(8) :: last_wgt             ! pre-collision particle weight
+    real(8) :: wgt                  ! post-collision particle weight
+    real(8) :: mu                   ! cosine of angle of collision
+    logical :: found_bin            ! scoring bin found?
     type(TallyObject), pointer :: t => null()
 
     ! Copy particle's pre- and post-collision weight and angle
@@ -261,19 +258,13 @@ contains
     ! A loop over all tallies is necessary because we need to simultaneously
     ! determine different filter bins for the same tally in order to score to it
 
-    do i = 1, n_tallies
-       t => tallies(i)
-
-       ! Surface current tallies are treated separately
-       if (t % type == TALLY_SURFACE_CURRENT) cycle
-
-       ! Skip tallies that are handled by track-length estimators
-       if (t % estimator == ESTIMATOR_TRACKLENGTH) cycle
+    do i = 1, n_analog_tallies
+       t => tallies(analog_tallies(i))
 
        ! =======================================================================
        ! DETERMINE SCORING BIN COMBINATION
 
-       call get_scoring_bins(p, i, bins, found_bin)
+       call get_scoring_bins(analog_tallies(i), bins, found_bin)
        if (.not. found_bin) cycle
 
        ! =======================================================================
@@ -424,7 +415,7 @@ contains
                 ! energy bins may have been scored to. The following logic treats
                 ! this special case and scores to multiple bins
 
-                call score_fission_eout(p, t, bins, j)
+                call score_fission_eout(t, bins, j)
                 cycle
 
              else
@@ -448,6 +439,13 @@ contains
 
        end do
 
+       ! If the user has specified that we can assume all tallies are spatially
+       ! separate, this implies that once a tally has been scored to, we needn't
+       ! check the others. This cuts down on overhead when there are many
+       ! tallies specified
+
+       if (assume_separate) return
+
        ! Reset tally map positioning
        position = 0
 
@@ -462,18 +460,17 @@ contains
 ! neutrons produced with different energies.
 !===============================================================================
 
-  subroutine score_fission_eout(p, t, bins, j)
+  subroutine score_fission_eout(t, bins, j)
 
-    type(Particle),    pointer :: p
     type(TallyObject), pointer :: t
     integer, intent(inout)     :: bins(N_FILTER_TYPES)
-    integer, intent(in)        :: j
+    integer, intent(in)        :: j ! index for score
 
-    integer :: k
-    integer :: bin_energyout
-    integer :: score_index
-    real(8) :: score
-    real(8) :: E_out
+    integer :: k             ! loop index for bank sites
+    integer :: bin_energyout ! original outgoing energy bin
+    integer :: score_index   ! index for scoring bin combination
+    real(8) :: score         ! actualy score
+    real(8) :: E_out         ! energy of fission bank site
 
     ! save original outgoing energy bin and score index
     bin_energyout = bins(FILTER_ENERGYOUT)
@@ -513,19 +510,18 @@ contains
 ! that require post-collision information.
 !===============================================================================
 
-  subroutine score_tracklength_tally(p, distance)
+  subroutine score_tracklength_tally(distance)
 
-    type(Particle), pointer :: p
-    real(8), intent(in)     :: distance
+    real(8), intent(in) :: distance
 
-    integer :: i
-    integer :: j
-    integer :: bins(N_FILTER_TYPES)
-    integer :: score_index
-    integer :: score_bin
-    real(8) :: flux
-    real(8) :: score
-    logical :: found_bin
+    integer :: i                    ! loop index for tracklength tallies
+    integer :: j                    ! loop index for scoring bins
+    integer :: bins(N_FILTER_TYPES) ! scoring bin combination
+    integer :: score_index          ! single index for single bin
+    integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
+    real(8) :: flux                 ! tracklength estimate of flux
+    real(8) :: score                ! actual score (e.g., flux*xs)
+    logical :: found_bin            ! scoring bin found?
     type(TallyObject), pointer :: t => null()
 
     ! Determine track-length estimate of flux
@@ -534,19 +530,13 @@ contains
     ! A loop over all tallies is necessary because we need to simultaneously
     ! determine different filter bins for the same tally in order to score to it
 
-    do i = 1, n_tallies
-       t => tallies(i)
-
-       ! Surface current tallies are treated separately
-       if (t % type == TALLY_SURFACE_CURRENT) cycle
-
-       ! Skip tallies that are handled by track-length estimators
-       if (t % estimator == ESTIMATOR_ANALOG) cycle
+    do i = 1, n_tracklength_tallies
+       t => tallies(tracklength_tallies(i))
 
        ! =======================================================================
        ! DETERMINE SCORING BIN COMBINATION
 
-       call get_scoring_bins(p, i, bins, found_bin)
+       call get_scoring_bins(tracklength_tallies(i), bins, found_bin)
        if (.not. found_bin) cycle
 
        ! =======================================================================
@@ -588,6 +578,13 @@ contains
 
        end do
 
+       ! If the user has specified that we can assume all tallies are spatially
+       ! separate, this implies that once a tally has been scored to, we needn't
+       ! check the others. This cuts down on overhead when there are many
+       ! tallies specified
+
+       if (assume_separate) return
+
        ! Reset tally map positioning
        position = 0
 
@@ -600,16 +597,15 @@ contains
 ! for a tally based on the particle's current attributes.
 !===============================================================================
 
-  subroutine get_scoring_bins(p, index_tally, bins, found_bin)
+  subroutine get_scoring_bins(index_tally, bins, found_bin)
 
-    type(Particle), pointer :: p
     integer, intent(in)     :: index_tally
     integer, intent(out)    :: bins(N_FILTER_TYPES)
     logical, intent(out)    :: found_bin
 
-    integer :: i
-    integer :: n
-    integer :: mesh_bin
+    integer :: i        ! loop index for filters
+    integer :: n        ! number of bins for single filter
+    integer :: mesh_bin ! index for mesh bin
     type(TallyObject),    pointer :: t => null()
     type(StructuredMesh), pointer :: m => null()
 
@@ -714,9 +710,7 @@ contains
 ! determining which mesh surfaces were crossed
 !===============================================================================
 
-  subroutine score_surface_current(p)
-
-    type(Particle),    pointer :: p
+  subroutine score_surface_current()
 
     integer :: i                    ! loop indices
     integer :: j                    ! loop indices
@@ -743,16 +737,13 @@ contains
 
     bins = 1
 
-    do i = 1, n_tallies
+    do i = 1, n_current_tallies
        ! Copy starting and ending location of particle
        xyz0 = p % last_xyz
        xyz1 = p % coord0 % xyz
 
        ! Get pointer to tally
-       t => tallies(i)
-
-       ! Skip non-surface-current tallies
-       if (t % type /= TALLY_SURFACE_CURRENT) cycle
+       t => tallies(current_tallies(i))
 
        ! Determine indices for starting and ending location
        m => meshes(t % mesh)
@@ -869,9 +860,9 @@ contains
        ! Bounding coordinates
        do j = 1, 3
           if (uvw(j) > 0) then
-             xyz_cross(j) = m % origin(j) + ijk0(j) * m % width(j)
+             xyz_cross(j) = m % lower_left(j) + ijk0(j) * m % width(j)
           else
-             xyz_cross(j) = m % origin(j) + (ijk0(j) - 1) * m % width(j)
+             xyz_cross(j) = m % lower_left(j) + (ijk0(j) - 1) * m % width(j)
           end if
        end do
 
@@ -1051,10 +1042,30 @@ contains
     type(TallyScore), intent(inout) :: score
     real(8),          intent(in)    :: val
     
-    score % n_events    = score % n_events    + 1
-    score % val_history = score % val_history + val
+    score % n_events = score % n_events + 1
+    score % value    = score % value    + val
     
   end subroutine add_to_score
+
+!===============================================================================
+! ACCUMULATE_CYCLE_ESTIMATE
+!===============================================================================
+
+  elemental subroutine accumulate_cycle_estimate(score)
+
+    type(TallyScore), intent(inout) :: score
+
+    ! Add the sum and square of the sum of contributions from each cycle
+    ! within a cycle to the variables sum and sum_sq. This will later allow us
+    ! to calculate a variance on the tallies
+
+    score % sum    = score % sum    + score % value/n_particles
+    score % sum_sq = score % sum_sq + (score % value/n_particles)**2
+
+    ! Reset the single cycle estimate
+    score % value = ZERO
+
+  end subroutine accumulate_cycle_estimate
 
 !===============================================================================
 ! SYNCHRONIZE_TALLIES accumulates the sum of the contributions from each history
@@ -1064,10 +1075,7 @@ contains
   subroutine synchronize_tallies()
 
     integer :: i   ! index in tallies array
-    integer :: j   ! index over filter bins
-    integer :: k   ! index over scoring bins
-    real(8) :: val ! value of accumulated tally
-    type(TallyObject), pointer :: t
+    type(TallyObject), pointer :: t => null()
 
 #ifdef MPI
     call reduce_tallies()
@@ -1078,25 +1086,59 @@ contains
        t => tallies(i)
 
        ! Loop over all filter and scoring bins
-       do j = 1, t % n_total_bins
-          do k = 1, t % n_score_bins
-             ! Add the sum and square of the sum of contributions from each
-             ! history within a cycle to the variables val and val_sq. This will
-             ! later allow us to calculate a variance on the tallies
-
-             val = t % scores(j,k) % val_history / n_particles
-             t % scores(j,k) % val    = t % scores(j,k) % val    + val
-             t % scores(j,k) % val_sq = t % scores(j,k) % val_sq + val*val
-
-             ! Reset the within-cycle accumulation variable
-
-             t % scores(j,k) % val_history = ZERO
-          end do
-       end do
-
+       call accumulate_cycle_estimate(t % scores)
     end do
 
   end subroutine synchronize_tallies
+
+!===============================================================================
+! REDUCE_TALLIES collects all the results from tallies onto one processor
+!===============================================================================
+
+#ifdef MPI
+  subroutine reduce_tallies()
+
+    integer :: i      ! loop index for tallies
+    integer :: n      ! number of filter bins
+    integer :: m      ! number of score bins
+    integer :: n_bins ! total number of bins
+    real(8), allocatable :: tally_temp(:,:) ! contiguous array of scores
+    type(TallyObject), pointer :: t => null()
+
+    do i = 1, n_tallies
+       t => tallies(i)
+
+       n = t % n_total_bins
+       m = t % n_score_bins
+       n_bins = n*m
+
+       allocate(tally_temp(n,m))
+
+       tally_temp = t % scores(:,:) % value
+
+       if (master) then
+          ! The MPI_IN_PLACE specifier allows the master to copy values into a
+          ! receive buffer without having a temporary variable
+          call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
+               0, MPI_COMM_WORLD, mpi_err)
+
+          ! Transfer values to value on master
+          t % scores(:,:) % value = tally_temp
+       else
+          ! Receive buffer not significant at other processors
+          call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
+               0, MPI_COMM_WORLD, mpi_err)
+
+          ! Reset value on other processors
+          t % scores(:,:) % value = 0
+       end if
+
+       deallocate(tally_temp)
+
+    end do
+
+  end subroutine reduce_tallies
+#endif
 
 !===============================================================================
 ! WRITE_TALLIES creates an output file and writes out the mean values of all
@@ -1248,8 +1290,8 @@ contains
           do k = 1, t % n_score_bins
              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
                   repeat(" ", indent), score_name(abs(t % score_bins(k) % scalar)), &
-                  to_str(t % scores(score_index,k) % val), &
-                  trim(to_str(t % scores(score_index,k) % val_sq))
+                  to_str(t % scores(score_index,k) % sum), &
+                  trim(to_str(t % scores(score_index,k) % sum_sq))
           end do
           indent = indent - 2
 
@@ -1325,15 +1367,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Left", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Left", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 ! Right Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1341,15 +1383,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Right", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Right", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 ! Back Surface
                 bins(1:3) = (/ i, j-1, k /) + 1
@@ -1357,15 +1399,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Back", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Back", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 ! Front Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1373,15 +1415,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Front", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Front", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 ! Bottom Surface
                 bins(1:3) = (/ i, j, k-1 /) + 1
@@ -1389,15 +1431,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Bottom", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Bottom", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 ! Top Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1405,15 +1447,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Top", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Top", &
-                     to_str(t % scores(score_index,1) % val), &
-                     trim(to_str(t % scores(score_index,1) % val_sq))
+                     to_str(t % scores(score_index,1) % sum), &
+                     trim(to_str(t % scores(score_index,1) % sum_sq))
              end do
 
           end do
@@ -1432,7 +1474,7 @@ contains
     type(TallyObject), pointer :: t           ! tally object
     integer, intent(in)        :: filter_type ! type of filter
     integer, intent(in)        :: bin         ! bin in filter array
-    character(30)              :: label         ! user-specified identifier
+    character(30)              :: label       ! user-specified identifier
 
     integer              :: i      ! index in cells/surfaces/etc array
     integer, allocatable :: ijk(:) ! indices in mesh
@@ -1480,6 +1522,20 @@ contains
   end function get_label
 
 !===============================================================================
+! CALCULATE_STATISTICS
+!===============================================================================
+
+  elemental subroutine calculate_statistics(score)
+
+    type(TallyScore), intent(inout) :: score
+
+    ! Calculate mean and standard deviation of the mean
+    score % sum    = score % sum/n_active
+    score % sum_sq = sqrt((score % sum_sq/n_active - score % sum**2)/n_active)
+
+  end subroutine calculate_statistics
+
+!===============================================================================
 ! TALLY_STATISTICS computes the mean and standard deviation of the mean of each
 ! tally and stores them in the val and val_sq attributes of the TallyScores
 ! respectively
@@ -1488,38 +1544,17 @@ contains
   subroutine tally_statistics()
 
     integer :: i    ! index in tallies array
-    integer :: j    ! loop index for filter bins
-    integer :: k    ! loop index for scoring bins
-    integer :: n    ! number of active cycles
-    real(8) :: val  ! sum(x)
-    real(8) :: val2 ! sum(x*x)
-    real(8) :: mean ! mean value
-    real(8) :: std  ! standard deviation of the mean
-    type(TallyObject), pointer :: t
+    type(TallyObject), pointer :: t => null()
 
-    ! Number of active cycles
-    n = n_cycles - n_inactive
-
+    ! Calculate statistics for user-defined tallies
     do i = 1, n_tallies
        t => tallies(i)
 
-       do j = 1, t % n_total_bins
-          do k = 1, t % n_score_bins
-             ! Copy values from tallies
-             val  = t % scores(j,k) % val
-             val2 = t % scores(j,k) % val_sq
-
-             ! Calculate mean and standard deviation
-             mean = val/n
-             std = sqrt((val2/n - mean*mean)/n)
-
-             ! Copy back into TallyScore
-             t % scores(j,k) % val    = mean
-             t % scores(j,k) % val_sq = std
-          end do
-       end do
-
+       call calculate_statistics(t % scores)
     end do
+
+    ! Calculate statistics for global tallies
+    call calculate_statistics(global_tallies)
 
   end subroutine tally_statistics
 

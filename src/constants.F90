@@ -80,15 +80,15 @@ module constants
 
   ! Lattice types
   integer, parameter ::  &
-       LATTICE_RECT = 1, &
-       LATTICE_HEX  = 2
+       LATTICE_RECT = 1, & ! Rectangular lattice
+       LATTICE_HEX  = 2    ! Hexagonal lattice
 
   ! Lattice boundary crossings
   integer, parameter ::    &
-       LATTICE_LEFT   = 1, &
-       LATTICE_RIGHT  = 2, &
-       LATTICE_BOTTOM = 3, &
-       LATTICE_TOP    = 4
+       LATTICE_LEFT   = 1, & ! Flag for crossing left lattice boundary
+       LATTICE_RIGHT  = 2, & ! Flag for crossing right lattice boundary
+       LATTICE_BOTTOM = 3, & ! Flag for crossing bottom lattice boundary
+       LATTICE_TOP    = 4    ! Flag for crossing top lattice boundary
 
   ! Surface types
   integer, parameter ::  &
@@ -296,6 +296,14 @@ module constants
        IN_TOP    = 5,   &
        OUT_TOP   = 6
 
+  ! Global tallY parameters
+  integer, parameter :: N_GLOBAL_TALLIES = 4
+  integer, parameter :: &
+       K_ANALOG      = 1, &
+       K_COLLISION   = 2, &
+       K_TRACKLENGTH = 3, &
+       LEAKAGE       = 4
+
   ! ============================================================================
   ! MISCELLANEOUS CONSTANTS
 
@@ -321,6 +329,6 @@ module constants
   integer, parameter :: UNIT_SUMMARY = 11 ! unit # for writing summary file
   integer, parameter :: UNIT_TALLY   = 12 ! unit # for writing tally file
   integer, parameter :: UNIT_PLOT    = 13 ! unit # for writing plot file
+  integer, parameter :: UNIT_XS      = 14 ! unit # for writing xs summary file
 
 end module constants
-

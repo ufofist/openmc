@@ -8,6 +8,8 @@ module input_xml
   use global
   use mesh_header,     only: StructuredMesh
   use output,          only: write_message
+  use plot_header
+  use random_lcg,      only: prn
   use string,          only: lower_case, to_str, str_to_int, str_to_real, &
                              split_string, starts_with, ends_with
   use tally_header,    only: TallyObject
@@ -30,7 +32,7 @@ contains
     call read_geometry_xml()
     call read_materials_xml()
     call read_tallies_xml()
-    if (plotting) call read_plot_xml()
+    if (plotting) call read_plots_xml()
 
   end subroutine read_input_xml
 
@@ -91,9 +93,18 @@ contains
     ! Criticality information
     if (criticality % cycles > 0) then
        problem_type = PROB_CRITICALITY
-       n_particles = criticality % particles
+
+       ! Check number of particles
+       if (len_trim(criticality % particles) == 0) then
+          message = "Need to specify number of particles per cycles."
+          call fatal_error()
+       end if
+       n_particles = str_to_int(criticality % particles)
+
+       ! Copy cycle information
        n_cycles    = criticality % cycles
        n_inactive  = criticality % inactive
+       n_active    = n_cycles - n_inactive
     end if
 
     ! Verbosity
@@ -144,24 +155,50 @@ contains
        trace_particle = trace_(2)
     end if
 
-    ! Entropy box
-    if (associated(entropy_box_)) then
+    ! Shannon Entropy mesh
+    if (size(entropy_) > 0) then
        ! Check to make sure enough values were supplied
-       if (size(entropy_box_) /= 6) then
-          message = "Need to supply lower-left and upper-right coordinates &
-               &for Shannon entropy box."
+       if (size(entropy_(1) % lower_left) /= 3) then
+          message = "Need to specify (x,y,z) coordinates of lower-left corner &
+               &of Shannon entropy mesh."
+       elseif (size(entropy_(1) % upper_right) /= 3) then
+          message = "Need to specify (x,y,z) coordinates of upper-right corner &
+               &of Shannon entropy mesh."
+       end if
+
+       ! Allocate mesh object and coordinates on mesh
+       allocate(entropy_mesh)
+       allocate(entropy_mesh % lower_left(3))
+       allocate(entropy_mesh % upper_right(3))
+
+       ! Copy values
+       entropy_mesh % lower_left  = entropy_(1) % lower_left
+       entropy_mesh % upper_right = entropy_(1) % upper_right
+
+       ! Check on values provided
+       if (.not. all(entropy_mesh % upper_right > entropy_mesh % lower_left)) then
+          message = "Upper-right coordinate must be greater than lower-left &
+               &coordinate for Shannon entropy mesh."
           call fatal_error()
        end if
 
-       ! Copy values
-       entropy_lower_left = entropy_box_(1:3)
-       entropy_upper_right = entropy_box_(4:6)
+       ! Check if dimensions were specified -- if not, they will be calculated
+       ! automatically upon first entry into shannon_entropy
 
-       ! Check on values provided
-       if (.not. all(entropy_upper_right > entropy_lower_left)) then
-          message = "Upper-right coordinate must be greater than lower-left &
-               &coordinate for Shannon entropy box."
-          call fatal_error()
+       if (associated(entropy_(1) % dimension)) then
+          ! If so, make sure proper number of values were given
+          if (size(entropy_(1) % dimension) /= 3) then
+             message = "Dimension of entropy mesh must be given as three &
+                  &integers."
+             call fatal_error()
+          end if
+
+          ! Allocate dimensions
+          entropy_mesh % n_dimension = 3
+          allocate(entropy_mesh % dimension(3))
+
+          ! Copy dimensions
+          entropy_mesh % dimension = entropy_(1) % dimension
        end if
 
        ! Turn on Shannon entropy calculation
@@ -408,19 +445,19 @@ contains
        l % n_x = n_x
        l % n_y = n_y
 
-       ! Read lattice origin location
-       if (size(lattice_(i) % dimension) /= size(lattice_(i) % origin)) then
-          message = "Number of entries on <origin> must be the same as " // &
+       ! Read lattice lower-left location
+       if (size(lattice_(i) % dimension) /= size(lattice_(i) % lower_left)) then
+          message = "Number of entries on <lower_left> must be the same as " // &
                "the number of entries on <dimension>."
           call fatal_error()
        end if
-       l % x0 = lattice_(i) % origin(1)
-       l % y0 = lattice_(i) % origin(2)
+       l % x0 = lattice_(i) % lower_left(1)
+       l % y0 = lattice_(i) % lower_left(2)
 
        ! Read lattice widths
-       if (size(lattice_(i) % width) /= size(lattice_(i) % origin)) then
+       if (size(lattice_(i) % width) /= size(lattice_(i) % lower_left)) then
           message = "Number of entries on <width> must be the same as " // &
-               "the number of entries on <origin>."
+               "the number of entries on <lower_left>."
           call fatal_error()
        end if
        l % width_x = lattice_(i) % width(1)
@@ -450,14 +487,15 @@ contains
 
     use xml_data_materials_t
 
-    integer :: i, j
-    integer :: n
-    real(8) :: val
-    logical :: file_exists
-    character(3) :: default_xs
-    character(MAX_WORD_LEN) :: units
-    character(12)           :: name
-    character(MAX_LINE_LEN) :: filename
+    integer :: i           ! loop index for materials
+    integer :: j           ! loop index for nuclides
+    integer :: n           ! number of nuclides
+    real(8) :: val         ! value entered for density
+    logical :: file_exists ! does materials.xml exist?
+    character(3)            :: default_xs ! default xs identifier (e.g. 70c)
+    character(12)           :: name       ! name of nuclide
+    character(MAX_WORD_LEN) :: units      ! units on density
+    character(MAX_LINE_LEN) :: filename   ! absolute path to materials.xml
     type(Material),    pointer :: m => null()
     type(nuclide_xml), pointer :: nuc => null()
     type(sab_xml),     pointer :: sab => null()
@@ -609,15 +647,18 @@ contains
 
     use xml_data_tallies_t
 
-    integer :: i           ! loop over user-specified tallies
-    integer :: j           ! loop over words
-    integer :: id          ! user-specified identifier
-    integer :: i_mesh      ! index in meshes array
-    integer :: n           ! size of arrays in mesh specification
-    integer :: n_words     ! number of words read
-    integer :: n_filters   ! number of filters
+    integer :: i             ! loop over user-specified tallies
+    integer :: j             ! loop over words
+    integer :: i_analog      ! index in analog_tallies array
+    integer :: i_tracklength ! index in tracklength_tallies array
+    integer :: i_current     ! index in current_tallies array
+    integer :: id            ! user-specified identifier
+    integer :: i_mesh        ! index in meshes array
+    integer :: n             ! size of arrays in mesh specification
+    integer :: n_words       ! number of words read
+    integer :: n_filters     ! number of filters
     integer :: filters(N_FILTER_TYPES) ! temporary list of filters
-    logical :: file_exists ! does tallies.xml file exist?
+    logical :: file_exists   ! does tallies.xml file exist?
     character(MAX_LINE_LEN) :: filename
     character(MAX_WORD_LEN) :: word
     character(MAX_WORD_LEN) :: words(MAX_WORDS)
@@ -661,6 +702,9 @@ contains
        allocate(tallies(n_tallies))
     end if
 
+    ! Check for <assume_separate> setting
+    if (separate_ == 'yes') assume_separate = .true.
+
     ! ==========================================================================
     ! READ MESH DATA
 
@@ -693,31 +737,31 @@ contains
 
        ! Allocate attribute arrays
        allocate(m % dimension(n))
-       allocate(m % origin(n))
+       allocate(m % lower_left(n))
        allocate(m % width(n))
        allocate(m % upper_right(n))
 
        ! Read dimensions in each direction
        m % dimension = mesh_(i) % dimension
 
-       ! Read mesh origin location
-       if (m % n_dimension /= size(mesh_(i) % origin)) then
-          message = "Number of entries on <origin> must be the same as the &
-               &number of entries on <dimension>."
+       ! Read mesh lower-left corner location
+       if (m % n_dimension /= size(mesh_(i) % lower_left)) then
+          message = "Number of entries on <lower_left> must be the same as &
+               &the number of entries on <dimension>."
           call fatal_error()
        end if
-       m % origin = mesh_(i) % origin
+       m % lower_left = mesh_(i) % lower_left
 
        ! Read mesh widths
-       if (size(mesh_(i) % width) /= size(mesh_(i) % origin)) then
+       if (size(mesh_(i) % width) /= size(mesh_(i) % lower_left)) then
           message = "Number of entries on <width> must be the same as the &
-               &number of entries on <origin>."
+               &number of entries on <lower_left>."
           call fatal_error()
        end if
        m % width = mesh_(i) % width
 
        ! Set upper right coordinate
-       m % upper_right = m % origin + m % dimension * m % width
+       m % upper_right = m % lower_left + m % dimension * m % width
 
        ! Add mesh to dictionary
        call dict_add_key(mesh_dict, m % id, i)
@@ -851,26 +895,22 @@ contains
        end if
 
        ! Read incoming energy filter bins
-       if (len_trim(tally_(i) % filters % energy) > 0) then
-          call split_string(tally_(i) % filters % energy, words, n_words)
-          allocate(t % energy_in(n_words))
-          do j = 1, n_words
-             t % energy_in(j) = str_to_real(words(j))
-          end do
-          t % n_filter_bins(FILTER_ENERGYIN) = n_words - 1
+       if (associated(tally_(i) % filters % energy)) then
+          n = size(tally_(i) % filters % energy)
+          allocate(t % energy_in(n))
+          t % energy_in = tally_(i) % filters % energy
+          t % n_filter_bins(FILTER_ENERGYIN) = n - 1
 
           n_filters = n_filters + 1
           filters(n_filters) = FILTER_ENERGYIN
        end if
 
        ! Read outgoing energy filter bins
-       if (len_trim(tally_(i) % filters % energyout) > 0) then
-          call split_string(tally_(i) % filters % energyout, words, n_words)
-          allocate(t % energy_out(n_words))
-          do j = 1, n_words
-             t % energy_out(j) = str_to_real(words(j))
-          end do
-          t % n_filter_bins(FILTER_ENERGYOUT) = n_words - 1
+       if (associated(tally_(i) % filters % energyout)) then
+          n = size(tally_(i) % filters % energyout)
+          allocate(t % energy_out(n))
+          t % energy_out = tally_(i) % filters % energyout
+          t % n_filter_bins(FILTER_ENERGYOUT) = n - 1
 
           ! Set tally estimator to analog
           t % estimator = ESTIMATOR_ANALOG
@@ -885,8 +925,8 @@ contains
        t % filters = filters(1:n_filters)
 
        ! Read macro reactions
-       if (len_trim(tally_(i) % macros) > 0) then
-          call split_string(tally_(i) % macros, words, n_words)
+       if (len_trim(tally_(i) % scores) > 0) then
+          call split_string(tally_(i) % scores, words, n_words)
           allocate(t % score_bins(n_words))
           do j = 1, n_words
              word = words(j)
@@ -1005,27 +1045,67 @@ contains
           t % n_score_bins = n_words
        end if
 
+       ! Count number of tallies by type
+       if (t % type == TALLY_VOLUME) then
+          if (t % estimator == ESTIMATOR_ANALOG) then
+             n_analog_tallies = n_analog_tallies + 1
+          elseif (t % estimator == ESTIMATOR_TRACKLENGTH) then
+             n_tracklength_tallies = n_tracklength_tallies + 1
+          end if
+       elseif (t % type == TALLY_SURFACE_CURRENT) then
+          n_current_tallies = n_current_tallies + 1
+       end if
+    end do
+
+    ! Allocate list of pointers for tallies by type
+    allocate(analog_tallies(n_analog_tallies))
+    allocate(tracklength_tallies(n_tracklength_tallies))
+    allocate(current_tallies(n_current_tallies))
+
+    ! Set indices for tally pointer lists to zero
+    i_analog = 0
+    i_tracklength = 0
+    i_current = 0
+
+    do i = 1, n_tallies
+       t => tallies(i)
+
+       ! Increment the appropriate index and set pointer
+       if (t % type == TALLY_VOLUME) then
+          if (t % estimator == ESTIMATOR_ANALOG) then
+             i_analog = i_analog + 1
+             analog_tallies(i_analog) = i
+          elseif (t % estimator == ESTIMATOR_TRACKLENGTH) then
+             i_tracklength = i_tracklength + 1
+             tracklength_tallies(i_tracklength) = i
+          end if
+       elseif (t % type == TALLY_SURFACE_CURRENT) then
+          i_current = i_current + 1
+          current_tallies(i_current) = i
+       end if
     end do
 
   end subroutine read_tallies_xml
 
 !===============================================================================
-! READ_TALLIES_XML reads data from a tallies.xml file and parses it, checking
-! for errors and placing properly-formatted data in the right data structures
+! READ_PLOTS_XML reads data from a plots.xml file
 !===============================================================================
 
-  subroutine read_plot_xml
+  subroutine read_plots_xml
 
-    use xml_data_plot_t
+    use xml_data_plots_t
 
-    logical :: file_exists ! does tallies.xml file exist?
-    character(MAX_LINE_LEN) :: filename
+    integer i, j
+    integer n_cols, col_id
+    logical :: file_exists              ! does plots.xml file exist?
+    character(MAX_LINE_LEN) :: filename ! absolute path to plots.xml
+    type(Plot),         pointer :: pl => null()
 
-    ! Check if plot.xml exists
-    filename = trim(path_input) // "plot.xml"
+    ! Check if plots.xml exists
+    filename = trim(path_input) // "plots.xml"
     inquire(FILE=filename, EXIST=file_exists)
     if (.not. file_exists) then
-       message = "Plot XML file '" // trim(filename) // "' does not exist!"
+       message = "Plots XML file '" // trim(filename) // "' does not exist!"
        call fatal_error()
     end if
     
@@ -1033,33 +1113,171 @@ contains
     message = "Reading plot XML file..."
     call write_message(5)
 
-    ! Parse plot.xml file
-    call read_xml_file_plot_t(filename)
+    ! Parse plots.xml file
+    call read_xml_file_plots_t(filename)
 
-    ! Copy plotting origin
-    if (size(origin_) == 3) then
-       plot_origin = origin_
-    end if
+    ! Allocate plots array
+    n_plots = size(plot_)
+    allocate(plots(n_plots))
 
-    ! Copy plotting width
-    if (size(width_) == 2) then
-       plot_width = width_
-    end if
+    do i = 1, n_plots
+      pl => plots(i)
 
-    ! Read basis
-    select case (basis_)
-    case ("xy")
-       plot_basis = (/ 1, 0, 0, 0, 1, 0 /)
-    case ("yz")
-       plot_basis = (/ 0, 1, 0, 0, 0, 1 /)
-    case ("xz")
-       plot_basis = (/ 1, 0, 0, 0, 0, 1 /)
-    end select
+      ! Copy data into plots
+      pl % id       = plot_(i) % id
 
-    ! Read pixel width
-    pixel = pixel_
+      ! Set output file path
+      pl % path_plot = trim(path_input) // trim(to_str(pl % id)) // &
+                       "_" // trim(plot_(i) % filename) // ".ppm"
 
-  end subroutine read_plot_xml
+      ! Copy plot pixel size
+      if (size(plot_(i) % pixels) == 2) then
+        pl % pixels = plot_(i) % pixels
+      else
+        message = "<pixels> must be length 2 in plot " // to_str(pl % id)
+        call fatal_error()
+      end if
+
+      ! Copy plot background color
+      if (size(plot_(i) % background) == 3) then
+         pl % not_found % rgb = plot_(i) % background
+      else if (size(plot_(i) % background) == 0) then
+         pl % not_found % rgb = (/ 255, 255, 255 /)
+      else
+          message = "Bad background RGB " &
+                    // "in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end if
+
+      ! Copy plot type
+      select case (plot_(i) % type)
+        case ("slice")
+          pl % type = PLOT_TYPE_SLICE
+        !case ("points")
+        !  pl % type = PLOT_TYPE_POINTS
+        case default
+          message = "Unsupported plot type '" // plot_(i) % type &
+                    // "' in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end select
+
+      ! Copy plot basis
+      select case (plot_(i) % basis)
+        case ("xy")
+          pl % basis = PLOT_BASIS_XY
+        case ("xz")
+          pl % basis = PLOT_BASIS_XZ
+        case ("yz")
+          pl % basis = PLOT_BASIS_YZ
+        case default
+          message = "Unsupported plot basis '" // plot_(i) % basis &
+                    // "' in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end select
+
+      ! Copy plotting origin
+      if (size(plot_(i) % origin) == 3) then
+         pl % origin = plot_(i) % origin
+      else
+          message = "Origin must be length 3 " &
+                    // "in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end if
+
+      ! Copy plotting width
+      if (size(plot_(i) % width) == 3) then
+         pl % width = plot_(i) % width
+      else if (size(plot_(i) % width) == 2) then
+         pl % width(1) = plot_(i) % width(1)
+         pl % width(2) = plot_(i) % width(2)
+      else
+          message = "Bad plot width " &
+                    // "in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end if
+
+      ! Copy plot color type and initialize all colors randomly
+      select case (plot_(i) % color)
+        case ("cell")
+
+          pl % color_by = PLOT_COLOR_CELLS
+          allocate(pl % colors(n_cells))
+          do j = 1, n_cells
+            pl % colors(j) % rgb(1) = prn()*255
+            pl % colors(j) % rgb(2) = prn()*255
+            pl % colors(j) % rgb(3) = prn()*255
+          end do
+
+        case ("mat")
+
+          pl % color_by = PLOT_COLOR_MATS
+          allocate(pl % colors(n_materials))
+          do j = 1, n_materials
+            pl % colors(j) % rgb(1) = prn()*255
+            pl % colors(j) % rgb(2) = prn()*255
+            pl % colors(j) % rgb(3) = prn()*255
+          end do
+
+        case default
+          message = "Unsupported plot color type '" // plot_(i) % color &
+                    // "' in plot " // trim(to_str(pl % id))
+          call fatal_error()
+      end select
+
+      ! Copy user specified colors
+      n_cols = size(plot_(i) % col_spec_)
+      do j = 1, n_cols
+        if (size(plot_(i) % col_spec_(j) % rgb) /= 3) then
+          message = "Bad RGB " &
+                    // "in plot " // trim(to_str(pl % id))
+          call fatal_error()          
+        end if
+
+        col_id = plot_(i) % col_spec_(j) % id
+
+        if (pl % color_by == PLOT_COLOR_CELLS) then
+
+          if (dict_has_key(cell_dict, col_id)) then
+            pl % colors(col_id) % rgb = plot_(i) % col_spec_(j) % rgb
+          else
+            message = "Could not find cell " // trim(to_str(col_id)) // &
+                      " specified in plot " // trim(to_str(pl % id))
+            call fatal_error()
+          end if
+
+        else if (pl % color_by == PLOT_COLOR_MATS) then
+
+          if (dict_has_key(material_dict, col_id)) then
+            pl % colors(col_id) % rgb = plot_(i) % col_spec_(j) % rgb
+          else
+            message = "Could not find material " // trim(to_str(col_id)) // &
+                      " specified in plot " // trim(to_str(pl % id))
+            call fatal_error()
+          end if
+
+        end if
+
+      end do
+
+      ! Alter colors based on mask information
+      if (size(plot_(i) % mask_) > 1) then
+        message = "Mutliple masks" // &
+                  " specified in plot " // trim(to_str(pl % id))
+        call fatal_error()
+      else if (.not. size(plot_(i) % mask_) == 0) then
+          do j=1,size(pl % colors)
+            if (.not. any(j .eq. plot_(i) % mask_(1) % components)) then
+              pl % colors(j) % rgb = plot_(i) % mask_(1) % background
+            end if
+          end do
+      end if
+      
+      
+
+
+    end do
+
+  end subroutine read_plots_xml
 
 !===============================================================================
 ! READ_CROSS_SECTIONS_XML reads information from a cross_sections.xml file. This
@@ -1075,7 +1293,7 @@ contains
     integer :: recl        ! default record length
     integer :: entries     ! default number of entries
     logical :: file_exists ! does cross_sections.xml exist?
-    character(MAX_WORD_LEN)  :: directory
+    character(MAX_WORD_LEN)  :: directory ! directory with cross sections
     type(XsListing), pointer :: listing => null()
 
     ! Check if cross_sections.xml exists

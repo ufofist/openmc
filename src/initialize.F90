@@ -6,7 +6,7 @@ module initialize
   use datatypes,        only: dict_create, dict_add_key, dict_get_key,         &
                               dict_has_key, dict_keys
   use datatypes_header, only: ListKeyValueII, DictionaryII
-  use energy_grid,      only: unionized_grid, original_indices
+  use energy_grid,      only: unionized_grid
   use error,            only: fatal_error
   use geometry,         only: neighbor_lists
   use geometry_header,  only: Cell, Surface, Universe, Lattice, BASE_UNIVERSE
@@ -14,7 +14,8 @@ module initialize
   use input_xml,        only: read_input_xml, read_cross_sections_xml,         &
                               cells_in_univ_dict
   use output,           only: title, header, print_summary, print_geometry,    &
-                              print_plot, create_summary_file
+                              print_plot, create_summary_file,                 &
+                              create_xs_summary_file
   use random_lcg,       only: initialize_prng
   use source,           only: initialize_source
   use string,           only: to_str, starts_with, ends_with, lower_case
@@ -56,8 +57,9 @@ contains
     call read_command_line()
 
     if (master) then
-       ! Create summary.out file
+       ! Create output files
        call create_summary_file()
+       call create_xs_summary_file()
 
 #ifdef HDF5
        ! Open HDF5 output file for writing and write header information
@@ -106,7 +108,6 @@ contains
        ! Construct unionized energy grid from cross-sections
        call timer_start(time_unionize)
        call unionized_grid()
-       call original_indices()
        call timer_stop(time_unionize)
 
        ! Create tally map
@@ -115,19 +116,19 @@ contains
        ! set up leakage mesh
        leakage_mesh % n_dimension = 3
        allocate(leakage_mesh % dimension(3))
-       allocate(leakage_mesh % origin(3))
+       allocate(leakage_mesh % lower_left(3))
        allocate(leakage_mesh % upper_right(3))
        allocate(leakage_mesh % width(3))
        leakage_mesh % dimension = (/ lmesh_nx, lmesh_ny, lmesh_nz /)
-       leakage_mesh % origin = (/ -182.07, -182.07, -183.0 /)
+       leakage_mesh % lower_left = (/ -182.07, -182.07, -183.0 /)
        leakage_mesh % width = (/ 364.14/lmesh_nx, 364.14/lmesh_ny, 366.0/lmesh_nz /)
-       leakage_mesh % upper_right = leakage_mesh % origin + &
+       leakage_mesh % upper_right = leakage_mesh % lower_left + &
             leakage_mesh % dimension * leakage_mesh % width
 
-       allocate(leakage(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
-       allocate(starting_source(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
-       leakage = ZERO
-       starting_source = ZERO
+       allocate(stage_leakage(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
+       allocate(stage_source(lmesh_nx,lmesh_ny,lmesh_nz,MAX_STAGES))
+       stage_leakage = ZERO
+       stage_source = ZERO
 
        ! create source particles
        call initialize_source()
@@ -160,11 +161,9 @@ contains
   subroutine setup_mpi()
 
 #ifdef MPI
-    integer        :: i
     integer        :: bank_blocks(4) ! Count for each datatype
     integer        :: bank_types(4)  ! Datatypes
     integer(MPI_ADDRESS_KIND) :: bank_disp(4)   ! Displacements
-    integer(MPI_ADDRESS_KIND) :: base
     type(Bank)     :: b
 
     mpi_enabled = .true.
@@ -204,10 +203,7 @@ contains
     call MPI_GET_ADDRESS(b % E,   bank_disp(4), mpi_err)
 
     ! Adjust displacements 
-    base = bank_disp(1)
-    do i = 1, 4
-       bank_disp(i) = bank_disp(i) - base
-    end do
+    bank_disp = bank_disp - bank_disp(1)
     
     ! Define MPI_BANK for fission sites
     bank_blocks = (/ 1, 3, 3, 1 /)
@@ -382,11 +378,11 @@ contains
 
   subroutine adjust_indices()
 
-    integer                 :: i            ! index in cells array
-    integer                 :: j            ! index over surface list
-    integer                 :: k
-    integer                 :: i_array      ! index in surfaces/materials array 
-    integer                 :: id           ! user-specified id
+    integer :: i       ! index for various purposes
+    integer :: j       ! index for various purposes
+    integer :: k       ! loop index for lattices
+    integer :: i_array ! index in surfaces/materials array 
+    integer :: id      ! user-specified id
     type(Cell),        pointer :: c => null()
     type(Lattice),     pointer :: l => null()
     type(TallyObject), pointer :: t => null()

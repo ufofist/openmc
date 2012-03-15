@@ -34,10 +34,10 @@ module tally_header
 !===============================================================================
 
   type TallyScore
-     integer :: n_events    = 0
-     real(8) :: val_history = 0.
-     real(8) :: val         = 0.
-     real(8) :: val_sq      = 0.
+     integer :: n_events = 0
+     real(8) :: value    = 0.
+     real(8) :: sum      = 0.
+     real(8) :: sum_sq   = 0.
   end type TallyScore
 
 !===============================================================================
@@ -51,8 +51,9 @@ module tally_header
   end type TallyFilter
 
 !===============================================================================
-! TALLY describes a user-specified tally. The region of phase space to tally in
-! is given by the TallyBins and the scores are stored in a TallyScore array.
+! TALLYOBJECT describes a user-specified tally. The region of phase space to
+! tally in is given by the TallyBins and the scores are stored in a TallyScore
+! array.
 !===============================================================================
 
   type TallyObject

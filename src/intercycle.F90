@@ -1,12 +1,16 @@
 module intercycle
 
-  use ISO_FORTRAN_ENV
+  use, intrinsic :: ISO_FORTRAN_ENV
 
   use error,           only: fatal_error, warning
   use global
+  use mesh,            only: get_mesh_bin
+  use mesh_header,     only: StructuredMesh
   use output,          only: write_message
-  use particle_header, only: Particle, initialize_particle
   use random_lcg,      only: prn, set_particle_seed, prn_skip
+  use search,          only: binary_search
+  use string,          only: to_str
+  use tally,           only: accumulate_cycle_estimate
   use tally_header,    only: TallyObject
   use timing,          only: timer_start, timer_stop
 
@@ -22,36 +26,39 @@ contains
 ! scale to large numbers of processors where other codes cannot.
 !===============================================================================
 
-  subroutine synchronize_bank(i_cycle)
+  subroutine synchronize_bank()
 
-    integer, intent(in) :: i_cycle
-
-    integer    :: i, j, k         ! loop indices
-    integer(8) :: start           ! starting index in local fission bank
-    integer(8) :: finish          ! ending index in local fission bank
-    integer(8) :: total           ! total sites in global fission bank
-    integer(8) :: index_local     ! index for source bank
-    integer    :: send_to_left    ! # of bank sites to send/recv to or from left
-    integer    :: send_to_right   ! # of bank sites to send/recv to or from right
-    integer(8) :: sites_needed    ! # of sites to be sampled
-    real(8)    :: p_sample        ! probability of sampling a site
-    type(Bank), allocatable :: &
-         temp_sites(:), & ! local array of extra sites on each node
-         left_bank(:),  & ! bank sites to send/recv to or from left node
-         right_bank(:)    ! bank sites to send/recv to or fram right node
+    integer    :: i            ! loop indices
+    integer    :: j            ! loop indices
+    integer(8) :: start        ! starting index in global bank
+    integer(8) :: finish       ! ending index in global bank
+    integer(8) :: total        ! total sites in global fission bank
+    integer(8) :: index_temp   ! index in temporary source bank
+    integer(8) :: sites_needed ! # of sites to be sampled
+    real(8)    :: p_sample     ! probability of sampling a site
+    type(Bank), save, allocatable :: &
+         & temp_sites(:)       ! local array of extra sites on each node
 
 #ifdef MPI
-    integer    :: status(MPI_STATUS_SIZE) ! message status
-    integer    :: request         ! communication request for sending sites
-    integer    :: request_left    ! communication request for recv sites from left
-    integer    :: request_right   ! communication request for recv sites from right
+    integer    :: n            ! number of sites to send/recv
+    integer    :: neighbor     ! processor to send/recv data from
+    integer    :: request(20)  ! communication request for send/recving sites
+    integer    :: n_request    ! number of communication requests
+    integer(8) :: index_local  ! index in local source bank
+    integer(8), save, allocatable :: &
+         & bank_position(:)    ! starting positions in global source bank
 #endif
 
-    message = "Collecting number of fission sites..."
-    call write_message(8)
+    ! In order to properly understand the fission bank algorithm, you need to
+    ! think of the fission and source bank as being one global array divided
+    ! over multiple processors. At the start, each processor has a random amount
+    ! of fission bank sites -- each processor needs to know the total number of
+    ! sites in order to figure out the probability for selecting
+    ! sites. Furthermore, each proc also needs to know where in the 'global'
+    ! fission bank its own sites starts in order to ensure reproducibility by
+    ! skipping ahead to the proper seed.
 
 #ifdef MPI
-    ! Determine starting index for fission bank and total sites in fission bank
     start = 0_8
     call MPI_EXSCAN(n_bank, start, 1, MPI_INTEGER8, MPI_SUM, & 
          MPI_COMM_WORLD, mpi_err)
@@ -66,20 +73,26 @@ contains
     total  = n_bank
 #endif
 
-    ! Check if there are no fission sites
-    if (total == 0) then
-       message = "No fission sites banked!"
+    ! If there are not that many particles per cycle, it's possible that no
+    ! fission sites were created at all on a single processor. Rather than add
+    ! extra logic to treat this circumstance, we really want to ensure the user
+    ! runs enough particles to avoid this in the first place.
+
+    if (n_bank == 0) then
+       message = "No fission sites banked on processor " // to_str(rank)
        call fatal_error()
     end if
 
-    ! Make sure all processors start at the same point for random sampling
-    call set_particle_seed(int(i_cycle,8))
+    ! Make sure all processors start at the same point for random sampling by
+    ! using the current_cycle as the starting seed. Then skip ahead in the
+    ! sequence using the starting index in the 'global' fission bank for each
+    ! processor Skip ahead however many random numbers are needed
 
-    ! Skip ahead however many random numbers are needed
+    call set_particle_seed(int(current_cycle,8))
     call prn_skip(start)
 
-    allocate(temp_sites(2*work))
-    index_local = 0_8 ! Index for local source_bank
+    ! Determine how many fission sites we need to sample from the source bank
+    ! and the probability for selecting a site.
 
     if (total < n_particles) then
        sites_needed = mod(n_particles,total)
@@ -88,13 +101,15 @@ contains
     end if
     p_sample = real(sites_needed,8)/real(total,8)
 
-    message = "Sampling fission sites..."
-    call write_message(8)
-
     call timer_start(time_ic_sample)
 
     ! ==========================================================================
     ! SAMPLE N_PARTICLES FROM FISSION BANK AND PLACE IN TEMP_SITES
+
+    ! Allocate temporary source bank
+    index_temp = 0_8
+    if (.not. allocated(temp_sites)) allocate(temp_sites(3*work))
+
     do i = 1, int(n_bank,4)
 
        ! If there are less than n_particles particles banked, automatically add
@@ -102,233 +117,162 @@ contains
        ! 1000 and 300 were banked, this would add 3 source sites per banked site
        ! and the remaining 100 would be randomly sampled.
        if (total < n_particles) then
-          do j = 1,int(n_particles/total)
-             ! If index is within this node's range, add site to source
-             index_local = index_local + 1
-             temp_sites(index_local) = fission_bank(i)
+          do j = 1, int(n_particles/total)
+             index_temp = index_temp + 1
+             temp_sites(index_temp) = fission_bank(i)
           end do
        end if
 
        ! Randomly sample sites needed
        if (prn() < p_sample) then
-          index_local = index_local + 1
-          temp_sites(index_local) = fission_bank(i)
+          index_temp = index_temp + 1
+          temp_sites(index_temp) = fission_bank(i)
        end if
     end do
 
-    ! Now that we've sampled sites, check where the boundaries of data are for
-    ! the source bank
+    ! At this point, the sampling of source sites is done and now we need to
+    ! figure out where to send source sites. Since it is possible that one
+    ! processor's share of the source bank spans more than just the immediate
+    ! neighboring processors, we have to perform an ALLGATHER to determine the
+    ! indices for all processors
+
 #ifdef MPI
+    ! First do an exclusive scan to get the starting indices for 
     start = 0_8
-    call MPI_EXSCAN(index_local, start, 1, MPI_INTEGER8, MPI_SUM, & 
+    call MPI_EXSCAN(index_temp, start, 1, MPI_INTEGER8, MPI_SUM, & 
          MPI_COMM_WORLD, mpi_err)
-    finish = start + index_local
-    total = finish
-    call MPI_BCAST(total, 1, MPI_INTEGER8, n_procs - 1, & 
-         MPI_COMM_WORLD, mpi_err)
+    finish = start + index_temp
+
+    ! Allocate space for bank_position if this hasn't been done yet
+    if (.not. allocated(bank_position)) allocate(bank_position(n_procs))
+    call MPI_ALLGATHER(start, 1, MPI_INTEGER8, bank_position, 1, &
+         MPI_INTEGER8, MPI_COMM_WORLD, mpi_err)
 #else
     start  = 0_8
-    finish = index_local
-    total  = index_local
+    finish = index_temp
 #endif
-
-    ! Determine how many sites to send to adjacent nodes
-    send_to_left  = int(bank_first - 1_8 - start, 4)
-    send_to_right = int(finish - bank_last, 4)
-
-    ! Check to make sure number of sites is not more than size of bank
-    if (abs(send_to_left) > work .or. abs(send_to_right) > work) then
-       message = "Tried sending sites to neighboring process greater than " &
-            // "the size of the source bank."
-       call fatal_error()
-    end if
+    
+    ! Now that the sampling is complete, we need to ensure that we have exactly
+    ! n_particles source sites. The way this is done in a reproducible manner is
+    ! to adjust only the source sites on the last processor.
 
     if (rank == n_procs - 1) then
-       if (total > n_particles) then
+       if (finish > n_particles) then
           ! If we have extra sites sampled, we will simply discard the extra
           ! ones on the last processor
-          if (rank == n_procs - 1) then
-             index_local = index_local - send_to_right
-          end if
+          index_temp = n_particles - start
 
-       elseif (total < n_particles) then
-          ! If we have too few sites, grab sites from the very end of the
+       elseif (finish < n_particles) then
+          ! If we have too few sites, repeat sites from the very end of the
           ! fission bank
-          sites_needed = n_particles - total
+          sites_needed = n_particles - finish
           do i = 1, int(sites_needed,4)
-             index_local = index_local + 1
-             temp_sites(index_local) = fission_bank(n_bank - sites_needed + i)
+             index_temp = index_temp + 1
+             temp_sites(index_temp) = fission_bank(n_bank - sites_needed + i)
           end do
        end if
 
        ! the last processor should not be sending sites to right
-       send_to_right = 0
+       finish = bank_last
     end if
 
     call timer_stop(time_ic_sample)
     call timer_start(time_ic_sendrecv)
-
+    
 #ifdef MPI
-    message = "Sending fission sites..."
-    call write_message(8)
-
     ! ==========================================================================
     ! SEND BANK SITES TO NEIGHBORS
-    allocate(left_bank(abs(send_to_left)))
-    allocate(right_bank(abs(send_to_right)))
 
-    if (send_to_right > 0) then
-       i = index_local - send_to_right + 1
-       call MPI_ISEND(temp_sites(i), send_to_right, MPI_BANK, rank+1, 0, &
-            MPI_COMM_WORLD, request, mpi_err)
-    else if (send_to_right < 0) then
-       call MPI_IRECV(right_bank, -send_to_right, MPI_BANK, rank+1, 1, &
-            MPI_COMM_WORLD, request_right, mpi_err)
+    index_local = 1
+    n_request = 0
+
+    SEND_SITES: do while (start < finish)
+       ! Determine the index of the processor which has the first part of the
+       ! source_bank for the local processor
+       neighbor = start / maxwork
+
+       ! Determine the number of sites to send
+       n = min((neighbor + 1)*maxwork, finish) - start
+
+       ! Initiate an asynchronous send of source sites to the neighboring
+       ! process
+       if (neighbor /= rank) then
+          n_request = n_request + 1
+          call MPI_ISEND(temp_sites(index_local), n, MPI_BANK, neighbor, &
+               rank, MPI_COMM_WORLD, request(n_request), mpi_err)
+       end if
+
+       ! Increment all indices
+       start       = start       + n
+       index_local = index_local + n
+       neighbor    = neighbor    + 1
+    end do SEND_SITES
+
+    ! ==========================================================================
+    ! RECEIVE BANK SITES FROM NEIGHBORS OR TEMPORARY BANK
+
+    start = bank_first - 1
+    index_local = 1
+
+    ! Determine what process has the source sites that will need to be stored at
+    ! the beginning of this processor's source bank.
+
+    if (start >= bank_position(n_procs)) then
+       neighbor = n_procs - 1
+    else
+       neighbor = binary_search(bank_position, n_procs, start) - 1
     end if
 
-    if (send_to_left < 0) then
-       call MPI_IRECV(left_bank, -send_to_left, MPI_BANK, rank-1, 0, &
-            MPI_COMM_WORLD, request_left, mpi_err)
-    else if (send_to_left > 0) then
-       call MPI_ISEND(temp_sites(1), send_to_left, MPI_BANK, rank-1, 1, &
-            MPI_COMM_WORLD, request, mpi_err)
-    end if
+    RECV_SITES: do while (start < bank_last)
+       ! Determine how many sites need to be received
+       if (neighbor == n_procs - 1) then
+          n = min(n_particles, (rank+1)*maxwork) - start
+       else
+          n = min(bank_position(neighbor+2), min(n_particles, &
+               (rank+1)*maxwork)) - start
+       end if
+
+       if (neighbor /= rank) then
+          ! If the source sites are not on this processor, initiate an
+          ! asynchronous receive for the source sites
+
+          n_request = n_request + 1
+          call MPI_IRECV(source_bank(index_local), n, MPI_BANK, &
+               neighbor, neighbor, MPI_COMM_WORLD, request(n_request), mpi_err)
+
+       else
+          ! If the source sites are on this procesor, we can simply copy them
+          ! from the temp_sites bank
+
+          index_temp = start - bank_position(rank+1) + 1
+          source_bank(index_local:index_local+n-1) = &
+               temp_sites(index_temp:index_temp+n-1)
+       end if
+
+       ! Increment all indices
+       start       = start       + n
+       index_local = index_local + n
+       neighbor    = neighbor    + 1
+    end do RECV_SITES
+
+    ! Send we initiated a series of asynchronous ISENDs and IRECVs, now we have
+    ! to ensure that the data has actually been communicated before moving on to
+    ! the next cycle
+
+    call MPI_WAITALL(n_request, request, MPI_STATUSES_IGNORE, mpi_err)
+
+    ! Deallocate space for bank_position on the last cycle
+    if (current_cycle == n_cycles) deallocate(bank_position)
+#else
+    source_bank = temp_sites(1:n_particles)
 #endif
 
     call timer_stop(time_ic_sendrecv)
-    call timer_start(time_ic_rebuild)
 
-    message = "Constructing source bank..."
-    call write_message(8)
-
-    ! ==========================================================================
-    ! RECONSTRUCT SOURCE BANK
-    if (send_to_left < 0 .and. send_to_right >= 0) then
-       i = -send_to_left                      ! size of first block
-       j = int(index_local,4) - send_to_right ! size of second block
-       call copy_from_bank(temp_sites, i+1, j)
-#ifdef MPI
-       call MPI_WAIT(request_left, status, mpi_err)
-#endif
-       call copy_from_bank(left_bank, 1, i)
-    else if (send_to_left >= 0 .and. send_to_right < 0) then
-       i = int(index_local,4) - send_to_left ! size of first block
-       j = -send_to_right                    ! size of second block
-       call copy_from_bank(temp_sites(1+send_to_left), 1, i)
-#ifdef MPI
-       call MPI_WAIT(request_right, status, mpi_err)
-#endif
-       call copy_from_bank(right_bank, i+1, j)
-    else if (send_to_left >= 0 .and. send_to_right >= 0) then
-       i = int(index_local,4) - send_to_left - send_to_right
-       call copy_from_bank(temp_sites(1+send_to_left), 1, i)
-    else if (send_to_left < 0 .and. send_to_right < 0) then
-       i = -send_to_left
-       j = int(index_local,4)
-       k = -send_to_right
-       call copy_from_bank(temp_sites, i+1, j)
-#ifdef MPI
-       call MPI_WAIT(request_left, status, mpi_err)
-#endif
-       call copy_from_bank(left_bank, 1, i)
-#ifdef MPI
-       call MPI_WAIT(request_right, status, mpi_err)
-#endif
-       call copy_from_bank(right_bank, i+j+1, k)
-    end if
-
-    ! Reset source index
-    source_index = 0_8
-
-    call timer_stop(time_ic_rebuild)
-    
-#ifdef MPI
-    deallocate(left_bank)
-    deallocate(right_bank)
-#endif
-    deallocate(temp_sites)
+    ! Deallocate space for the temporary source bank on the last cycle
+    if (current_cycle == n_cycles) deallocate(temp_sites)
 
   end subroutine synchronize_bank
-
-!===============================================================================
-! COPY_FROM_BANK
-!===============================================================================
-
-  subroutine copy_from_bank(temp_bank, i_start, n_sites)
-
-    integer,    intent(in) :: n_sites  ! # of bank sites to copy
-    type(Bank), intent(in) :: temp_bank(n_sites)
-    integer,    intent(in) :: i_start  ! starting index in source_bank
-
-    integer :: i        ! index in temp_bank
-    integer :: i_source ! index in source_bank
-    type(Particle), pointer :: p
-    
-    do i = 1, n_sites
-       i_source = i_start + i - 1
-       p => source_bank(i_source)
-
-       ! set defaults
-       call initialize_particle(p)
-
-       p % coord % xyz = temp_bank(i) % xyz
-       p % coord % uvw = temp_bank(i) % uvw
-       p % last_xyz    = temp_bank(i) % xyz
-       p % E           = temp_bank(i) % E
-       p % last_E      = temp_bank(i) % E
-
-    end do
-
-  end subroutine copy_from_bank
-
-!===============================================================================
-! REDUCE_TALLIES collects all the results from tallies onto one processor
-!===============================================================================
-
-#ifdef MPI
-  subroutine reduce_tallies()
-
-    integer :: i
-    integer :: n
-    integer :: m
-    integer :: n_bins
-    real(8), allocatable :: tally_temp(:,:)
-    type(TallyObject), pointer :: t
-
-    do i = 1, n_tallies
-       t => tallies(i)
-
-       n = t % n_total_bins
-       m = t % n_score_bins
-       n_bins = n*m
-
-       allocate(tally_temp(n,m))
-
-       tally_temp = t % scores(:,:) % val_history
-
-       if (master) then
-          ! The MPI_IN_PLACE specifier allows the master to copy values into a
-          ! receive buffer without having a temporary variable
-          call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
-
-          ! Transfer values to val_history on master
-          t % scores(:,:) % val_history = tally_temp
-       else
-          ! Receive buffer not significant at other processors
-          call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
-
-          ! Reset val_history on other processors
-          t % scores(:,:) % val_history = 0
-       end if
-
-       deallocate(tally_temp)
-
-    end do
-
-  end subroutine reduce_tallies
-#endif
 
 !===============================================================================
 ! SHANNON_ENTROPY calculates the Shannon entropy of the fission source
@@ -337,15 +281,16 @@ contains
 
   subroutine shannon_entropy()
 
-    integer :: i              ! x-index for entropy mesh
-    integer :: j              ! y-index for entropy mesh
-    integer :: k              ! z-index for entropy mesh
-    integer :: m              ! index for bank sites
+    integer :: i              ! index for bank sites
+    integer :: n              ! # of boxes in each dimension
+    integer :: bin            ! index in entropy_p
     integer(8) :: total_bank  ! total # of fission bank sites
     integer, save :: n_box    ! total # of boxes on mesh
-    integer, save :: n        ! # of boxes in each dimension
-    real(8), save :: width(3) ! width of box in each dimension
     logical :: outside_box    ! were there sites outside entropy box?
+    type(StructuredMesh), pointer :: m => null()
+
+    ! Get pointer to entropy mesh
+    m => entropy_mesh
 
     ! On the first pass through this subroutine, we need to determine how big
     ! the entropy mesh should be in each direction and then allocate a
@@ -353,15 +298,27 @@ contains
     ! box
 
     if (.not. allocated(entropy_p)) then
-       ! determine number of boxes in each direction
-       n = ceiling((n_particles/20)**(1.0/3.0))
-       n_box = n*n*n
+       if (.not. allocated(m % dimension)) then
+          ! If the user did not specify how many mesh cells are to be used in
+          ! each direction, we automatically determine an appropriate number of
+          ! cells
+          n = ceiling((n_particles/20)**(1.0/3.0))
 
-       ! determine width
-       width = (entropy_upper_right - entropy_lower_left)/n
+          ! copy dimensions
+          m % n_dimension = 3
+          allocate(m % dimension(3))
+          m % dimension = n
+       end if
+
+       ! Determine total number of mesh boxes
+       n_box = product(m % dimension)
+
+       ! allocate and determine width
+       allocate(m % width(3))
+       m % width = (m % upper_right - m % lower_left) / m % dimension
 
        ! allocate p
-       allocate(entropy_p(n,n,n))
+       allocate(entropy_p(n_box))
     end if
 
     ! initialize p
@@ -369,21 +326,18 @@ contains
     outside_box = .false.
 
     ! loop over fission sites and count how many are in each mesh box
-    FISSION_SITES: do m = 1, int(n_bank,4)
-       ! determine indices for entropy mesh box
-       i = int((fission_bank(m) % xyz(1) - entropy_lower_left(1))/width(1)) + 1
-       j = int((fission_bank(m) % xyz(2) - entropy_lower_left(2))/width(2)) + 1 
-       k = int((fission_bank(m) % xyz(3) - entropy_lower_left(3))/width(3)) + 1
+    FISSION_SITES: do i = 1, int(n_bank,4)
+       ! determine scoring bin for entropy mesh
+       call get_mesh_bin(m, fission_bank(i) % xyz, bin)
 
        ! if outside mesh, skip particle
-       if (i < 1 .or. i > n .or. j < 1 .or. &
-            j > n .or. k < 1 .or. k > n) then
+       if (bin == NO_BIN_FOUND) then
           outside_box = .true.
           cycle
        end if
 
        ! add to appropriate mesh box
-       entropy_p(i,j,k) = entropy_p(i,j,k) + 1
+       entropy_p(bin) = entropy_p(bin) + 1
     end do FISSION_SITES
 
     ! display warning message if there were sites outside entropy box
@@ -411,8 +365,15 @@ contains
 
     ! sum values to obtain shannon entropy
     if (master) then
+       ! Normalize to number of bank sites
        entropy_p = entropy_p / total_bank
-       entropy = -sum(entropy_p * log(entropy_p)/log(2.0), entropy_p > ZERO)
+
+       entropy = 0
+       do i = 1, n_box
+          if (entropy_p(i) > 0) then
+             entropy = entropy - entropy_p(i) * log(entropy_p(i))/log(2.0)
+          end if
+       end do
     end if
 
   end subroutine shannon_entropy
@@ -422,74 +383,80 @@ contains
 ! mean and standard deviation of the mean for active cycles and displays them
 !===============================================================================
 
-  subroutine calculate_keff(i_cycle)
+  subroutine calculate_keff()
 
-    integer, intent(in) :: i_cycle ! index of current cycle
-
-    integer(8)    :: total_bank ! total number of source sites
-    integer       :: n          ! active cycle number
-    real(8)       :: k_cycle    ! single cycle estimate of keff
-    real(8), save :: k_sum      ! accumulated keff
-    real(8), save :: k_sum_sq   ! accumulated keff**2
+    integer :: n        ! active cycle number
+    real(8) :: k_cycle  ! single cycle estimate of keff
+#ifdef MPI
+    real(8) :: global_temp(N_GLOBAL_TALLIES)
+#endif
 
     message = "Calculate cycle keff..."
     call write_message(8)
 
-    ! initialize sum and square of sum at beginning of run
-    if (i_cycle == 1) then
-       k_sum = ZERO
-       k_sum_sq = ZERO
-    end if
-
+    ! Since the creation of bank sites was originally weighted by the last
+    ! cycle keff, we need to multiply by that keff to get the current cycle's
+    ! value
 #ifdef MPI
-    ! Collect number bank sites onto master process
-    call MPI_REDUCE(n_bank, total_bank, 1, MPI_INTEGER8, MPI_SUM, 0, &
-         MPI_COMM_WORLD, mpi_err)
+    global_tallies(K_ANALOG) % value = n_bank * keff
+
+    ! Copy global tallies into array to be reduced
+    global_temp = global_tallies(:) % value
+
+    if (master) then
+       call MPI_REDUCE(MPI_IN_PLACE, global_temp, N_GLOBAL_TALLIES, &
+            MPI_REAL8, MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+
+       ! Transfer values back to global_tallies on master
+       global_tallies(:) % value = global_temp
+    else
+       call MPI_REDUCE(global_temp, global_temp, N_GLOBAL_TALLIES, &
+            MPI_REAL8, MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+       
+       ! Reset value on other processors
+       global_tallies(:) % value = ZERO
+    end if
 #else
-    total_bank = n_bank
+    global_tallies(K_ANALOG) % value = n_bank * keff
 #endif
 
     ! Collect statistics and print output
     if (master) then
-       ! Since the creation of bank sites was originally weighted by the last
-       ! cycle keff, we need to multiply by that keff to get the current cycle's
-       ! value
+       k_cycle = global_tallies(K_ANALOG) % value/n_particles
 
-       k_cycle = real(total_bank)/real(n_particles)*keff
-
-       if (i_cycle > n_inactive) then
+       if (current_cycle > n_inactive) then
           ! Active cycle number
-          n = i_cycle - n_inactive
+          n = current_cycle - n_inactive
 
-          ! Accumulate cycle estimate of k
-          k_sum =    k_sum    + k_cycle
-          k_sum_sq = k_sum_sq + k_cycle*k_cycle
+          ! Accumulate single cycle realizations of k
+          call accumulate_cycle_estimate(global_tallies)
 
           ! Determine mean and standard deviation of mean
-          keff = k_sum/n
-          keff_std = sqrt((k_sum_sq/n - keff*keff)/n)
+          keff = global_tallies(K_ANALOG) % sum/n
+          keff_std = sqrt((global_tallies(K_ANALOG) % sum_sq/n - keff*keff)/n)
 
           ! Display output for this cycle
-          if (i_cycle > n_inactive+1) then
+          if (current_cycle > n_inactive + 1) then
              if (entropy_on) then
-                write(UNIT=OUTPUT_UNIT, FMT=103) i_cycle, k_cycle, entropy, &
-                     keff, keff_std
+                write(UNIT=OUTPUT_UNIT, FMT=103) current_cycle, k_cycle, &
+                     entropy, keff, keff_std
              else
-                write(UNIT=OUTPUT_UNIT, FMT=101) i_cycle, k_cycle, keff, keff_std
+                write(UNIT=OUTPUT_UNIT, FMT=101) current_cycle, k_cycle, &
+                     keff, keff_std
              end if
           else
              if (entropy_on) then
-                write(UNIT=OUTPUT_UNIT, FMT=102) i_cycle, k_cycle, entropy
+                write(UNIT=OUTPUT_UNIT, FMT=102) current_cycle, k_cycle, entropy
              else
-                write(UNIT=OUTPUT_UNIT, FMT=100) i_cycle, k_cycle
+                write(UNIT=OUTPUT_UNIT, FMT=100) current_cycle, k_cycle
              end if
           end if
        else
           ! Display output for inactive cycle
           if (entropy_on) then
-             write(UNIT=OUTPUT_UNIT, FMT=102) i_cycle, k_cycle, entropy
+             write(UNIT=OUTPUT_UNIT, FMT=102) current_cycle, k_cycle, entropy
           else
-             write(UNIT=OUTPUT_UNIT, FMT=100) i_cycle, k_cycle
+             write(UNIT=OUTPUT_UNIT, FMT=100) current_cycle, k_cycle
           end if
           keff = k_cycle
        end if

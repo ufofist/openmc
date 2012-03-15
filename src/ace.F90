@@ -137,7 +137,7 @@ contains
     ! READ ALL ACE CROSS SECTION TABLES
 
     ! display header in summary.out
-    if (master) call header("CROSS SECTION TABLES", unit=UNIT_SUMMARY)
+    if (master) call header("CROSS SECTION TABLES", unit=UNIT_XS)
 
     call dict_create(already_read)
 
@@ -156,9 +156,9 @@ contains
 
              call read_ace_table(index_nuclides, index_list)
 
-             ! Print out information on table to summary.out file
+             ! Print out information on table to cross_sections.out file
              nuc => nuclides(index_nuclides)
-             if (master) call print_nuclide(nuc, unit=UNIT_SUMMARY)
+             if (master) call print_nuclide(nuc, unit=UNIT_XS)
 
              call dict_add_key(already_read, name, 0)
              call dict_add_key(already_read, alias, 0)
@@ -937,7 +937,9 @@ contains
     integer, intent(in) :: lid    ! length of interpolation data
     integer             :: length ! length of energy distribution (LDAT)
 
-    integer :: i,j,k
+    integer :: i     ! loop index for incoming energies
+    integer :: j     ! loop index for outgoing energies
+    integer :: k     ! dummy index in XSS
     integer :: NR    ! number of interpolation regions
     integer :: NE    ! number of incoming energies
     integer :: NP    ! number of points in outgoing energy distribution
