@@ -70,6 +70,7 @@ contains
     write_source_ = ""
     no_reduce_ = ""
     source_ % type = ""
+    servers_ = 0
 
     ! Parse settings.xml file
     call read_xml_file_settings_t(filename)
@@ -307,13 +308,30 @@ contains
     ! batch
     if (trim(no_reduce_) == 'on') no_reduce = .true.
 
+    ! Determine number of tally servers
+    if (servers_ > 0) then
+       use_servers = .true.
+       n_servers = servers_
+    else
+       use_servers = .false.
+       n_servers = 0
+    end if
+
+    ! Check for valid number of servers
+    if (n_servers >= n_procs) then
+       message = "Cannot have more servers than total processors."
+       call fatal_error()
+    end if
+
+    ! Determine number of compute processes
+    n_compute = n_procs - n_servers
+
     ! Determine number of realizations
     if (no_reduce) then
-       n_realizations = n_active * n_procs
+       n_realizations = n_active * n_compute
     else
        n_realizations = n_active
     end if
-       
 
   end subroutine read_settings_xml
 

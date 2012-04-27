@@ -61,11 +61,11 @@ contains
 #ifdef MPI
     start = 0_8
     call MPI_EXSCAN(n_bank, start, 1, MPI_INTEGER8, MPI_SUM, & 
-         MPI_COMM_WORLD, mpi_err)
+         compute_comm, mpi_err)
     finish = start + n_bank
     total = finish
-    call MPI_BCAST(total, 1, MPI_INTEGER8, n_procs - 1, & 
-         MPI_COMM_WORLD, mpi_err)
+    call MPI_BCAST(total, 1, MPI_INTEGER8, n_compute - 1, & 
+         compute_comm, mpi_err)
 
 #else
     start  = 0_8
@@ -140,13 +140,13 @@ contains
     ! First do an exclusive scan to get the starting indices for 
     start = 0_8
     call MPI_EXSCAN(index_temp, start, 1, MPI_INTEGER8, MPI_SUM, & 
-         MPI_COMM_WORLD, mpi_err)
+         compute_comm, mpi_err)
     finish = start + index_temp
 
     ! Allocate space for bank_position if this hasn't been done yet
-    if (.not. allocated(bank_position)) allocate(bank_position(n_procs))
+    if (.not. allocated(bank_position)) allocate(bank_position(n_compute))
     call MPI_ALLGATHER(start, 1, MPI_INTEGER8, bank_position, 1, &
-         MPI_INTEGER8, MPI_COMM_WORLD, mpi_err)
+         MPI_INTEGER8, compute_comm, mpi_err)
 #else
     start  = 0_8
     finish = index_temp
@@ -156,7 +156,7 @@ contains
     ! n_particles source sites. The way this is done in a reproducible manner is
     ! to adjust only the source sites on the last processor.
 
-    if (rank == n_procs - 1) then
+    if (rank == n_compute - 1) then
        if (finish > n_particles) then
           ! If we have extra sites sampled, we will simply discard the extra
           ! ones on the last processor
@@ -199,7 +199,7 @@ contains
        if (neighbor /= rank) then
           n_request = n_request + 1
           call MPI_ISEND(temp_sites(index_local), n, MPI_BANK, neighbor, &
-               rank, MPI_COMM_WORLD, request(n_request), mpi_err)
+               rank, compute_comm, request(n_request), mpi_err)
        end if
 
        ! Increment all indices
@@ -217,15 +217,15 @@ contains
     ! Determine what process has the source sites that will need to be stored at
     ! the beginning of this processor's source bank.
 
-    if (start >= bank_position(n_procs)) then
-       neighbor = n_procs - 1
+    if (start >= bank_position(n_compute)) then
+       neighbor = n_compute - 1
     else
-       neighbor = binary_search(bank_position, n_procs, start) - 1
+       neighbor = binary_search(bank_position, n_compute, start) - 1
     end if
 
     RECV_SITES: do while (start < bank_last)
        ! Determine how many sites need to be received
-       if (neighbor == n_procs - 1) then
+       if (neighbor == n_compute - 1) then
           n = min(n_particles, (rank+1)*maxwork) - start
        else
           n = min(bank_position(neighbor+2), min(n_particles, &
@@ -238,7 +238,7 @@ contains
 
           n_request = n_request + 1
           call MPI_IRECV(source_bank(index_local), n, MPI_BANK, &
-               neighbor, neighbor, MPI_COMM_WORLD, request(n_request), mpi_err)
+               neighbor, neighbor, compute_comm, request(n_request), mpi_err)
 
        else
           ! If the source sites are on this procesor, we can simply copy them
@@ -370,10 +370,10 @@ contains
     ! Reduce value of k_batch if running in parallel
     if (master) then
        call MPI_REDUCE(MPI_IN_PLACE, k_batch, 1, MPI_REAL8, MPI_SUM, 0, &
-            MPI_COMM_WORLD, mpi_err)
+            compute_comm, mpi_err)
     else
        call MPI_REDUCE(k_batch, k_batch, 1, MPI_REAL8, MPI_SUM, 0, &
-            MPI_COMM_WORLD, mpi_err)
+            compute_comm, mpi_err)
     end if
 #endif
 
@@ -390,12 +390,12 @@ contains
           ! and its standard deviation
 
           ! Define number of realizations
-          n = (current_batch - n_inactive) * n_procs
+          n = (current_batch - n_inactive) * n_compute
 
 #ifdef MPI
           if (current_batch /= n_batches) then
              call MPI_REDUCE(global_tallies(K_ANALOG) % sum, temp, 2, &
-                  MPI_REAL8, MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+                  MPI_REAL8, MPI_SUM, 0, compute_comm, mpi_err)
           else
              temp(1) = global_tallies(K_ANALOG) % sum
              temp(2) = global_tallies(K_ANALOG) % sum_sq
@@ -446,7 +446,7 @@ contains
 
 #ifdef MPI
     ! Broadcast new keff value to all processors
-    call MPI_BCAST(keff, 1, MPI_REAL8, 0, MPI_COMM_WORLD, mpi_err)
+    call MPI_BCAST(keff, 1, MPI_REAL8, 0, compute_comm, mpi_err)
 #endif
 
   end subroutine calculate_keff
@@ -487,7 +487,7 @@ contains
 #ifdef MPI
        ! Send source fraction to all processors
        n = product(ufs_mesh % dimension)
-       call MPI_BCAST(source_frac, n, MPI_REAL8, 0, MPI_COMM_WORLD, mpi_err)
+       call MPI_BCAST(source_frac, n, MPI_REAL8, 0, compute_comm, mpi_err)
 #endif
 
        ! Normalize to total weight to get fraction of source in each cell

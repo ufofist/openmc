@@ -34,6 +34,7 @@
   <variable name="no_reduce_" tag="no_reduce" type="word" length="3" />
   <variable name="ptables_" tag="ptables" type="word" length="3" />
   <variable name="seed_" tag="seed" type="integer" />
+  <variable name="servers_" tag="servers" type="integer" />
   <variable name="source_" tag="source" type="source_xml" />
   <variable name="survival_" tag="survival_biasing" type="word" length="3" />
   <variable name="verbosity_" tag="verbosity" type="integer" />

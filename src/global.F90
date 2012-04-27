@@ -127,6 +127,20 @@ module global
   ! Assume all tallies are spatially distinct
   logical :: assume_separate = .false.
 
+  ! Tally server information
+  logical :: use_servers       ! are tally servers on?
+  integer :: support_ratio     ! # of compute procs per server
+  integer :: scores_per_server ! # of scores on each server
+  integer :: n_scores = 0      ! total # of scores
+  integer :: n_server_scores   ! # of scores on each server
+  integer :: compute_comm      ! communicator for compute procs/servers
+
+  ! This array gives the global index of the first bin for each TallyObject
+  integer, allocatable :: server_global_index(:)
+
+  ! Array of Scores on each tally server
+  type(TallyScore), allocatable :: server_scores(:)
+
   ! ============================================================================
   ! CRITICALITY SIMULATION VARIABLES
 
@@ -173,11 +187,15 @@ module global
   ! PARALLEL PROCESSING VARIABLES
 
   integer :: n_procs     ! number of processes
+  integer :: n_compute   ! number of compute processes
+  integer :: n_servers   ! # of tally servers
   integer :: rank        ! rank of process
   logical :: master      ! master process?
   logical :: mpi_enabled ! is MPI in use and initialized?
   integer :: mpi_err     ! MPI error code
   integer :: MPI_BANK    ! MPI datatype for fission bank
+
+  logical :: server      ! server process?
 
   ! No reduction at end of batch
   logical :: no_reduce = .false.

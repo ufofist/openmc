@@ -227,16 +227,16 @@ contains
     ! collect values from all processors
     if (master) then
        call MPI_REDUCE(MPI_IN_PLACE, cnt, n, MPI_REAL8, MPI_SUM, 0, &
-            MPI_COMM_WORLD, mpi_err)
+            compute_comm, mpi_err)
     else
        call MPI_REDUCE(cnt, cnt, n, MPI_REAL8, MPI_SUM, 0, &
-            MPI_COMM_WORLD, mpi_err)
+            compute_comm, mpi_err)
     end if
 
     ! Check if there were sites outside the mesh for any processor
     if (present(sites_outside)) then
        call MPI_REDUCE(outside, sites_outside, 1, MPI_LOGICAL, MPI_LOR, 0, &
-            MPI_COMM_WORLD, mpi_err)
+            compute_comm, mpi_err)
     end if
 
 #else

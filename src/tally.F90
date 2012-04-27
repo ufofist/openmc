@@ -95,7 +95,7 @@ contains
           ! scores array for tally
           score_bins = t % n_score_bins
           t % n_total_bins = filter_bins
-          allocate(t % scores(filter_bins, score_bins))
+          if (.not. use_servers) allocate(t % scores(filter_bins, score_bins))
 
           ! All the remaining logic is for non-surface-current tallies so we can
           ! safely skip it
@@ -189,7 +189,7 @@ contains
 
        ! Allocate scores for tally
        t % n_total_bins = filter_bins
-       allocate(t % scores(filter_bins, score_bins))
+       if (.not. use_servers) allocate(t % scores(filter_bins, score_bins))
 
     end do
 
@@ -1316,9 +1316,11 @@ contains
 #endif
 
     ! Accumulate scores for each tally
-    do i = 1, n_tallies
-       call accumulate_score(tallies(i) % scores)
-    end do
+    if (.not. use_servers) then
+       do i = 1, n_tallies
+          call accumulate_score(tallies(i) % scores)
+       end do
+    end if
 
     ! Before accumulating scores for global_tallies, we need to get the current
     ! batch estimate of k_analog for displaying to output
@@ -1349,49 +1351,51 @@ contains
     real(8) :: global_temp(N_GLOBAL_TALLIES)
     type(TallyObject), pointer :: t => null()
 
-    do i = 1, n_tallies
-       t => tallies(i)
+    if (.not. use_servers) then
+       do i = 1, n_tallies
+          t => tallies(i)
 
-       n = t % n_total_bins
-       m = t % n_score_bins
-       n_bins = n*m
+          n = t % n_total_bins
+          m = t % n_score_bins
+          n_bins = n*m
 
-       allocate(tally_temp(n,m))
+          allocate(tally_temp(n,m))
 
-       tally_temp = t % scores(:,:) % value
+          tally_temp = t % scores(:,:) % value
 
-       if (master) then
-          ! The MPI_IN_PLACE specifier allows the master to copy values into
-          ! a receive buffer without having a temporary variable
-          call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, &
-               MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+          if (master) then
+             ! The MPI_IN_PLACE specifier allows the master to copy values into
+             ! a receive buffer without having a temporary variable
+             call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, &
+                  MPI_SUM, 0, compute_comm, mpi_err)
 
-          ! Transfer values to value on master
-          t % scores(:,:) % value = tally_temp
-       else
-          ! Receive buffer not significant at other processors
-          call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, &
-               MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+             ! Transfer values to value on master
+             t % scores(:,:) % value = tally_temp
+          else
+             ! Receive buffer not significant at other processors
+             call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, &
+                  MPI_SUM, 0, compute_comm, mpi_err)
 
-          ! Reset value on other processors
-          t % scores(:,:) % value = 0
-       end if
+             ! Reset value on other processors
+             t % scores(:,:) % value = 0
+          end if
 
-       deallocate(tally_temp)
-    end do
+          deallocate(tally_temp)
+       end do
+    end if
 
     ! Copy global tallies into array to be reduced
     global_temp = global_tallies(:) % value
 
     if (master) then
        call MPI_REDUCE(MPI_IN_PLACE, global_temp, N_GLOBAL_TALLIES, &
-            MPI_REAL8, MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+            MPI_REAL8, MPI_SUM, 0, compute_comm, mpi_err)
 
        ! Transfer values back to global_tallies on master
        global_tallies(:) % value = global_temp
     else
        call MPI_REDUCE(global_temp, global_temp, N_GLOBAL_TALLIES, &
-            MPI_REAL8, MPI_SUM, 0, MPI_COMM_WORLD, mpi_err)
+            MPI_REAL8, MPI_SUM, 0, compute_comm, mpi_err)
        
        ! Reset value on other processors
        global_tallies(:) % value = ZERO
@@ -1402,10 +1406,10 @@ contains
     if (.not. no_reduce) then
        if (master) then
           call MPI_REDUCE(MPI_IN_PLACE, total_weight, 1, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
+               0, compute_comm, mpi_err)
        else
           call MPI_REDUCE(total_weight, total_weight, 1, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
+               0, compute_comm, mpi_err)
        end if
     end if
 
@@ -1430,36 +1434,38 @@ contains
     real(8) :: global_temp(2,N_GLOBAL_TALLIES)
     type(TallyObject), pointer :: t => null()
 
-    do i = 1, n_tallies
-       t => tallies(i)
+    if (.not. use_servers) then
+       do i = 1, n_tallies
+          t => tallies(i)
 
-       n = t % n_total_bins
-       m = t % n_score_bins
-       n_bins = n*m*2
+          n = t % n_total_bins
+          m = t % n_score_bins
+          n_bins = n*m*2
 
-       allocate(tally_temp(2,n,m))
+          allocate(tally_temp(2,n,m))
 
-       tally_temp(1,:,:) = t % scores(:,:) % sum
-       tally_temp(2,:,:) = t % scores(:,:) % sum_sq
+          tally_temp(1,:,:) = t % scores(:,:) % sum
+          tally_temp(2,:,:) = t % scores(:,:) % sum_sq
 
-       if (master) then
-          ! The MPI_IN_PLACE specifier allows the master to copy values into a
-          ! receive buffer without having a temporary variable
-          call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
+          if (master) then
+             ! The MPI_IN_PLACE specifier allows the master to copy values into a
+             ! receive buffer without having a temporary variable
+             call MPI_REDUCE(MPI_IN_PLACE, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
+                  0, compute_comm, mpi_err)
 
-          ! Transfer values to value on master
-          t % scores(:,:) % sum    = tally_temp(1,:,:)
-          t % scores(:,:) % sum_sq = tally_temp(2,:,:)
-       else
-          ! Receive buffer not significant at other processors
-          call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
-               0, MPI_COMM_WORLD, mpi_err)
-       end if
+             ! Transfer values to value on master
+             t % scores(:,:) % sum    = tally_temp(1,:,:)
+             t % scores(:,:) % sum_sq = tally_temp(2,:,:)
+          else
+             ! Receive buffer not significant at other processors
+             call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
+                  0, compute_comm, mpi_err)
+          end if
 
-       deallocate(tally_temp)
+          deallocate(tally_temp)
 
-    end do
+       end do
+    end if
 
     n_bins = 2 * N_GLOBAL_TALLIES
 
@@ -1470,7 +1476,7 @@ contains
        ! The MPI_IN_PLACE specifier allows the master to copy values into a
        ! receive buffer without having a temporary variable
        call MPI_REDUCE(MPI_IN_PLACE, global_temp, n_bins, MPI_REAL8, MPI_SUM, &
-            0, MPI_COMM_WORLD, mpi_err)
+            0, compute_comm, mpi_err)
        
        ! Transfer values to value on master
        global_tallies(:) % sum    = global_temp(1,:)
@@ -1478,7 +1484,7 @@ contains
     else
        ! Receive buffer not significant at other processors
        call MPI_REDUCE(global_temp, global_temp, n_bins, MPI_REAL8, MPI_SUM, &
-            0, MPI_COMM_WORLD, mpi_err)
+            0, compute_comm, mpi_err)
     end if
 
   end subroutine reduce_tally_sums
@@ -1964,4 +1970,39 @@ contains
 
   end subroutine reset_score
 
+!===============================================================================
+! GET_SERVER_LOCATION
+!===============================================================================
+
+  function get_server_rank(tally_index, filter_index, score_index) &
+       result (server_rank)
+
+    integer, intent(in) :: tally_index  ! index in tallies array
+    integer, intent(in) :: filter_index ! index of filter
+    integer, optional   :: score_index  ! index of score
+    integer             :: server_rank  ! rank of server to send score to
+
+    integer :: global_index ! index of tally bin in global tally server array
+
+    ! Compute global index
+    if (present(score_index)) then
+       global_index = server_global_index(tally_index) + (filter_index - 1) * &
+            tallies(tally_index) % n_total_bins + (score_index - 1)
+    else
+       global_index = server_global_index(tally_index) + (filter_index - 1) * &
+            tallies(tally_index) % n_total_bins
+    end if
+
+
+    ! Check that global_index is within the total number of scores
+    if (global_index < 0 .or. global_index > n_scores) then
+       message = "Global tally index out of bounds."
+       call fatal_error()
+    end if
+
+    ! Determine rank of server to send data to
+    server_rank = ((global_index - 1)/scores_per_server + 1)*support_ratio - 1
+
+  end function get_server_rank
+    
 end module tally

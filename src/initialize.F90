@@ -104,6 +104,12 @@ contains
        ! so that they contain atom percents summing to 1
        call normalize_ao()
 
+       ! Create tally map
+       call create_tally_map()
+
+       ! Set up tally servers
+       call initialize_servers()
+
        ! Read ACE-format cross sections
        call timer_start(time_read_xs)
        call read_xs()
@@ -115,9 +121,6 @@ contains
           call unionized_grid()
           call timer_stop(time_unionize)
        end if
-
-       ! Create tally map
-       call create_tally_map()
 
        ! create source particles
        call initialize_source()
@@ -684,5 +687,60 @@ contains
     end do
 
   end subroutine normalize_ao
+
+!===============================================================================
+! INITIALIZE_SERVERS
+!===============================================================================
+
+  subroutine initialize_servers()
+
+    integer :: i     ! index in tallies array
+    integer :: color ! colors userd in MPI_COMM_SPLIT
+    integer :: key   ! keys used in MPI_COMM_SPLIT
+
+    ! If tally servers are not being used, we still need to create the new
+    ! communicator that is used throughout the run
+    if (.not. use_servers) then
+       call MPI_COMM_DUP(MPI_COMM_WORLD, compute_comm, mpi_err)
+       return
+    end if
+
+    ! Allocate array for global indices of first bin for each TallyObject
+    allocate(server_global_index(n_tallies))
+
+    ! Determine total number of tally scores
+    n_scores = 0
+    do i = 1, n_tallies
+       server_global_index(i) = n_scores + 1
+       n_scores = n_scores + tallies(i) % n_total_bins * &
+            tallies(i) % n_score_bins
+    end do
+
+    ! Determine support ratio
+    support_ratio = n_procs / n_servers
+
+    ! Set which processors are servers
+    if (mod(rank + 1, support_ratio) == 0) then
+       server = .true.
+       color = 1
+       key = rank / support_ratio
+    else
+       server = .false.
+       color = 0
+       key = rank - rank/support_ratio
+    end if
+
+    ! create new communicator that splits compute processors and servers
+    call MPI_COMM_SPLIT(MPI_COMM_WORLD, color, key, compute_comm, mpi_err)
+
+    ! determine maximum number of scores per server
+    scores_per_server = (n_scores - 1)/n_servers + 1
+
+    ! TODO: handle odd number of total scores
+
+    ! allocate TallyScore objects for each server
+    if (server) allocate(server_scores(scores_per_server))
+
+  end subroutine initialize_servers
 
 end module initialize

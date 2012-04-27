@@ -45,7 +45,7 @@ contains
     call write_message(6)
 
     ! Determine maximum amount of particles to simulate on each processor
-    maxwork = ceiling(real(n_particles)/n_procs,8)
+    maxwork = ceiling(real(n_particles)/n_compute,8)
 
     ! ID's of first and last source particles
     bank_first = rank*maxwork + 1
@@ -88,7 +88,7 @@ contains
     end if
 
     ! Initialize first cycle source bank
-    do i = 0, n_procs - 1
+    do i = 0, n_compute - 1
        if (rank == i) then
           do j = 1, work
              id = bank_first + j - 1
@@ -224,7 +224,7 @@ contains
     ! PARALLEL I/O USING MPI-2 ROUTINES
 
     ! Open binary source file for reading
-    call MPI_FILE_OPEN(MPI_COMM_WORLD, 'source.binary', MPI_MODE_CREATE + &
+    call MPI_FILE_OPEN(compute_comm, 'source.binary', MPI_MODE_CREATE + &
          MPI_MODE_WRONLY, MPI_INFO_NULL, fh, mpi_err)
 
     if (master) then
@@ -284,7 +284,7 @@ contains
     ! PARALLEL I/O USING MPI-2 ROUTINES
 
     ! Open binary source file for reading
-    call MPI_FILE_OPEN(MPI_COMM_WORLD, 'source.binary', MPI_MODE_RDONLY, &
+    call MPI_FILE_OPEN(compute_comm, 'source.binary', MPI_MODE_RDONLY, &
          MPI_INFO_NULL, fh, mpi_err)
 
     ! Read number of source sites in file
