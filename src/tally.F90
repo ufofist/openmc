@@ -95,7 +95,7 @@ contains
           ! scores array for tally
           score_bins = t % n_score_bins
           t % n_total_bins = filter_bins
-          if (.not. use_servers) allocate(t % scores(filter_bins, score_bins))
+          if (.not. use_servers) allocate(t % scores(score_bins, filter_bins))
 
           ! All the remaining logic is for non-surface-current tallies so we can
           ! safely skip it
@@ -189,7 +189,7 @@ contains
 
        ! Allocate scores for tally
        t % n_total_bins = filter_bins
-       if (.not. use_servers) allocate(t % scores(filter_bins, score_bins))
+       if (.not. use_servers) allocate(t % scores(score_bins, filter_bins))
 
     end do
 
@@ -450,7 +450,7 @@ contains
           end select
              
           ! Add score to tally
-          call add_to_score(t % scores(score_index, j), score)
+          call add_to_score(t % scores(j, score_index), score)
 
        end do
 
@@ -511,7 +511,7 @@ contains
        score_index = sum((bins - 1) * t % stride) + 1
 
        ! Add score to tally
-       call add_to_score(t % scores(score_index, j), score)
+       call add_to_score(t % scores(j, score_index), score)
     end do
 
     ! reset outgoing energy bin and score index
@@ -598,7 +598,7 @@ contains
           end select
 
           ! Add score to tally
-          call add_to_score(t % scores(score_index, j), score)
+          call add_to_score(t % scores(j, score_index), score)
 
        end do
 
@@ -838,7 +838,7 @@ contains
              end select
 
              ! Add score to tally
-             call add_to_score(t % scores(score_index, i), score)
+             call add_to_score(t % scores(i, score_index), score)
           end do SCORE_LOOP
        end if
 
@@ -1057,7 +1057,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = OUT_TOP
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           else
@@ -1067,7 +1067,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = IN_TOP
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           end if
@@ -1081,7 +1081,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = OUT_FRONT
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           else
@@ -1091,7 +1091,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = IN_FRONT
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           end if
@@ -1105,7 +1105,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           else
@@ -1115,7 +1115,7 @@ contains
                    bins(SURF_FILTER_SURFACE) = IN_RIGHT
                    bins(1:3) = ijk0 + 1
                    score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(score_index, 1), p % wgt)
+                   call add_to_score(t % scores(1, score_index), p % wgt)
                 end if
              end do
           end if
@@ -1231,7 +1231,7 @@ contains
              end if
 
              ! Add to surface current tally
-             call add_to_score(t % scores(score_index, 1), p % wgt)
+             call add_to_score(t % scores(1, score_index), p % wgt)
           end if
 
           ! Calculate new coordinates
@@ -1349,17 +1349,18 @@ contains
     integer :: n_bins ! total number of bins
     real(8), allocatable :: tally_temp(:,:) ! contiguous array of scores
     real(8) :: global_temp(N_GLOBAL_TALLIES)
+    real(8) :: dummy  ! temporary receive buffer for non-root reduces
     type(TallyObject), pointer :: t => null()
 
     if (.not. use_servers) then
        do i = 1, n_tallies
           t => tallies(i)
 
-          n = t % n_total_bins
           m = t % n_score_bins
-          n_bins = n*m
+          n = t % n_total_bins
+          n_bins = m*n
 
-          allocate(tally_temp(n,m))
+          allocate(tally_temp(m,n))
 
           tally_temp = t % scores(:,:) % value
 
@@ -1373,7 +1374,7 @@ contains
              t % scores(:,:) % value = tally_temp
           else
              ! Receive buffer not significant at other processors
-             call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, &
+             call MPI_REDUCE(tally_temp, dummy, n_bins, MPI_REAL8, &
                   MPI_SUM, 0, compute_comm, mpi_err)
 
              ! Reset value on other processors
@@ -1394,7 +1395,7 @@ contains
        ! Transfer values back to global_tallies on master
        global_tallies(:) % value = global_temp
     else
-       call MPI_REDUCE(global_temp, global_temp, N_GLOBAL_TALLIES, &
+       call MPI_REDUCE(global_temp, dummy, N_GLOBAL_TALLIES, &
             MPI_REAL8, MPI_SUM, 0, compute_comm, mpi_err)
        
        ! Reset value on other processors
@@ -1408,7 +1409,8 @@ contains
           call MPI_REDUCE(MPI_IN_PLACE, total_weight, 1, MPI_REAL8, MPI_SUM, &
                0, compute_comm, mpi_err)
        else
-          call MPI_REDUCE(total_weight, total_weight, 1, MPI_REAL8, MPI_SUM, &
+          ! Receive buffer not significant at other processors
+          call MPI_REDUCE(total_weight, dummy, 1, MPI_REAL8, MPI_SUM, &
                0, compute_comm, mpi_err)
        end if
     end if
@@ -1432,17 +1434,18 @@ contains
     integer :: n_bins ! total number of bins
     real(8), allocatable :: tally_temp(:,:,:) ! contiguous array of scores
     real(8) :: global_temp(2,N_GLOBAL_TALLIES)
+    real(8) :: dummy  ! temporary receive buffer for non-root reduces
     type(TallyObject), pointer :: t => null()
 
     if (.not. use_servers) then
        do i = 1, n_tallies
           t => tallies(i)
 
-          n = t % n_total_bins
           m = t % n_score_bins
-          n_bins = n*m*2
+          n = t % n_total_bins
+          n_bins = m*n*2
 
-          allocate(tally_temp(2,n,m))
+          allocate(tally_temp(2,m,n))
 
           tally_temp(1,:,:) = t % scores(:,:) % sum
           tally_temp(2,:,:) = t % scores(:,:) % sum_sq
@@ -1458,7 +1461,7 @@ contains
              t % scores(:,:) % sum_sq = tally_temp(2,:,:)
           else
              ! Receive buffer not significant at other processors
-             call MPI_REDUCE(tally_temp, tally_temp, n_bins, MPI_REAL8, MPI_SUM, &
+             call MPI_REDUCE(tally_temp, dummy, n_bins, MPI_REAL8, MPI_SUM, &
                   0, compute_comm, mpi_err)
           end if
 
@@ -1483,7 +1486,7 @@ contains
        global_tallies(:) % sum_sq = global_temp(2,:)
     else
        ! Receive buffer not significant at other processors
-       call MPI_REDUCE(global_temp, global_temp, n_bins, MPI_REAL8, MPI_SUM, &
+       call MPI_REDUCE(global_temp, dummy, n_bins, MPI_REAL8, MPI_SUM, &
             0, compute_comm, mpi_err)
     end if
 
@@ -1641,8 +1644,8 @@ contains
           do k = 1, t % n_score_bins
              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
                   repeat(" ", indent), score_name(abs(t % score_bins(k) % scalar)), &
-                  to_str(t % scores(score_index,k) % sum), &
-                  trim(to_str(t % scores(score_index,k) % sum_sq))
+                  to_str(t % scores(k,score_index) % sum), &
+                  trim(to_str(t % scores(k,score_index) % sum_sq))
           end do
           indent = indent - 2
 
@@ -1718,15 +1721,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Left", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Left", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 ! Right Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1734,15 +1737,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Right", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Right", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 ! Back Surface
                 bins(1:3) = (/ i, j-1, k /) + 1
@@ -1750,15 +1753,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Back", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Back", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 ! Front Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1766,15 +1769,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Front", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Front", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 ! Bottom Surface
                 bins(1:3) = (/ i, j, k-1 /) + 1
@@ -1782,15 +1785,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Bottom", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Bottom", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 ! Top Surface
                 bins(1:3) = (/ i, j, k /) + 1
@@ -1798,15 +1801,15 @@ contains
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Top", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
                 score_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Top", &
-                     to_str(t % scores(score_index,1) % sum), &
-                     trim(to_str(t % scores(score_index,1) % sum_sq))
+                     to_str(t % scores(1,score_index) % sum), &
+                     trim(to_str(t % scores(1,score_index) % sum_sq))
              end do
 
           end do
