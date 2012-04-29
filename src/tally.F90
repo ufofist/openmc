@@ -97,6 +97,10 @@ contains
           t % n_total_bins = filter_bins
           if (.not. use_servers) allocate(t % scores(score_bins, filter_bins))
 
+          ! Determine maximum size for server message
+          if (use_servers) max_server_send = max(max_server_send, &
+               score_bins * filter_bins + n_servers)
+
           ! All the remaining logic is for non-surface-current tallies so we can
           ! safely skip it
           cycle
@@ -1974,31 +1978,31 @@ contains
   end subroutine reset_score
 
 !===============================================================================
-! GET_SERVER_LOCATION
+! SEND_TO_SERVER
 !===============================================================================
 
-  function get_server_rank(tally_index, filter_index, score_index) &
-       result (server_rank)
+  subroutine send_to_server(tally_index, filter_index, n, scores)
 
     integer, intent(in) :: tally_index  ! index in tallies array
-    integer, intent(in) :: filter_index ! index of filter
-    integer, optional   :: score_index  ! index of score
-    integer             :: server_rank  ! rank of server to send score to
+    integer, intent(in) :: filter_index ! index of filter in TallyScores array
+    integer, intent(in) :: n            ! total number of scores to send
+    real(8), intent(in) :: scores(n)    ! score values
 
-    integer :: global_index ! index of tally bin in global tally server array
+    integer :: i            ! index in scores
+    integer :: j            ! index in buffer
+    integer :: n_send       ! number of scores to send
+    integer :: server_rank  ! rank of server in MPI_COMM_WORLD
+    integer :: global_index ! index in global tally array
+    integer :: finish       ! last index in global tally array
+    integer :: request      ! communication request handle
+    real(8) :: buffer(max_server_send) ! scores with indices
 
     ! Compute global index
-    if (present(score_index)) then
-       global_index = server_global_index(tally_index) + (filter_index - 1) * &
-            tallies(tally_index) % n_total_bins + (score_index - 1)
-    else
-       global_index = server_global_index(tally_index) + (filter_index - 1) * &
-            tallies(tally_index) % n_total_bins
-    end if
-
+    global_index = server_global_index(tally_index) + (filter_index - 1) * &
+         tallies(tally_index) % n_total_bins
 
     ! Check that global_index is within the total number of scores
-    if (global_index < 0 .or. global_index > n_scores) then
+    if (global_index < 1 .or. global_index > n_scores) then
        message = "Global tally index out of bounds."
        call fatal_error()
     end if
@@ -2006,6 +2010,78 @@ contains
     ! Determine rank of server to send data to
     server_rank = ((global_index - 1)/scores_per_server + 1)*support_ratio - 1
 
-  end function get_server_rank
+    ! Determine global index of last score
+    finish = global_index + n_send
+    i = 0
+    j = 0
+
+    do while (i < n)
+       ! Add global_index to send buffer
+       buffer(j+1) = real(global_index,8)
+       j = j + 1
+
+       ! Determine number of scores to send
+       n_send = min((server_rank/support_ratio + 1)*scores_per_server, &
+            finish) - global_index
+
+       ! Add score values to send buffer
+       buffer(j+1:j+n_send) = scores(i+1:i+n_send)
+
+       call MPI_ISEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+            MPI_COMM_WORLD, request, mpi_err)
+
+       i = i + n_send
+       j = j + n_send
+       global_index = global_index + n_send
+       server_rank = server_rank + support_ratio
+    end do
+
+  end subroutine send_to_server
+
+!===============================================================================
+! SERVER_LISTEN
+!===============================================================================
+
+  subroutine server_listen()
+
+    integer :: i
+    integer :: n
+    integer :: global_index
+    integer :: local_index
+    integer :: status(MPI_STATUS_SIZE)
+    real(8) :: score_data(max_server_send)
+
+    do
+       ! Receive data from any compute processor
+       call MPI_RECV(score_data, max_server_send, MPI_REAL8, MPI_ANY_SOURCE, &
+            MPI_ANY_TAG, MPI_COMM_WORLD, status, mpi_err)
+
+       ! Determine how much data was sent
+       call MPI_GET_COUNT(status, MPI_REAL8, n, mpi_err)
+
+       ! Determine starting global index
+       global_index = nint(score_data(1))
+
+       ! Check for end of batch
+       if (global_index == SERVER_END_BATCH) then
+          call accumulate_score(server_scores)
+          continue
+       elseif (global_index == SERVER_END_RUN) then
+          call accumulate_score(server_scores)
+          exit
+       end if
+
+       ! Determine local index
+       local_index = global_index - int((global_index - 1)/scores_per_server) &
+            * scores_per_server
+
+       ! Add scores to tallies
+       do i = 2, n
+          call add_to_score(server_scores(local_index), score_data(i))
+          local_index = local_index + 1
+       end do
+    end do
+
+  end subroutine server_listen
     
 end module tally

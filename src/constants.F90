@@ -302,6 +302,11 @@ module constants
        K_TRACKLENGTH = 3, &
        LEAKAGE       = 4
 
+  ! Tally server signals
+  integer, parameter :: &
+       SERVER_END_BATCH = -1, &
+       SERVER_END_RUN   = -2
+
   ! ============================================================================
   ! MISCELLANEOUS CONSTANTS
 
