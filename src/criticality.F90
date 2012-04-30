@@ -8,7 +8,7 @@ module criticality
   use physics,    only: transport
   use source,     only: get_source_particle
   use string,     only: to_str
-  use tally,      only: synchronize_tallies
+  use tally,      only: synchronize_tallies, server_listen
   use timing,     only: timer_start, timer_stop
 
 contains
@@ -21,6 +21,11 @@ contains
   subroutine run_criticality()
 
     integer(8) :: i  ! index over histories in single cycle
+
+    if (server) then
+       call server_listen()
+       return
+    end if
 
     if (master) call header("BEGIN SIMULATION", level=1)
 

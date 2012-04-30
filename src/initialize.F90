@@ -702,6 +702,7 @@ contains
     ! communicator that is used throughout the run
     if (.not. use_servers) then
        call MPI_COMM_DUP(MPI_COMM_WORLD, compute_comm, mpi_err)
+       server = .false.
        return
     end if
 

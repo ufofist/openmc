@@ -196,7 +196,7 @@ module global
   integer :: mpi_err     ! MPI error code
   integer :: MPI_BANK    ! MPI datatype for fission bank
 
-  logical :: server      ! server process?
+  logical :: server = .false. ! server process?
 
   ! No reduction at end of batch
   logical :: no_reduce = .false.

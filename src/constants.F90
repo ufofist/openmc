@@ -303,9 +303,9 @@ module constants
        LEAKAGE       = 4
 
   ! Tally server signals
-  integer, parameter :: &
-       SERVER_END_BATCH = -1, &
-       SERVER_END_RUN   = -2
+  real(8), parameter :: &
+       SERVER_END_BATCH = -ONE, &
+       SERVER_END_RUN   = -TWO
 
   ! ============================================================================
   ! MISCELLANEOUS CONSTANTS

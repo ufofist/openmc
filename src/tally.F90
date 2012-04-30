@@ -17,6 +17,7 @@ module tally
 
   implicit none
 
+  integer :: request ! communication request handle
   integer, allocatable :: position(:)
 
 contains
@@ -99,7 +100,7 @@ contains
 
           ! Determine maximum size for server message
           if (use_servers) max_server_send = max(max_server_send, &
-               score_bins * filter_bins + n_servers)
+               score_bins + n_servers)
 
           ! All the remaining logic is for non-surface-current tallies so we can
           ! safely skip it
@@ -195,6 +196,10 @@ contains
        t % n_total_bins = filter_bins
        if (.not. use_servers) allocate(t % scores(score_bins, filter_bins))
 
+       ! Determine maximum size for server message
+       if (use_servers) max_server_send = max(max_server_send, &
+            score_bins + n_servers)
+
     end do
 
   end subroutine create_tally_map
@@ -255,6 +260,9 @@ contains
     logical :: found_bin            ! scoring bin found?
     type(TallyObject), pointer :: t => null()
 
+    integer :: i_score
+    real(8) :: scores(max_server_send)
+
     ! Copy particle's pre- and post-collision weight and angle
     last_wgt = p % last_wgt
     wgt = p % wgt
@@ -281,6 +289,10 @@ contains
 
        ! Determine scoring index for this filter combination
        score_index = sum((bins - 1) * t % stride) + 1
+
+       ! Reset index for buffered scores
+       i_score = 0
+       scores = ZERO
 
        ! Determine score for each bin
        do j = 1, t % n_score_bins
@@ -453,10 +465,19 @@ contains
              call fatal_error()
           end select
              
-          ! Add score to tally
-          call add_to_score(t % scores(j, score_index), score)
+          if (use_servers) then
+             ! Copy score into array instead of talying
+             i_score = i_score + 1
+             scores(i_score) = score
+          else
+             ! Add score to tally
+             call add_to_score(t % scores(j, score_index), score)
+          end if
 
        end do
+
+       if (use_servers) call send_to_server(analog_tallies(i), j, &
+            t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
@@ -544,6 +565,9 @@ contains
     logical :: found_bin            ! scoring bin found?
     type(TallyObject), pointer :: t => null()
 
+    integer :: i_score
+    real(8) :: scores(max_server_send)
+
     ! Determine track-length estimate of flux
     flux = p % wgt * distance
 
@@ -577,6 +601,10 @@ contains
        ! Determine scoring index for this filter combination
        score_index = sum((bins - 1) * t % stride) + 1
 
+       ! Reset index for buffered scores
+       i_score = 0
+       scores = ZERO
+
        ! Determine score for each bin
        do j = 1, t % n_score_bins
           ! determine what type of score bin
@@ -601,10 +629,19 @@ contains
              call fatal_error()
           end select
 
-          ! Add score to tally
-          call add_to_score(t % scores(j, score_index), score)
+          if (use_servers) then
+             ! Copy score into array instead of talying
+             i_score = i_score + 1
+             scores(i_score) = score
+          else
+             ! Add score to tally
+             call add_to_score(t % scores(j, score_index), score)
+          end if
 
        end do
+
+       if (use_servers) call send_to_server(tracklength_tallies(i), j, &
+            t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
@@ -1311,6 +1348,7 @@ contains
   subroutine synchronize_tallies()
 
     integer :: i   ! index in tallies array
+    integer :: server_rank
 
 #ifdef MPI
     if (.not. no_reduce) then
@@ -1320,7 +1358,24 @@ contains
 #endif
 
     ! Accumulate scores for each tally
-    if (.not. use_servers) then
+    if (use_servers) then
+       ! Make sure all outstanding requests were completed
+       call MPI_WAIT(request, MPI_STATUS_IGNORE, mpi_err)
+       call MPI_BARRIER(compute_comm, mpi_err)
+
+       if (master) then
+          do i = 1, n_servers
+             server_rank = i * support_ratio - 1
+             if (current_batch == n_batches) then
+                call MPI_SEND(SERVER_END_RUN, 1, MPI_REAL8, server_rank, 0, &
+                     MPI_COMM_WORLD, mpi_err)
+             else
+                call MPI_SEND(SERVER_END_BATCH, 1, MPI_REAL8, server_rank, 0, &
+                     MPI_COMM_WORLD, mpi_err)
+             end if
+          end do
+       end if
+    else
        do i = 1, n_tallies
           call accumulate_score(tallies(i) % scores)
        end do
@@ -1994,12 +2049,11 @@ contains
     integer :: server_rank  ! rank of server in MPI_COMM_WORLD
     integer :: global_index ! index in global tally array
     integer :: finish       ! last index in global tally array
-    integer :: request      ! communication request handle
     real(8) :: buffer(max_server_send) ! scores with indices
 
     ! Compute global index
     global_index = server_global_index(tally_index) + (filter_index - 1) * &
-         tallies(tally_index) % n_total_bins
+         tallies(tally_index) % n_score_bins
 
     ! Check that global_index is within the total number of scores
     if (global_index < 1 .or. global_index > n_scores) then
@@ -2011,7 +2065,7 @@ contains
     server_rank = ((global_index - 1)/scores_per_server + 1)*support_ratio - 1
 
     ! Determine global index of last score
-    finish = global_index + n_send
+    finish = global_index + n
     i = 0
     j = 0
 
