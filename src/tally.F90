@@ -2129,6 +2129,12 @@ contains
        local_index = global_index - int((global_index - 1)/scores_per_server) &
             * scores_per_server
 
+       ! Check for local index out of bounds
+       if (local_index < 1 .or. local_index > scores_per_server) then
+          message = "Local index on tally server out of bounds."
+          call fatal_error()
+       end if
+
        ! Add scores to tallies
        do i = 2, n
           call add_to_score(server_scores(local_index), score_data(i))
