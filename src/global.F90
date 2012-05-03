@@ -199,7 +199,7 @@ module global
   logical :: server = .false. ! server process?
 
   ! No reduction at end of batch
-  logical :: no_reduce = .false.
+  logical :: reduce_tallies = .true.
 
   ! ============================================================================
   ! TIMING VARIABLES

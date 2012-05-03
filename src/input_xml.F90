@@ -306,7 +306,7 @@ contains
 
     ! Check if the user has specified to not reduce tallies at the end of every
     ! batch
-    if (trim(no_reduce_) == 'on') no_reduce = .true.
+    if (trim(no_reduce_) == 'on') reduce_tallies = .false.
 
     ! Determine number of tally servers
     if (servers_ > 0) then
@@ -327,10 +327,10 @@ contains
     n_compute = n_procs - n_servers
 
     ! Determine number of realizations
-    if (no_reduce) then
-       n_realizations = n_active * n_compute
-    else
+    if (reduce_tallies) then
        n_realizations = n_active
+    else
+       n_realizations = n_active * n_procs
     end if
 
   end subroutine read_settings_xml
@@ -1356,9 +1356,9 @@ contains
           pl % color_by = PLOT_COLOR_CELLS
           allocate(pl % colors(n_cells))
           do j = 1, n_cells
-            pl % colors(j) % rgb(1) = prn()*255
-            pl % colors(j) % rgb(2) = prn()*255
-            pl % colors(j) % rgb(3) = prn()*255
+            pl % colors(j) % rgb(1) = int(prn()*255)
+            pl % colors(j) % rgb(2) = int(prn()*255)
+            pl % colors(j) % rgb(3) = int(prn()*255)
           end do
 
         case ("mat", "material")
@@ -1366,9 +1366,9 @@ contains
           pl % color_by = PLOT_COLOR_MATS
           allocate(pl % colors(n_materials))
           do j = 1, n_materials
-            pl % colors(j) % rgb(1) = prn()*255
-            pl % colors(j) % rgb(2) = prn()*255
-            pl % colors(j) % rgb(3) = prn()*255
+            pl % colors(j) % rgb(1) = int(prn()*255)
+            pl % colors(j) % rgb(2) = int(prn()*255)
+            pl % colors(j) % rgb(3) = int(prn()*255)
           end do
 
         case default
