@@ -476,7 +476,7 @@ contains
 
        end do
 
-       if (use_servers) call send_to_server(analog_tallies(i), j, &
+       if (use_servers) call send_to_server(analog_tallies(i), score_index, &
             t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
@@ -640,7 +640,7 @@ contains
 
        end do
 
-       if (use_servers) call send_to_server(tracklength_tallies(i), j, &
+       if (use_servers) call send_to_server(tracklength_tallies(i), score_index, &
             t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
@@ -1348,7 +1348,6 @@ contains
   subroutine synchronize_tallies()
 
     integer :: i   ! index in tallies array
-    integer :: server_rank
 
 #ifdef MPI
     if (reduce_tallies) call reduce_tally_values()
@@ -1361,16 +1360,7 @@ contains
        call MPI_BARRIER(compute_comm, mpi_err)
 
        if (master) then
-          do i = 1, n_servers
-             server_rank = i * support_ratio - 1
-             if (current_batch == n_batches) then
-                call MPI_SEND(SERVER_END_RUN, 1, MPI_REAL8, server_rank, 0, &
-                     MPI_COMM_WORLD, mpi_err)
-             else
-                call MPI_SEND(SERVER_END_BATCH, 1, MPI_REAL8, server_rank, 0, &
-                     MPI_COMM_WORLD, mpi_err)
-             end if
-          end do
+          call send_server_signal()
        end if
     else
        if (master .or. (.not. reduce_tallies)) then
@@ -2075,7 +2065,7 @@ contains
        j = j + 1
 
        ! Determine number of scores to send
-       n_send = min((server_rank/support_ratio + 1)*scores_per_server, &
+       n_send = min((server_rank/support_ratio + 1)*scores_per_server + 1, &
             finish) - global_index
 
        ! Add score values to send buffer
@@ -2091,6 +2081,35 @@ contains
     end do
 
   end subroutine send_to_server
+
+!===============================================================================
+! SEND_SERVER_SIGNAL
+!===============================================================================
+
+  subroutine send_server_signal()
+
+    integer :: i
+    integer :: server_rank
+    real(8) :: server_signal(2)
+
+    ! Tell the server whether this is the end of a batch or the entire run
+    if (current_batch == n_batches) then
+       server_signal(1) = SERVER_END_RUN
+    else
+       server_signal(1) = SERVER_END_BATCH
+    end if
+
+    ! Server needs the total weight to accumulate tallies
+    server_signal(2) = total_weight
+
+    ! Send the signal to each server
+    do i = 1, n_servers
+       server_rank = i * support_ratio - 1
+       call MPI_SEND(server_signal, 2, MPI_REAL8, server_rank, 0, &
+            MPI_COMM_WORLD, mpi_err)
+    end do
+
+  end subroutine send_server_signal
 
 !===============================================================================
 ! SERVER_LISTEN
@@ -2113,17 +2132,19 @@ contains
        ! Determine how much data was sent
        call MPI_GET_COUNT(status, MPI_REAL8, n, mpi_err)
 
-       ! Determine starting global index
-       global_index = nint(score_data(1))
-
        ! Check for end of batch
-       if (global_index == SERVER_END_BATCH) then
+       if (score_data(1) == SERVER_END_BATCH) then
+          total_weight = score_data(2)
           call accumulate_score(server_scores)
-          continue
-       elseif (global_index == SERVER_END_RUN) then
+          cycle
+       elseif (score_data(1) == SERVER_END_RUN) then
+          total_weight = score_data(2)
           call accumulate_score(server_scores)
           exit
        end if
+
+       ! Determine starting global index
+       global_index = nint(score_data(1))
 
        ! Determine local index
        local_index = global_index - int((global_index - 1)/scores_per_server) &
