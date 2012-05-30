@@ -156,7 +156,7 @@ contains
     ! n_particles source sites. The way this is done in a reproducible manner is
     ! to adjust only the source sites on the last processor.
 
-    if (rank == n_compute - 1) then
+    if (compute_rank == n_compute - 1) then
        if (finish > n_particles) then
           ! If we have extra sites sampled, we will simply discard the extra
           ! ones on the last processor
@@ -196,10 +196,10 @@ contains
 
        ! Initiate an asynchronous send of source sites to the neighboring
        ! process
-       if (neighbor /= rank) then
+       if (neighbor /= compute_rank) then
           n_request = n_request + 1
           call MPI_ISEND(temp_sites(index_local), n, MPI_BANK, neighbor, &
-               rank, compute_comm, request(n_request), mpi_err)
+               compute_rank, compute_comm, request(n_request), mpi_err)
        end if
 
        ! Increment all indices
@@ -231,13 +231,13 @@ contains
     RECV_SITES: do while (start < bank_last)
        ! Determine how many sites need to be received
        if (neighbor == n_compute - 1) then
-          n = min(n_particles, (rank+1)*maxwork) - start
+          n = min(n_particles, (compute_rank+1)*maxwork) - start
        else
           n = min(bank_position(neighbor+2), min(n_particles, &
-               (rank+1)*maxwork)) - start
+               (compute_rank+1)*maxwork)) - start
        end if
 
-       if (neighbor /= rank) then
+       if (neighbor /= compute_rank) then
           ! If the source sites are not on this processor, initiate an
           ! asynchronous receive for the source sites
 
@@ -249,7 +249,7 @@ contains
           ! If the source sites are on this procesor, we can simply copy them
           ! from the temp_sites bank
 
-          index_temp = start - bank_position(rank+1) + 1
+          index_temp = start - bank_position(compute_rank+1) + 1
           source_bank(index_local:index_local+n-1) = &
                temp_sites(index_temp:index_temp+n-1)
        end if

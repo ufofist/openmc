@@ -134,6 +134,7 @@ module global
   integer :: n_scores = 0      ! total # of scores
   integer :: n_server_scores   ! # of scores on each server
   integer :: compute_comm      ! communicator for compute procs/servers
+  integer :: compute_rank      ! rank on new communicator
   integer :: max_server_send = 0 ! maximum size of data sent to server
 
   ! This array gives the global index of the first bin for each TallyObject

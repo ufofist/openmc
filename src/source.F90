@@ -31,8 +31,8 @@ contains
     maxwork = ceiling(real(n_particles)/n_compute,8)
 
     ! ID's of first and last source particles
-    bank_first = rank*maxwork + 1
-    bank_last  = min((rank+1)*maxwork, n_particles)
+    bank_first = compute_rank*maxwork + 1
+    bank_last  = min((compute_rank+1)*maxwork, n_particles)
 
     ! number of particles for this processor
     work = bank_last - bank_first + 1

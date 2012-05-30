@@ -697,7 +697,6 @@ contains
 
     integer :: i     ! index in tallies array
     integer :: color ! colors userd in MPI_COMM_SPLIT
-    integer :: key   ! keys used in MPI_COMM_SPLIT
 
     ! If tally servers are not being used, we still need to create the new
     ! communicator that is used throughout the run
@@ -725,15 +724,16 @@ contains
     if (mod(rank + 1, support_ratio) == 0) then
        server = .true.
        color = 1
-       key = rank / support_ratio
+       compute_rank = rank / support_ratio
     else
        server = .false.
        color = 0
-       key = rank - rank/support_ratio
+       compute_rank = rank - rank/support_ratio
     end if
 
     ! create new communicator that splits compute processors and servers
-    call MPI_COMM_SPLIT(MPI_COMM_WORLD, color, key, compute_comm, mpi_err)
+    call MPI_COMM_SPLIT(MPI_COMM_WORLD, color, compute_rank, compute_comm, &
+         mpi_err)
 
     ! determine maximum number of scores per server
     scores_per_server = (n_scores - 1)/n_servers + 1
