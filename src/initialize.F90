@@ -96,10 +96,6 @@ contains
     call neighbor_lists()
 
     if (run_mode /= MODE_PLOTTING) then
-       ! Read cross section summary file to determine what files contain
-       ! cross-sections
-       call read_cross_sections_xml()
-
        ! With the AWRs from the xs_listings, change all material specifications
        ! so that they contain atom percents summing to 1
        call normalize_ao()
@@ -448,7 +444,9 @@ contains
        ! ADJUST MATERIAL/FILL POINTERS FOR EACH CELL
 
        id = c % material
-       if (id /= 0) then
+       if (id == MATERIAL_VOID) then
+          c % type = CELL_NORMAL
+       elseif (id /= 0) then
           if (dict_has_key(material_dict, id)) then
              c % type = CELL_NORMAL
              c % material = dict_get_key(material_dict, id)
@@ -601,13 +599,11 @@ contains
     integer        :: index_list      ! index in xs_listings array
     integer        :: i               ! index in materials array
     integer        :: j               ! index over nuclides in material
-    integer        :: n               ! length of string
-    real(8)        :: sum_percent     ! 
+    real(8)        :: sum_percent     ! summation
     real(8)        :: awr             ! atomic weight ratio
     real(8)        :: x               ! atom percent
     logical        :: percent_in_atom ! nuclides specified in atom percent?
     logical        :: density_in_atom ! density specified in atom/b-cm?
-    character(12)  :: key             ! name of nuclide, e.g. 92235.03c
     type(Material), pointer :: mat => null()
     
     ! first find the index in the xs_listings array for each nuclide in each
@@ -615,65 +611,37 @@ contains
     do i = 1, n_materials
        mat => materials(i)
 
-       ! Check to make sure either all atom percents or all weight percents are
-       ! given
-       if (.not. (all(mat%atom_percent > ZERO) .or. & 
-            all(mat%atom_percent < ZERO))) then
-          message = "Cannot mix atom and weight percents in material " // &
-               to_str(mat % id)
-          call fatal_error()
-       end if
-
-       percent_in_atom = (mat%atom_percent(1) > ZERO)
-       density_in_atom = (mat%density > ZERO)
+       percent_in_atom = (mat % atom_density(1) > ZERO)
+       density_in_atom = (mat % density > ZERO)
 
        sum_percent = ZERO
        do j = 1, mat % n_nuclides
-          ! Set indices for nuclides
-          key = mat % names(j)
-
-          ! Check to make sure cross-section is continuous energy neutron table
-          n = len_trim(key)
-          if (key(n:n) /= 'c') then
-             message = "Cross-section table " // trim(key) // & 
-                  " is not a continuous-energy neutron table."
-             call fatal_error()
-          end if
-
-          if (dict_has_key(xs_listing_dict, key)) then
-             index_list = dict_get_key(xs_listing_dict, key)
-             mat % xs_listing(j) = index_list
-          else
-             message = "Cannot find cross-section " // trim(key) // &
-                  " in specified cross_sections.xml file."
-             call fatal_error()
-          end if
-
           ! determine atomic weight ratio
+          index_list = dict_get_key(xs_listing_dict, mat % names(j))
           awr = xs_listings(index_list) % awr
 
           ! if given weight percent, convert all values so that they are divided
           ! by awr. thus, when a sum is done over the values, it's actually
           ! sum(w/awr)
           if (.not. percent_in_atom) then
-             mat % atom_percent(j) = -mat % atom_percent(j) / awr
+             mat % atom_density(j) = -mat % atom_density(j) / awr
           end if
        end do
 
        ! determine normalized atom percents. if given atom percents, this is
        ! straightforward. if given weight percents, the value is w/awr and is
        ! divided by sum(w/awr)
-       sum_percent = sum(mat%atom_percent)
-       mat % atom_percent = mat % atom_percent / sum_percent
+       sum_percent = sum(mat % atom_density)
+       mat % atom_density = mat % atom_density / sum_percent
 
        ! Change density in g/cm^3 to atom/b-cm. Since all values are now in atom
        ! percent, the sum needs to be re-evaluated as 1/sum(x*awr)
        if (.not. density_in_atom) then
           sum_percent = ZERO
           do j = 1, mat % n_nuclides
-             index_list = mat % xs_listing(j)
+             index_list = dict_get_key(xs_listing_dict, mat % names(j))
              awr = xs_listings(index_list) % awr
-             x = mat % atom_percent(j)
+             x = mat % atom_density(j)
              sum_percent = sum_percent + x*awr
           end do
           sum_percent = ONE / sum_percent
@@ -681,10 +649,8 @@ contains
                / MASS_NEUTRON * sum_percent
        end if
 
-       ! Calculate nuclide atom densities and deallocate atom_percent array
-       ! since it is no longer needed past this point
-       mat % atom_density = mat % density * mat % atom_percent
-       deallocate(mat % atom_percent)
+       ! Calculate nuclide atom densities
+       mat % atom_density = mat % density * mat % atom_density
     end do
 
   end subroutine normalize_ao
@@ -714,7 +680,7 @@ contains
     do i = 1, n_tallies
        server_global_index(i) = n_scores + 1
        n_scores = n_scores + tallies(i) % n_total_bins * &
-            tallies(i) % n_score_bins
+            tallies(i) % n_score_bins * tallies(i) % n_nuclide_bins
     end do
 
     ! Determine support ratio

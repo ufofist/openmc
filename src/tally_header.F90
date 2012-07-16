@@ -94,8 +94,12 @@ module tally_header
      integer, allocatable :: n_filter_bins(:)
      integer, allocatable :: stride(:)
 
-     ! Macroscopic properties to score
+     ! Individual nuclides to tally
+     type(TallyFilter), pointer :: nuclide_bins(:) => null()
+     integer :: n_nuclide_bins = 0
+     logical :: all_nuclides = .false.
 
+     ! Values to score, e.g. flux, absorption, etc.
      type(TallyFilter), pointer :: score_bins(:) => null()
      integer :: n_score_bins = 0
      

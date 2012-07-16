@@ -344,6 +344,8 @@ contains
     ! Write information on material
     if (c % material == 0) then
        write(unit_,*) '    Material = NONE'
+    elseif (c % material == MATERIAL_VOID) then
+       write(unit_,*) '    Material = Void'
     else
        m => materials(c % material)
        write(unit_,*) '    Material = ' // to_str(m % id)
@@ -777,12 +779,15 @@ contains
     type(Nuclide), pointer :: nuc
     integer,      optional :: unit
 
-    integer :: i           ! loop index over nuclides
-    integer :: unit_       ! unit to write to
-    integer :: size_total  ! memory used by nuclide (bytes)
-    integer :: size_xs     ! memory used for cross-sections (bytes)
-    integer :: size_angle  ! memory used for angle distributions (bytes)
-    integer :: size_energy ! memory used for energy distributions (bytes)
+    integer :: i                 ! loop index over nuclides
+    integer :: unit_             ! unit to write to
+    integer :: size_total        ! memory used by nuclide (bytes)
+    integer :: size_angle_total  ! total memory used for angle dist. (bytes)
+    integer :: size_energy_total ! total memory used for energy dist. (bytes)
+    integer :: size_xs           ! memory used for cross-sections (bytes)
+    integer :: size_angle        ! memory used for an angle distribution (bytes)
+    integer :: size_energy       ! memory used for a  energy distributions (bytes)
+    integer :: size_urr          ! memory used for probability tables (bytes)
     type(Reaction), pointer :: rxn => null()
     type(UrrData),  pointer :: urr => null()
 
@@ -793,9 +798,10 @@ contains
        unit_ = OUTPUT_UNIT
     end if
 
-    ! Determine size of cross-sections
-    size_xs = (5 + nuc % n_reaction) * nuc % n_grid * 8
-    size_total = size_xs
+    ! Initialize totals
+    size_angle_total = 0
+    size_energy_total = 0
+    size_urr = 0
 
     ! Basic nuclide information
     write(unit_,*) 'Nuclide ' // trim(nuc % name)
@@ -806,12 +812,10 @@ contains
     write(unit_,*) '  Fissionable = ', nuc % fissionable
     write(unit_,*) '  # of fission reactions = ' // trim(to_str(nuc % n_fission))
     write(unit_,*) '  # of reactions = ' // trim(to_str(nuc % n_reaction))
-    write(unit_,*) '  Size of cross sections = ' // trim(to_str(&
-         size_xs)) // ' bytes'
 
+    ! Information on each reaction
     write(unit_,*) '  Reaction    Q-value   Mult    IE    size(angle) size(energy)'
     do i = 1, nuc % n_reaction
-       ! Information on each reaction
        rxn => nuc % reactions(i)
 
        ! Determine size of angle distribution
@@ -833,10 +837,17 @@ contains
             rxn % IE, size_angle, size_energy
 
        ! Accumulate data size
-       size_total = size_total + size_angle + size_energy
+       size_xs = size_xs + (nuc % n_grid - rxn%IE + 1) * 8
+       size_angle_total = size_angle_total + size_angle
+       size_energy_total = size_energy_total + size_energy
     end do
 
+    ! Add memory required for summary reactions (total, absorption, fission,
+    ! nu-fission)
+    size_xs = 8 * nuc % n_grid * 4
+
     ! Write information about URR probability tables
+    size_urr = 0
     if (nuc % urr_present) then
        urr => nuc % urr_data
        write(unit_,*) '  Unresolved resonance probability table:'
@@ -848,16 +859,86 @@ contains
        write(unit_,*) '    Multiply by smooth? ', urr % multiply_smooth
        write(unit_,*) '    Min energy = ', trim(to_str(urr % energy(1)))
        write(unit_,*) '    Max energy = ', trim(to_str(urr % energy(urr % n_energy)))
+
+       ! Calculate memory used by probability tables and add to total
+       size_urr = urr % n_energy * (urr % n_prob * 6 + 1) * 8
     end if
 
-    ! Write total memory used
-    write(unit_,*) '  Total memory used = ' // trim(to_str(size_total)) &
-         // ' bytes'
+    ! Calculate total memory
+    size_total = size_xs + size_angle_total + size_energy_total + size_urr
+
+    ! Write memory used
+    write(unit_,*) '  Memory Requirements'
+    write(unit_,*) '    Cross sections = ' // trim(to_str(size_xs)) // ' bytes'
+    write(unit_,*) '    Secondary angle distributions = ' // &
+         trim(to_str(size_angle_total)) // ' bytes'
+    write(unit_,*) '    Secondary energy distributions = ' // &
+         trim(to_str(size_energy_total)) // ' bytes'
+    write(unit_,*) '    Probability Tables = ' // &
+         trim(to_str(size_urr)) // ' bytes'
+    write(unit_,*) '    Total = ' // trim(to_str(size_total)) // ' bytes'
 
     ! Blank line at end of nuclide
     write(unit_,*)
 
   end subroutine print_nuclide
+
+!===============================================================================
+! PRINT_SAB_TABLE displays information about a S(a,b) table containing data
+! describing thermal scattering from bound materials such as hydrogen in water.
+!===============================================================================
+
+  subroutine print_sab_table(sab, unit)
+
+    type(SAB_Table), pointer :: sab
+    integer,        optional :: unit
+
+    integer :: size  ! memory used by S(a,b) table
+    integer :: unit_ ! unit to write to
+
+    ! set default unit for writing information
+    if (present(unit)) then
+       unit_ = unit
+    else
+       unit_ = OUTPUT_UNIT
+    end if
+
+    ! Basic S(a,b) table information
+    write(unit_,*) 'S(a,b) Table ' // trim(sab % name)
+    write(unit_,*) '  zaid = ' // trim(to_str(sab % zaid))
+    write(unit_,*) '  awr = ' // trim(to_str(sab % awr))
+    write(unit_,*) '  kT = ' // trim(to_str(sab % kT))
+
+    ! Inelastic data
+    write(unit_,*) '  # of Incoming Energies (Inelastic) = ' // &
+         trim(to_str(sab % n_inelastic_e_in))
+    write(unit_,*) '  # of Outgoing Energies (Inelastic) = ' // &
+         trim(to_str(sab % n_inelastic_e_out))
+    write(unit_,*) '  # of Outgoing Angles (Inelastic) = ' // &
+         trim(to_str(sab % n_inelastic_mu))
+    write(unit_,*) '  Threshold for Inelastic = ' // &
+         trim(to_str(sab % threshold_inelastic))
+
+    ! Elastic data
+    if (sab % n_elastic_e_in > 0) then
+       write(unit_,*) '  # of Incoming Energies (Elastic) = ' // &
+            trim(to_str(sab % n_elastic_e_in))
+       write(unit_,*) '  # of Outgoing Angles (Elastic) = ' // &
+            trim(to_str(sab % n_elastic_mu))
+       write(unit_,*) '  Threshold for Elastic = ' // &
+            trim(to_str(sab % threshold_elastic))
+    end if
+
+    ! Determine memory used by S(a,b) table and write out
+    size = 8 * (sab % n_inelastic_e_in * (2 + sab % n_inelastic_e_out * &
+         (1 + sab % n_inelastic_mu)) + sab % n_elastic_e_in * &
+         (2 + sab % n_elastic_mu))
+    write(unit_,*) '  Memory Used = ' // trim(to_str(size)) // ' bytes'
+
+    ! Blank line at end
+    write(unit_,*)
+
+  end subroutine print_sab_table
 
 !===============================================================================
 ! PRINT_SUMMARY displays summary information about the problem about to be run

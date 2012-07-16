@@ -184,10 +184,8 @@ contains
        end if
 
        ! Finally add scoring bins for the tally
-       n = t % n_score_bins
-       if (n > 0) then
-          score_bins = n
-       else
+       score_bins = t % n_score_bins * t % n_nuclide_bins
+       if (score_bins <= 0) then
           message = "Must have scoring bins!"
           call fatal_error()
        end if
@@ -250,9 +248,12 @@ contains
 
     integer :: i                    ! loop index for analog tallies
     integer :: j                    ! loop index for scoring bins
+    integer :: k                    ! loop index for nuclide bins
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
-    integer :: score_index          ! single index for single bin
+    integer :: filter_index         ! single index for single bin
     integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
+    integer :: index_nuclide        ! index in nuclides array
+    integer :: score_index          ! scoring bin index
     real(8) :: score                ! analog tally score
     real(8) :: last_wgt             ! pre-collision particle weight
     real(8) :: wgt                  ! post-collision particle weight
@@ -273,7 +274,7 @@ contains
     ! A loop over all tallies is necessary because we need to simultaneously
     ! determine different filter bins for the same tally in order to score to it
 
-    do i = 1, n_analog_tallies
+    TALLY_LOOP: do i = 1, n_analog_tallies
        t => tallies(analog_tallies(i))
 
        ! =======================================================================
@@ -290,209 +291,254 @@ contains
        ! be accumulating the tally values
 
        ! Determine scoring index for this filter combination
-       score_index = sum((bins - 1) * t % stride) + 1
+       filter_index = sum((bins - 1) * t % stride) + 1
 
        ! Reset index for buffered scores
        i_score = 0
        scores = ZERO
 
-       ! Determine score for each bin
-       do j = 1, t % n_score_bins
-          ! determine what type of score bin
-          score_bin = t % score_bins(j) % scalar
+       ! Check for nuclide bins
+       k = 0
+       NUCLIDE_LOOP: do while (k <= t % n_nuclide_bins)
 
-          select case (score_bin)
-          case (SCORE_FLUX)
-             ! All events score to a flux bin. We actually use a collision
-             ! estimator since there is no way to count 'events' exactly for the
-             ! flux
+          ! Increment the index in the list of nuclide bins
+          k = k + 1
 
-             score = last_wgt / material_xs % total
-
-          case (SCORE_TOTAL)
-             ! All events will score to the total reaction rate. We can just use
-             ! the weight of the particle entering the collision as the score
-
-             score = last_wgt
-
-          case (SCORE_SCATTER)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! Since only scattering events make it here, again we can use the
-             ! weight entering the collision as the estimator for the reaction
-             ! rate
-
-             score = last_wgt
-
-          case (SCORE_NU_SCATTER) 
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! For scattering production, we need to use the post-collision
-             ! weight as the estimate for the number of neutrons exiting a
-             ! reaction with neutrons in the exit channel
-
-             score = wgt
-
-          case (SCORE_SCATTER_1)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! The first scattering moment can be determined by using the rate
-             ! of scattering reactions multiplied by the cosine of the change in
-             ! neutron's angle due to the collision
-
-             score = last_wgt * mu
-
-          case (SCORE_SCATTER_2)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! The second scattering moment can be determined in a similar
-             ! manner to the first scattering moment
-
-             score = last_wgt * 0.5*(3.0*mu*mu - ONE)
-
-          case (SCORE_SCATTER_3)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! The first scattering moment can be determined by using the rate
-             ! of scattering reactions multiplied by the cosine of the change in
-             ! neutron's angle due to the collision
-
-             score = last_wgt * 0.5*(5.0*mu*mu*mu - 3.0*mu)
-
-          case (SCORE_TRANSPORT)
-            ! Skip any event where the particle didn't scatter
-            if (p % event /= EVENT_SCATTER) cycle
-
-            ! get material macros
-            macro_total = material_xs % total
-            macro_scatt = material_xs % total - material_xs % absorption
-
-            ! Score total rate - p1 scatter rate
-            ! Note estimator needs to be adjusted since tallying is only
-            ! occuring when a scatter has happend. Effectively this means
-            ! multiplying the estimator by total/scatter macro
-            score = (macro_total - mu*macro_scatt)*(ONE/macro_scatt)
-
-          case (SCORE_DIFFUSION)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-             
-             ! Temporarily store the scattering cross section
-             score = material_xs % total - material_xs % absorption
-
-             ! Since this only gets tallied at every scattering event, the flux
-             ! estimator is 1/Sigma_s. Therefore, the diffusion coefficient
-             ! times flux is 1/(3*Sigma_s*(Sigma_t - mu*Sigma_s)).
-
-             score = last_wgt / (3.0_8 * score * (material_xs % total - &
-                  mu * score))
-
-          case (SCORE_N_1N)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! Skip any events where weight of particle changed
-             if (wgt /= last_wgt) cycle
-
-             ! All events that reach this point are (n,1n) reactions
-             score = last_wgt
-
-          case (SCORE_N_2N)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! Skip any scattering events where the weight didn't double
-             if (nint(wgt/last_wgt) /= 2) cycle
-
-             ! All events that reach this point are (n,2n) reactions
-             score = last_wgt
-
-          case (SCORE_N_3N)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! Skip any scattering events where the weight didn't double
-             if (nint(wgt/last_wgt) /= 3) cycle
-
-             ! All events that reach this point are (n,3n) reactions
-             score = last_wgt
-
-          case (SCORE_N_4N)
-             ! Skip any event where the particle didn't scatter
-             if (p % event /= EVENT_SCATTER) cycle
-
-             ! Skip any scattering events where the weight didn't double
-             if (nint(wgt/last_wgt) /= 4) cycle
-
-             ! All events that reach this point are (n,3n) reactions
-             score = last_wgt
-
-          case (SCORE_ABSORPTION)
-             ! Skip any event where the particle wasn't absorbed
-             if (p % event == EVENT_SCATTER) cycle
-
-             ! All fission and absorption events will contribute here, so we can
-             ! just use the particle's weight entering the collision
-
-             score = last_wgt
-
-          case (SCORE_FISSION)
-             ! Skip any non-fission events
-             if (p % event /= EVENT_FISSION) cycle
-
-             ! All fission events will contribute, so again we can use
-             ! particle's weight entering the collision as the estimate for the
-             ! fission reaction rate
-
-             score = last_wgt
-
-          case (SCORE_NU_FISSION)
-             ! Skip any non-fission events
-             if (p % event /= EVENT_FISSION) cycle
-
-             if (t % n_filter_bins(FILTER_ENERGYOUT) > 0) then
-                ! Normally, we only need to make contributions to one scoring
-                ! bin. However, in the case of fission, since multiple fission
-                ! neutrons were emitted with different energies, multiple outgoing
-                ! energy bins may have been scored to. The following logic treats
-                ! this special case and scores to multiple bins
-
-                call score_fission_eout(t, bins, j)
-                cycle
-
+          if (t % all_nuclides) then
+             ! In the case that the user has requested to tally all nuclides, we
+             ! can take advantage of the fact that we know exactly how nuclide
+             ! bins correspond to nuclide indices.
+             if (k == 1) then
+                ! If we just entered, set the nuclide bin index to the index in
+                ! the nuclides array since this will match the index in the
+                ! nuclide bin array.
+                k = p % event_nuclide
+             elseif (k == p % event_nuclide + 1) then
+                ! After we've tallied the individual nuclide bin, we also need
+                ! to contribute to the total material bin which is the last bin
+                k = n_nuclides_total + 1
              else
-                ! If there is no outgoing energy filter, than we only need to
-                ! score to one bin. For the score to be 'analog', we need to
-                ! score the number of particles that were banked in the fission
-                ! bank. Since this was weighted by 1/keff, we multiply by keff
-                ! to get the proper score.
-
-                score = keff * p % wgt_bank
-
+                ! After we've tallied in both the individual nuclide bin and the
+                ! total material bin, we're done
+                exit
              end if
 
-          case default
-             message = "Invalid score type on tally " // to_str(t % id) // "."
-             call fatal_error()
-          end select
-             
-          if (use_servers) then
-             ! Copy score into array instead of talying
-             i_score = i_score + 1
-             scores(i_score) = score
           else
-             ! Add score to tally
-             call add_to_score(t % scores(j, score_index), score)
+             ! If the user has explicitly specified nuclides (or specified
+             ! none), we need to search through the nuclide bin list one by
+             ! one. First we need to get the value of the nuclide bin
+             index_nuclide = t % nuclide_bins(k) % scalar
+
+             ! Now compare the value against that of the colliding nuclide.
+             if (index_nuclide /= p % event_nuclide .and. &
+                  index_nuclide /= -1) cycle
           end if
 
-       end do
+          ! Determine score for each bin
+          SCORE_LOOP: do j = 1, t % n_score_bins
+             ! determine what type of score bin
+             score_bin = t % score_bins(j) % scalar
 
-       if (use_servers) call send_to_server(analog_tallies(i), score_index, &
+             ! determine scoring bin index
+             score_index = (k - 1)*t % n_score_bins + j
+
+             select case (score_bin)
+             case (SCORE_FLUX)
+                ! All events score to a flux bin. We actually use a collision
+                ! estimator since there is no way to count 'events' exactly for
+                ! the flux
+
+                score = last_wgt / material_xs % total
+
+             case (SCORE_TOTAL)
+                ! All events will score to the total reaction rate. We can just
+                ! use the weight of the particle entering the collision as the
+                ! score
+
+                score = last_wgt
+
+             case (SCORE_SCATTER)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Since only scattering events make it here, again we can use
+                ! the weight entering the collision as the estimator for the
+                ! reaction rate
+
+                score = last_wgt
+
+             case (SCORE_NU_SCATTER) 
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! For scattering production, we need to use the post-collision
+                ! weight as the estimate for the number of neutrons exiting a
+                ! reaction with neutrons in the exit channel
+
+                score = wgt
+
+             case (SCORE_SCATTER_1)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! The first scattering moment can be determined by using the
+                ! rate of scattering reactions multiplied by the cosine of the
+                ! change in neutron's angle due to the collision
+
+                score = last_wgt * mu
+
+             case (SCORE_SCATTER_2)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! The second scattering moment can be determined in a similar
+                ! manner to the first scattering moment
+
+                score = last_wgt * 0.5*(3.0*mu*mu - ONE)
+
+             case (SCORE_SCATTER_3)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! The first scattering moment can be determined by using the
+                ! rate of scattering reactions multiplied by the cosine of the
+                ! change in neutron's angle due to the collision
+
+                score = last_wgt * 0.5*(5.0*mu*mu*mu - 3.0*mu)
+
+             case (SCORE_TRANSPORT)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! get material macros
+                macro_total = material_xs % total
+                macro_scatt = material_xs % total - material_xs % absorption
+
+                ! Score total rate - p1 scatter rate Note estimator needs to be
+                ! adjusted since tallying is only occuring when a scatter has
+                ! happend. Effectively this means multiplying the estimator by
+                ! total/scatter macro
+                score = (macro_total - mu*macro_scatt)*(ONE/macro_scatt)
+
+             case (SCORE_DIFFUSION)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Temporarily store the scattering cross section
+                score = material_xs % total - material_xs % absorption
+
+                ! Since this only gets tallied at every scattering event, the
+                ! flux estimator is 1/Sigma_s. Therefore, the diffusion
+                ! coefficient times flux is 1/(3*Sigma_s*(Sigma_t -
+                ! mu*Sigma_s)).
+
+                score = last_wgt / (3.0_8 * score * (material_xs % total - &
+                     mu * score))
+
+             case (SCORE_N_1N)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Skip any events where weight of particle changed
+                if (wgt /= last_wgt) cycle
+
+                ! All events that reach this point are (n,1n) reactions
+                score = last_wgt
+
+             case (SCORE_N_2N)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Skip any scattering events where the weight didn't double
+                if (nint(wgt/last_wgt) /= 2) cycle
+
+                ! All events that reach this point are (n,2n) reactions
+                score = last_wgt
+
+             case (SCORE_N_3N)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Skip any scattering events where the weight didn't double
+                if (nint(wgt/last_wgt) /= 3) cycle
+
+                ! All events that reach this point are (n,3n) reactions
+                score = last_wgt
+
+             case (SCORE_N_4N)
+                ! Skip any event where the particle didn't scatter
+                if (p % event /= EVENT_SCATTER) cycle
+
+                ! Skip any scattering events where the weight didn't double
+                if (nint(wgt/last_wgt) /= 4) cycle
+
+                ! All events that reach this point are (n,3n) reactions
+                score = last_wgt
+
+             case (SCORE_ABSORPTION)
+                ! Skip any event where the particle wasn't absorbed
+                if (p % event == EVENT_SCATTER) cycle
+
+                ! All fission and absorption events will contribute here, so we
+                ! can just use the particle's weight entering the collision
+
+                score = last_wgt
+
+             case (SCORE_FISSION)
+                ! Skip any non-fission events
+                if (p % event /= EVENT_FISSION) cycle
+
+                ! All fission events will contribute, so again we can use
+                ! particle's weight entering the collision as the estimate for
+                ! the fission reaction rate
+
+                score = last_wgt
+
+             case (SCORE_NU_FISSION)
+                ! Skip any non-fission events
+                if (p % event /= EVENT_FISSION) cycle
+
+                if (t % n_filter_bins(FILTER_ENERGYOUT) > 0) then
+                   ! Normally, we only need to make contributions to one scoring
+                   ! bin. However, in the case of fission, since multiple
+                   ! fission neutrons were emitted with different energies,
+                   ! multiple outgoing energy bins may have been scored to. The
+                   ! following logic treats this special case and scores to
+                   ! multiple bins
+
+                   call score_fission_eout(t, bins, score_index)
+                   cycle
+
+                else
+                   ! If there is no outgoing energy filter, than we only need to
+                   ! score to one bin. For the score to be 'analog', we need to
+                   ! score the number of particles that were banked in the
+                   ! fission bank. Since this was weighted by 1/keff, we
+                   ! multiply by keff to get the proper score.
+
+                   score = keff * p % wgt_bank
+
+                end if
+
+             case default
+                message = "Invalid score type on tally " // to_str(t % id) // "."
+                call fatal_error()
+             end select
+             
+             if (use_servers) then
+                ! Copy score into array instead of talying
+                i_score = i_score + 1
+                scores(i_score) = score
+             else
+                ! Add score to tally
+                call add_to_score(t % scores(score_index, filter_index), score)
+             end if
+
+          end do SCORE_LOOP
+
+       end do NUCLIDE_LOOP
+
+       if (use_servers) call send_to_server(analog_tallies(i), filter_index, &
             t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
@@ -505,7 +551,7 @@ contains
        ! Reset tally map positioning
        position = 0
 
-    end do
+    end do TALLY_LOOP
 
   end subroutine score_analog_tally
 
@@ -524,7 +570,7 @@ contains
 
     integer :: k             ! loop index for bank sites
     integer :: bin_energyout ! original outgoing energy bin
-    integer :: score_index   ! index for scoring bin combination
+    integer :: filter_index  ! index for scoring bin combination
     real(8) :: score         ! actualy score
     real(8) :: E_out         ! energy of fission bank site
 
@@ -549,10 +595,10 @@ contains
             size(t % energy_out), E_out)
 
        ! determine scoring index
-       score_index = sum((bins - 1) * t % stride) + 1
+       filter_index = sum((bins - 1) * t % stride) + 1
 
        ! Add score to tally
-       call add_to_score(t % scores(j, score_index), score)
+       call add_to_score(t % scores(j, filter_index), score)
     end do
 
     ! reset outgoing energy bin and score index
@@ -573,13 +619,18 @@ contains
 
     integer :: i                    ! loop index for tracklength tallies
     integer :: j                    ! loop index for scoring bins
+    integer :: k                    ! loop index for nuclide bins
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
-    integer :: score_index          ! single index for single bin
-    integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
+    integer :: filter_index         ! single index for single bin
+    integer :: index_nuclide        ! index in nuclides array
+    integer :: score_bin            ! scoring type, e.g. SCORE_FLUX
+    integer :: score_index          ! scoring bin index
     real(8) :: flux                 ! tracklength estimate of flux
     real(8) :: score                ! actual score (e.g., flux*xs)
+    real(8) :: atom_density         ! atom density of single nuclide in atom/b-cm
     logical :: found_bin            ! scoring bin found?
     type(TallyObject), pointer :: t => null()
+    type(Material), pointer :: mat => null()
 
     integer :: i_score
     real(8) :: scores(max_server_send)
@@ -590,7 +641,7 @@ contains
     ! A loop over all tallies is necessary because we need to simultaneously
     ! determine different filter bins for the same tally in order to score to it
 
-    do i = 1, n_tracklength_tallies
+    TALLY_LOOP: do i = 1, n_tracklength_tallies
        t => tallies(tracklength_tallies(i))
 
        ! Check if this tally has a mesh filter -- if so, we treat it separately
@@ -615,49 +666,111 @@ contains
        ! be accumulating the tally values
 
        ! Determine scoring index for this filter combination
-       score_index = sum((bins - 1) * t % stride) + 1
+       filter_index = sum((bins - 1) * t % stride) + 1
 
-       ! Reset index for buffered scores
-       i_score = 0
-       scores = ZERO
+       if (t % all_nuclides) then
+          call score_all_nuclides(t, flux, filter_index)
 
-       ! Determine score for each bin
-       do j = 1, t % n_score_bins
-          ! determine what type of score bin
-          score_bin = t % score_bins(j) % scalar
+       else
 
-          ! Determine cross section 
-          select case(score_bin)
-          case (SCORE_FLUX)
-             score = flux
-          case (SCORE_TOTAL)
-             score = material_xs % total * flux
-          case (SCORE_SCATTER)
-             score = (material_xs % total - material_xs % absorption) * flux
-          case (SCORE_ABSORPTION)
-             score = material_xs % absorption * flux
-          case (SCORE_FISSION)
-             score = material_xs % fission * flux
-          case (SCORE_NU_FISSION)
-             score = material_xs % nu_fission * flux
-          case default
-             message = "Invalid score type on tally " // to_str(t % id) // "."
-             call fatal_error()
-          end select
+          ! Reset index for buffered scores
+          i_score = 0
+          scores = ZERO
 
-          if (use_servers) then
-             ! Copy score into array instead of talying
-             i_score = i_score + 1
-             scores(i_score) = score
-          else
-             ! Add score to tally
-             call add_to_score(t % scores(j, score_index), score)
-          end if
+          NUCLIDE_BIN_LOOP: do k = 1, t % n_nuclide_bins
+             ! Get index of nuclide in nuclides array
+             index_nuclide = t % nuclide_bins(k) % scalar
 
-       end do
+             if (index_nuclide > 0) then
+                ! Get pointer to current material
+                mat => materials(p % material)
 
-       if (use_servers) call send_to_server(tracklength_tallies(i), score_index, &
-            t % n_score_bins, scores)
+                ! Determine if nuclide is actually in material
+                NUCLIDE_MAT_LOOP: do j = 1, mat % n_nuclides
+                   ! If index of nuclide matches the j-th nuclide listed in the
+                   ! material, break out of the loop
+                   if (index_nuclide == mat % nuclide(j)) &
+                        exit
+
+                   ! If we've reached the last nuclide in the material, it means
+                   ! the specified nuclide to be tallied is not in this material
+                   if (j == mat % n_nuclides) then
+                      cycle NUCLIDE_BIN_LOOP
+                   end if
+                end do NUCLIDE_MAT_LOOP
+
+                atom_density = mat % atom_density(j)
+             end if
+
+             ! Determine score for each bin
+             SCORE_LOOP: do j = 1, t % n_score_bins
+                ! determine what type of score bin
+                score_bin = t % score_bins(j) % scalar
+
+                if (index_nuclide > 0) then
+                   ! Determine macroscopic nuclide cross section 
+                   select case(score_bin)
+                   case (SCORE_TOTAL)
+                      score = micro_xs(index_nuclide) % total * &
+                           atom_density * flux
+                   case (SCORE_SCATTER)
+                      score = (micro_xs(index_nuclide) % total - &
+                           micro_xs(index_nuclide) % absorption) * &
+                           atom_density * flux
+                   case (SCORE_ABSORPTION)
+                      score = micro_xs(index_nuclide) % absorption * &
+                           atom_density * flux
+                   case (SCORE_FISSION)
+                      score = micro_xs(index_nuclide) % fission * &
+                           atom_density * flux
+                   case (SCORE_NU_FISSION)
+                      score = micro_xs(index_nuclide) % nu_fission * &
+                           atom_density * flux
+                   case default
+                      message = "Invalid score type on tally " // to_str(t % id) // "."
+                      call fatal_error()
+                   end select
+
+                else
+                   ! Determine macroscopic material cross section 
+                   select case(score_bin)
+                   case (SCORE_FLUX)
+                      score = flux
+                   case (SCORE_TOTAL)
+                      score = material_xs % total * flux
+                   case (SCORE_SCATTER)
+                      score = (material_xs % total - material_xs % absorption) * flux
+                   case (SCORE_ABSORPTION)
+                      score = material_xs % absorption * flux
+                   case (SCORE_FISSION)
+                      score = material_xs % fission * flux
+                   case (SCORE_NU_FISSION)
+                      score = material_xs % nu_fission * flux
+                   case default
+                      message = "Invalid score type on tally " // to_str(t % id) // "."
+                      call fatal_error()
+                   end select
+                end if
+
+                ! Determine scoring bin index
+                score_index = (k - 1)*t % n_score_bins + j
+
+                if (use_servers) then
+                   ! Copy score into array instead of talying
+                   i_score = i_score + 1
+                   scores(i_score) = score
+                else
+                   ! Add score to tally
+                   call add_to_score(t % scores(score_index, filter_index), score)
+                end if
+
+             end do SCORE_LOOP
+
+          end do NUCLIDE_BIN_LOOP
+       end if
+
+       if (use_servers) call send_to_server(tracklength_tallies(i), &
+            filter_index, t % n_score_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
@@ -669,9 +782,137 @@ contains
        ! Reset tally map positioning
        position = 0
 
-    end do
+    end do TALLY_LOOP
 
   end subroutine score_tracklength_tally
+
+!===============================================================================
+! SCORE_ALL_NUCLIDES tallies individual nuclide reaction rates specifically when
+! the user requests <nuclides>all</nuclides>.
+!===============================================================================
+
+  subroutine score_all_nuclides(t, flux, filter_index)
+
+    type(TallyObject), pointer :: t
+    real(8),  intent(in) :: flux
+    integer,  intent(in) :: filter_index
+
+    integer :: i             ! loop index for nuclides in material
+    integer :: j             ! loop index for scoring bin types
+    integer :: index_nuclide ! index in nuclides array
+    integer :: score_bin     ! type of score, e.g. SCORE_FLUX
+    integer :: score_index   ! scoring bin index
+    real(8) :: score         ! actual scoring tally value
+    real(8) :: atom_density  ! atom density of single nuclide in atom/b-cm
+    type(Material), pointer :: mat => null()
+
+    integer :: i_score
+    real(8) :: scores(max_server_send)
+
+    ! Get pointer to current material. We need this in order to determine what
+    ! nuclides are in the material
+    mat => materials(p % material)
+
+    ! Reset index for buffered scores
+    i_score = 0
+    scores = ZERO
+
+    ! ==========================================================================
+    ! SCORE ALL INDIVIDUAL NUCLIDE REACTION RATES
+
+    NUCLIDE_LOOP: do i = 1, mat % n_nuclides
+
+       ! Determine index in nuclides array and atom density for i-th nuclide in
+       ! current material
+       index_nuclide = mat % nuclide(i)
+       atom_density = mat % atom_density(i)
+
+       ! Loop over score types for each bin
+       SCORE_LOOP: do j = 1, t % n_score_bins
+          ! determine what type of score bin
+          score_bin = t % score_bins(j) % scalar
+
+          ! Determine macroscopic nuclide cross section 
+          select case(score_bin)
+          case (SCORE_TOTAL)
+             score = micro_xs(index_nuclide) % total * atom_density * flux
+          case (SCORE_SCATTER)
+             score = (micro_xs(index_nuclide) % total - &
+                  micro_xs(index_nuclide) % absorption) * atom_density * flux
+          case (SCORE_ABSORPTION)
+             score = micro_xs(index_nuclide) % absorption * atom_density * flux
+          case (SCORE_FISSION)
+             score = micro_xs(index_nuclide) % fission * atom_density * flux
+          case (SCORE_NU_FISSION)
+             score = micro_xs(index_nuclide) % nu_fission * atom_density * flux
+          case default
+             message = "Invalid score type on tally " // to_str(t % id) // "."
+             call fatal_error()
+          end select
+
+          ! Determine scoring bin index based on what the index of the nuclide
+          ! is in the nuclides array
+          score_index = (index_nuclide - 1)*t % n_score_bins + j
+
+          if (use_servers) then
+             ! Copy score into array instead of talying
+             i_score = i_score + 1
+             scores(i_score) = score
+          else
+             ! Add score to tally
+             call add_to_score(t % scores(score_index, filter_index), score)
+          end if
+
+       end do SCORE_LOOP
+
+    end do NUCLIDE_LOOP
+
+    ! ==========================================================================
+    ! SCORE ALL INDIVIDUAL NUCLIDE REACTION RATES
+
+    ! Loop over score types for each bin
+    MATERIAL_SCORE_LOOP: do j = 1, t % n_score_bins
+       ! determine what type of score bin
+       score_bin = t % score_bins(j) % scalar
+
+       ! Determine macroscopic material cross section 
+       select case(score_bin)
+       case (SCORE_FLUX)
+          score = flux
+       case (SCORE_TOTAL)
+          score = material_xs % total * flux
+       case (SCORE_SCATTER)
+          score = (material_xs % total - material_xs % absorption) * flux
+       case (SCORE_ABSORPTION)
+          score = material_xs % absorption * flux
+       case (SCORE_FISSION)
+          score = material_xs % fission * flux
+       case (SCORE_NU_FISSION)
+          score = material_xs % nu_fission * flux
+       case default
+          message = "Invalid score type on tally " // to_str(t % id) // "."
+          call fatal_error()
+       end select
+
+       ! Determine scoring bin index based on what the index of the nuclide
+       ! is in the nuclides array
+       score_index = n_nuclides_total*t % n_score_bins + j
+
+       if (use_servers) then
+          ! Copy score into array instead of talying
+          i_score = i_score + 1
+          scores(i_score) = score
+       else
+          ! Add score to tally
+          call add_to_score(t % scores(score_index, filter_index), score)
+       end if
+
+    end do MATERIAL_SCORE_LOOP
+
+    if (use_servers) call send_to_server(tracklength_tallies(i), &
+         filter_index, t % n_score_bins, scores)
+
+  end subroutine score_all_nuclides
 
 !===============================================================================
 ! SCORE_TL_ON_MESH calculate fluxes and reaction rates based on the track-length
@@ -687,13 +928,17 @@ contains
     integer :: i                    ! loop index for filter/score bins
     integer :: j                    ! loop index for direction
     integer :: k                    ! loop index for mesh cell crossings
+    integer :: b                    ! loop index for nuclide bins
     integer :: ijk0(3)              ! indices of starting coordinates
     integer :: ijk1(3)              ! indices of ending coordinates
     integer :: ijk_cross(3)         ! indices of mesh cell crossed
     integer :: n_cross              ! number of surface crossings
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
-    integer :: score_index          ! single index for single bin
+    integer :: filter_index         ! single index for single bin
     integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
+    integer :: index_nuclide        ! index in nuclides array
+    integer :: score_index          ! scoring bin index
+    real(8) :: atom_density         ! density of individual nuclide in atom/b-cm
     real(8) :: flux                 ! tracklength estimate of flux
     real(8) :: score                ! actual score (e.g., flux*xs)
     real(8) :: uvw(3)               ! cosine of angle of particle
@@ -707,6 +952,7 @@ contains
     logical :: end_in_mesh          ! ending coordinates inside mesh?
     type(TallyObject),    pointer :: t => null()
     type(StructuredMesh), pointer :: m => null()
+    type(Material),       pointer :: mat => null()
 
     found_bin = .true.
     bins = 1
@@ -871,32 +1117,101 @@ contains
           bins(FILTER_MESH) = mesh_indices_to_bin(m, ijk_cross)
 
           ! Determining scoring index
-          score_index = sum((bins - 1) * t % stride) + 1
+          filter_index = sum((bins - 1) * t % stride) + 1
 
-          ! Determine score for each bin
-          SCORE_LOOP: do i = 1, t % n_score_bins
-             ! determine what type of score bin
-             score_bin = t % score_bins(i) % scalar
-             
-             ! Determine cross section 
-             select case(score_bin)
-             case (SCORE_FLUX)
-                score = flux
-             case (SCORE_TOTAL)
-                score = material_xs % total * flux
-             case (SCORE_SCATTER)
-                score = (material_xs % total - material_xs % absorption) * flux
-             case (SCORE_ABSORPTION)
-                score = material_xs % absorption * flux
-             case (SCORE_FISSION)
-                score = material_xs % fission * flux
-             case (SCORE_NU_FISSION)
-                score = material_xs % nu_fission * flux
-             end select
+          if (t % all_nuclides) then
+             ! Score reaction rates for each nuclide in material
+             call score_all_nuclides(t, flux, filter_index)
 
-             ! Add score to tally
-             call add_to_score(t % scores(i, score_index), score)
-          end do SCORE_LOOP
+          else
+             NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
+                ! Get index of nuclide in nuclides array
+                index_nuclide = t % nuclide_bins(b) % scalar
+
+                if (index_nuclide > 0) then
+                   ! Get pointer to current material
+                   mat => materials(p % material)
+
+                   ! Determine if nuclide is actually in material
+                   NUCLIDE_MAT_LOOP: do j = 1, mat % n_nuclides
+                      ! If index of nuclide matches the j-th nuclide listed in
+                      ! the material, break out of the loop
+                      if (index_nuclide == mat % nuclide(j)) &
+                           exit
+
+                      ! If we've reached the last nuclide in the material, it
+                      ! means the specified nuclide to be tallied is not in this
+                      ! material
+                      if (j == mat % n_nuclides) then
+                         cycle NUCLIDE_BIN_LOOP
+                      end if
+                   end do NUCLIDE_MAT_LOOP
+
+                   atom_density = mat % atom_density(j)
+                end if
+
+                ! Determine score for each bin
+                SCORE_LOOP: do j = 1, t % n_score_bins
+                   ! determine what type of score bin
+                   score_bin = t % score_bins(j) % scalar
+
+                   if (index_nuclide > 0) then
+                      ! Determine macroscopic nuclide cross section 
+                      select case(score_bin)
+                      case (SCORE_TOTAL)
+                         score = micro_xs(index_nuclide) % total * &
+                              atom_density * flux
+                      case (SCORE_SCATTER)
+                         score = (micro_xs(index_nuclide) % total - &
+                              micro_xs(index_nuclide) % absorption) * &
+                              atom_density * flux
+                      case (SCORE_ABSORPTION)
+                         score = micro_xs(index_nuclide) % absorption * &
+                              atom_density * flux
+                      case (SCORE_FISSION)
+                         score = micro_xs(index_nuclide) % fission * &
+                              atom_density * flux
+                      case (SCORE_NU_FISSION)
+                         score = micro_xs(index_nuclide) % nu_fission * &
+                              atom_density * flux
+                      case default
+                         message = "Invalid score type on tally " // &
+                              to_str(t % id) // "."
+                         call fatal_error()
+                      end select
+
+                   else
+                      ! Determine macroscopic material cross section 
+                      select case(score_bin)
+                      case (SCORE_FLUX)
+                         score = flux
+                      case (SCORE_TOTAL)
+                         score = material_xs % total * flux
+                      case (SCORE_SCATTER)
+                         score = (material_xs % total - material_xs % absorption) * flux
+                      case (SCORE_ABSORPTION)
+                         score = material_xs % absorption * flux
+                      case (SCORE_FISSION)
+                         score = material_xs % fission * flux
+                      case (SCORE_NU_FISSION)
+                         score = material_xs % nu_fission * flux
+                      case default
+                         message = "Invalid score type on tally " // &
+                              to_str(t % id) // "."
+                         call fatal_error()
+                      end select
+                   end if
+
+                   ! Determine scoring bin index
+                   score_index = (b - 1)*t % n_score_bins + j
+
+                   ! Add score to tally
+                   call add_to_score(t % scores(score_index, filter_index), score)
+
+                end do SCORE_LOOP
+
+             end do NUCLIDE_BIN_LOOP
+          end if
        end if
 
        ! Calculate new coordinates
@@ -1042,7 +1357,7 @@ contains
     integer :: n_cross              ! number of surface crossings
     integer :: n                    ! number of incoming energy bins
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
-    integer :: score_index          ! index of scoring bin
+    integer :: filter_index         ! index of scoring bin
     real(8) :: uvw(3)               ! cosine of angle of particle
     real(8) :: xyz0(3)              ! starting/intermediate coordinates
     real(8) :: xyz1(3)              ! ending coordinates of particle
@@ -1113,8 +1428,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = OUT_TOP
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           else
@@ -1123,8 +1438,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = IN_TOP
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           end if
@@ -1137,8 +1452,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = OUT_FRONT
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           else
@@ -1147,8 +1462,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = IN_FRONT
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           end if
@@ -1161,8 +1476,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = OUT_RIGHT
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           else
@@ -1171,8 +1486,8 @@ contains
                 if (all(ijk0 >= 0) .and. all(ijk0 <= m % dimension)) then
                    bins(SURF_FILTER_SURFACE) = IN_RIGHT
                    bins(1:3) = ijk0 + 1
-                   score_index = sum((bins - 1) * t % stride) + 1
-                   call add_to_score(t % scores(1, score_index), p % wgt)
+                   filter_index = sum((bins - 1) * t % stride) + 1
+                   call add_to_score(t % scores(1, filter_index), p % wgt)
                 end if
              end do
           end if
@@ -1279,16 +1594,16 @@ contains
 
           ! Determine scoring index
           if (bins(SURF_FILTER_SURFACE) > 0) then
-             score_index = sum((bins - 1) * t % stride) + 1
+             filter_index = sum((bins - 1) * t % stride) + 1
 
              ! Check for errors
-             if (score_index <= 0 .or. score_index > t % n_total_bins) then
+             if (filter_index <= 0 .or. filter_index > t % n_total_bins) then
                 message = "Score index outside range."
                 call fatal_error()
              end if
 
              ! Add to surface current tally
-             call add_to_score(t % scores(1, score_index), p % wgt)
+             call add_to_score(t % scores(1, filter_index), p % wgt)
           end if
 
           ! Calculate new coordinates
@@ -1568,11 +1883,15 @@ contains
     integer :: i                          ! index in tallies array
     integer :: j                          ! level in tally hierarchy
     integer :: k                          ! loop index for scoring bins
+    integer :: n                          ! loop index for nuclides
     integer :: bins(N_FILTER_TYPES) = 0   ! bins corresponding to each filter
     integer :: indent                     ! number of spaces to preceed output
     integer :: io_error                   ! error in opening/writing file
     integer :: last_filter                ! lowest level filter type
-    integer :: score_index                ! index in scores array for filters
+    integer :: filter_index               ! index in scores array for filters
+    integer :: score_index                ! scoring bin index
+    integer :: index_nuclide              ! index in nuclides array
+    integer :: index_list                 ! index in xs_listings array
     logical :: file_exists                ! does tallies.out file already exists? 
     logical :: has_filter(N_FILTER_TYPES) ! does tally have this filter?
     character(MAX_FILE_LEN) :: filename                    ! name of output file
@@ -1703,15 +2022,33 @@ contains
           ! in the score_tally subroutine, we have to use max(bins,1) since all
           ! bins below the lowest filter level will be zeros
 
-          score_index = sum((max(bins,1) - 1) * t % stride) + 1
+          filter_index = sum((max(bins,1) - 1) * t % stride) + 1
 
           ! Write scores for this filter bin combination
+          score_index = 0
           indent = indent + 2
-          do k = 1, t % n_score_bins
-             write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                  repeat(" ", indent), score_name(abs(t % score_bins(k) % scalar)), &
-                  to_str(t % scores(k,score_index) % sum), &
-                  trim(to_str(t % scores(k,score_index) % sum_sq))
+          do n = 1, t % n_nuclide_bins
+             ! Write label for nuclide
+             index_nuclide = t % nuclide_bins(n) % scalar
+             if (index_nuclide == -1) then
+                write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
+                     "Total Material"
+             else
+                index_list = nuclides(index_nuclide) % listing
+                write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
+                     trim(xs_listings(index_list) % alias)
+             end if
+
+             indent = indent + 2
+             do k = 1, t % n_score_bins
+                score_index = score_index + 1
+                write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
+                     repeat(" ", indent), score_name(abs(t % score_bins(k) % scalar)), &
+                     to_str(t % scores(score_index,filter_index) % sum), &
+                     trim(to_str(t % scores(score_index,filter_index) % sum_sq))
+             end do
+             indent = indent - 2
+
           end do
           indent = indent - 2
 
@@ -1740,7 +2077,7 @@ contains
     integer :: n                    ! number of incoming energy bins
     integer :: len1                 ! length of string 
     integer :: len2                 ! length of string 
-    integer :: score_index          ! index in scores array for filters
+    integer :: filter_index         ! index in scores array for filters
     logical :: print_ebin           ! should incoming energy bin be displayed?
     character(MAX_LINE_LEN) :: string
     type(StructuredMesh), pointer :: m => null()
@@ -1784,98 +2121,98 @@ contains
                 ! Left Surface
                 bins(1:3) = (/ i-1, j, k /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_RIGHT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Left", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Left", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 ! Right Surface
                 bins(1:3) = (/ i, j, k /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_RIGHT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Right", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_RIGHT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Right", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 ! Back Surface
                 bins(1:3) = (/ i, j-1, k /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_FRONT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Back", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Back", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 ! Front Surface
                 bins(1:3) = (/ i, j, k /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_FRONT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Front", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_FRONT
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Front", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 ! Bottom Surface
                 bins(1:3) = (/ i, j, k-1 /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_TOP
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Bottom", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Bottom", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 ! Top Surface
                 bins(1:3) = (/ i, j, k /) + 1
                 bins(SURF_FILTER_SURFACE) = IN_TOP
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Incoming Current from Top", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
 
                 bins(SURF_FILTER_SURFACE) = OUT_TOP
-                score_index = sum((bins - 1) * t % stride) + 1
+                filter_index = sum((bins - 1) * t % stride) + 1
                 write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
                      "Outgoing Current to Top", &
-                     to_str(t % scores(1,score_index) % sum), &
-                     trim(to_str(t % scores(1,score_index) % sum_sq))
+                     to_str(t % scores(1,filter_index) % sum), &
+                     trim(to_str(t % scores(1,filter_index) % sum_sq))
              end do
 
           end do
@@ -2060,7 +2397,8 @@ contains
 
     ! Compute global index
     global_index = server_global_index(tally_index) + (filter_index - 1) * &
-         tallies(tally_index) % n_score_bins
+         tallies(tally_index) % n_score_bins * &
+         tallies(tally_index) % n_nuclide_bins
 
     ! Check that global_index is within the total number of scores
     if (global_index < 1 .or. global_index > n_scores) then

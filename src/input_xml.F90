@@ -28,6 +28,7 @@ contains
   subroutine read_input_xml()
 
     call read_settings_xml()
+    call read_cross_sections_xml()
     call read_geometry_xml()
     call read_materials_xml()
     call read_tallies_xml()
@@ -386,8 +387,28 @@ contains
        ! Copy data into cells
        c % id       = cell_(i) % id
        c % universe = cell_(i) % universe
-       c % material = cell_(i) % material
        c % fill     = cell_(i) % fill
+
+       ! Read material
+       word = cell_(i) % material
+       call lower_case(word)
+       select case(word)
+       case ('void')
+          c % material = MATERIAL_VOID
+
+       case ('')
+          ! This case is called if no material was specified
+          c % material = 0
+
+       case default
+          c % material = str_to_int(word)
+
+          ! Check for error
+          if (c % material == ERROR_INT) then
+             message = "Invalid material specified on cell " // to_str(c % id)
+             call fatal_error()
+          end if
+       end select
 
        ! Check to make sure that either material or fill was specified
        if (c % material == 0 .and. c % fill == 0) then
@@ -615,17 +636,20 @@ contains
 
     use xml_data_materials_t
 
-    integer :: i           ! loop index for materials
-    integer :: j           ! loop index for nuclides
-    integer :: n           ! number of nuclides
-    real(8) :: val         ! value entered for density
-    logical :: file_exists ! does materials.xml exist?
-    logical :: sum_density ! density is taken to be sum of nuclide densities
-    character(3)            :: default_xs ! default xs identifier (e.g. 70c)
-    character(12)           :: name       ! name of nuclide
-    character(MAX_WORD_LEN) :: units      ! units on density
-    character(MAX_LINE_LEN) :: filename   ! absolute path to materials.xml
-    type(Material),    pointer :: m => null()
+    integer :: i             ! loop index for materials
+    integer :: j             ! loop index for nuclides
+    integer :: n             ! number of nuclides
+    integer :: index_list    ! index in xs_listings array
+    integer :: index_nuclide ! index in nuclides
+    integer :: index_sab     ! index in sab_tables
+    real(8) :: val           ! value entered for density
+    logical :: file_exists   ! does materials.xml exist?
+    logical :: sum_density   ! density is taken to be sum of nuclide densities
+    character(12) :: name       ! name of isotope, e.g. 92235.03c
+    character(12) :: alias      ! alias of nuclide, e.g. U-235.03c
+    character(MAX_WORD_LEN) :: units    ! units on density
+    character(MAX_LINE_LEN) :: filename ! absolute path to materials.xml
+    type(Material),    pointer :: mat => null()
     type(nuclide_xml), pointer :: nuc => null()
     type(sab_xml),     pointer :: sab => null()
 
@@ -643,7 +667,7 @@ contains
 
     ! Initialize default cross section variable
     default_xs_ = ""
-
+    
     ! Parse materials.xml file
     call read_xml_file_materials_t(filename)
 
@@ -654,11 +678,18 @@ contains
     n_materials = size(material_)
     allocate(materials(n_materials))
 
+    ! Initialize count for number of nuclides/S(a,b) tables
+    index_nuclide = 0
+    index_sab = 0
+
     do i = 1, n_materials
-       m => materials(i)
+       mat => materials(i)
 
        ! Copy material id
-       m % id = material_(i) % id
+       mat % id = material_(i) % id
+
+       ! =======================================================================
+       ! READ AND PARSE <density> TAG
 
        ! Copy value and units
        val   = material_(i) % density % value
@@ -676,7 +707,7 @@ contains
           sum_density = .false.
           if (val <= ZERO) then
              message = "Need to specify a positive density on material " // &
-                  trim(to_str(m % id)) // "."
+                  trim(to_str(mat % id)) // "."
              call fatal_error()
           end if
 
@@ -684,44 +715,45 @@ contains
           call lower_case(units)
           select case(trim(units))
           case ('g/cc', 'g/cm3')
-             m % density = -val
+             mat % density = -val
           case ('kg/m3')
-             m % density = -0.001 * val
+             mat % density = -0.001 * val
           case ('atom/b-cm')
-             m % density = val
+             mat % density = val
           case ('atom/cm3', 'atom/cc')
-             m % density = 1.0e-24 * val
+             mat % density = 1.0e-24 * val
           case default
              message = "Unkwown units '" // trim(material_(i) % density % units) &
-                  // "' specified on material " // trim(to_str(m % id))
+                  // "' specified on material " // trim(to_str(mat % id))
              call fatal_error()
           end select
        end if
        
+       ! =======================================================================
+       ! READ AND PARSE <nuclide> TAGS
+
        ! Check to ensure material has at least one nuclide
        if (.not. associated(material_(i) % nuclides)) then
           message = "No nuclides specified on material " // &
-               trim(to_str(m % id))
+               trim(to_str(mat % id))
           call fatal_error()
        end if
 
        ! allocate arrays in Material object
        n = size(material_(i) % nuclides)
-       m % n_nuclides = n
-       allocate(m % names(n))
-       allocate(m % nuclide(n))
-       allocate(m % xs_listing(n))
-       allocate(m % atom_density(n))
-       allocate(m % atom_percent(n))
+       mat % n_nuclides = n
+       allocate(mat % names(n))
+       allocate(mat % nuclide(n))
+       allocate(mat % atom_density(n))
 
-       do j = 1, n
+       do j = 1, mat % n_nuclides
           ! Combine nuclide identifier and cross section and copy into names
           nuc => material_(i) % nuclides(j)
 
           ! Check for empty name on nuclide
           if (len_trim(nuc % name) == 0) then
              message = "No name specified on nuclide in material " // &
-                  trim(to_str(m % id))
+                  trim(to_str(mat % id))
              call fatal_error()
           end if
 
@@ -729,7 +761,7 @@ contains
           if (len_trim(nuc % xs) == 0) then
              if (default_xs == '') then
                 message = "No cross section specified for nuclide in material " &
-                     // trim(to_str(m % id))
+                     // trim(to_str(mat % id))
                 call fatal_error()
              else
                 nuc % xs = default_xs
@@ -738,7 +770,39 @@ contains
 
           ! copy full name
           name = trim(nuc % name) // "." // trim(nuc % xs)
-          m % names(j) = name
+          mat % names(j) = name
+
+          ! Check that this nuclide is listed in the cross_sections.xml file
+          if (.not. dict_has_key(xs_listing_dict, name)) then
+             message = "Could not find nuclide " // trim(name) // &
+                  " in cross_sections.xml file!"
+             call fatal_error()
+          end if
+
+          ! Check to make sure cross-section is continuous energy neutron table
+          n = len_trim(name)
+          if (name(n:n) /= 'c') then
+             message = "Cross-section table " // trim(name) // & 
+                  " is not a continuous-energy neutron table."
+             call fatal_error()
+          end if
+
+          ! Find xs_listing and set the name/alias according to the listing
+          index_list = dict_get_key(xs_listing_dict, name)
+          name       = xs_listings(index_list) % name
+          alias      = xs_listings(index_list) % alias
+
+          ! If this nuclide hasn't been encountered yet, we need to add its name
+          ! and alias to the nuclide_dict
+          if (.not. dict_has_key(nuclide_dict, name)) then
+             index_nuclide    = index_nuclide + 1
+             mat % nuclide(j) = index_nuclide
+
+             call dict_add_key(nuclide_dict, name,  index_nuclide)
+             call dict_add_key(nuclide_dict, alias, index_nuclide)
+          else
+             mat % nuclide(j) = dict_get_key(nuclide_dict, name)
+          end if
 
           ! Check if no atom/weight percents were specified or if both atom and
           ! weight percents were specified
@@ -754,30 +818,73 @@ contains
 
           ! Copy atom/weight percents
           if (nuc % ao /= ZERO) then
-             m % atom_percent(j) = nuc % ao
+             mat % atom_density(j) = nuc % ao
           else
-             m % atom_percent(j) = -nuc % wo
-          end if
-
-          ! Read S(a,b) table information
-          if (size(material_(i) % sab) == 1) then
-             sab => material_(i) % sab(1)
-             name = trim(sab % name) // "." // trim(sab % xs)
-             m % sab_name = name
-             m % has_sab_table = .true.
-          elseif (size(material_(i) % sab) > 1) then
-             message = "Cannot have multiple S(a,b) tables on a single material."
-             call fatal_error()
+             mat % atom_density(j) = -nuc % wo
           end if
        end do
 
+       ! Check to make sure either all atom percents or all weight percents are
+       ! given
+       if (.not. (all(mat % atom_density > ZERO) .or. & 
+            all(mat % atom_density < ZERO))) then
+          message = "Cannot mix atom and weight percents in material " // &
+               to_str(mat % id)
+          call fatal_error()
+       end if
+
        ! Determine density if it is a sum value
-       if (sum_density) m % density = sum(m % atom_percent)
+       if (sum_density) mat % density = sum(mat % atom_density)
+
+       ! =======================================================================
+       ! READ AND PARSE <sab> TAG FOR S(a,b) DATA
+
+       if (size(material_(i) % sab) == 1) then
+          ! Get pointer to S(a,b) table
+          sab => material_(i) % sab(1)
+
+          ! Determine name of S(a,b) table
+          name = trim(sab % name) // "." // trim(sab % xs)
+          mat % sab_name = name
+
+          ! Check that this nuclide is listed in the cross_sections.xml file
+          if (.not. dict_has_key(xs_listing_dict, name)) then
+             message = "Could not find S(a,b) table " // trim(name) // &
+                  " in cross_sections.xml file!"
+             call fatal_error()
+          end if
+          mat % has_sab_table = .true.
+
+          ! Find index in xs_listing and set the name and alias according to the
+          ! listing
+          index_list = dict_get_key(xs_listing_dict, name)
+          name       = xs_listings(index_list) % name
+          alias      = xs_listings(index_list) % alias
+
+          ! If this S(a,b) table hasn't been encountered yet, we need to add its
+          ! name and alias to the sab_dict
+          if (.not. dict_has_key(sab_dict, name)) then
+             index_sab       = index_sab + 1
+             mat % sab_table = index_sab
+
+             call dict_add_key(sab_dict, name,  index_sab)
+             call dict_add_key(sab_dict, alias, index_sab)
+          else
+             mat % sab_table = dict_get_key(sab_dict, name)
+          end if
+
+       elseif (size(material_(i) % sab) > 1) then
+          message = "Cannot have multiple S(a,b) tables on a single material."
+          call fatal_error()
+       end if
 
        ! Add material to dictionary
-       call dict_add_key(material_dict, m % id, i)
-
+       call dict_add_key(material_dict, mat % id, i)
     end do
+
+    ! Set total number of nuclides and S(a,b) tables
+    n_nuclides_total = index_nuclide
+    n_sab_tables     = index_sab
 
   end subroutine read_materials_xml
 
@@ -945,6 +1052,9 @@ contains
        ! Copy material id
        t % id = tally_(i) % id
 
+       ! =======================================================================
+       ! READ DATA FOR FILTERS
+
        ! Check to make sure that both cells and surfaces were not specified
        if (len_trim(tally_(i) % filters % cell) > 0 .and. &
             len_trim(tally_(i) % filters % surface) > 0) then
@@ -1070,7 +1180,64 @@ contains
        allocate(t % filters(n_filters))
        t % filters = filters(1:n_filters)
 
-       ! Read macro reactions
+       ! =======================================================================
+       ! READ DATA FOR NUCLIDES
+
+       if (len_trim(tally_(i) % nuclides) > 0) then
+          call split_string(tally_(i) % nuclides, words, n_words)
+
+          if (words(1) == 'all') then
+             ! Handle special case <nuclides>all</nuclides>
+             allocate(t % nuclide_bins(n_nuclides_total + 1))
+
+             ! Set bins to 1, 2, 3, ..., n_nuclides_total, -1
+             t % nuclide_bins(1:n_nuclides_total) % scalar = &
+                  (/ (j, j=1, n_nuclides_total) /)
+             t % nuclide_bins(n_nuclides_total + 1) % scalar = -1
+
+             ! Set number of nuclide bins
+             t % n_nuclide_bins = n_nuclides_total + 1
+
+             ! Set flag so we can treat this case specially
+             t % all_nuclides = .true.
+          else
+             ! Any other case, e.g. <nuclides>U-235 Pu-239</nuclides>
+             allocate(t % nuclide_bins(n_words))
+             do j = 1, n_words
+                ! Check if xs specifier was given
+                if (ends_with(words(j), 'c')) then
+                   word = words(j)
+                else
+                   word = trim(words(j)) // "." // default_xs
+                end if
+
+                ! Check to make sure nuclide specified is in problem
+                if (.not. dict_has_key(nuclide_dict, word)) then
+                   message = "Could not find nuclide " // trim(word) // &
+                        " from tally " // trim(to_str(t % id)) // &
+                        " in cross_sections.xml file."
+                   call fatal_error()
+                end if
+                
+                ! Set bin to index in nuclides array
+                t % nuclide_bins(j) % scalar = dict_get_key(nuclide_dict, word)
+             end do
+
+             ! Set number of nuclide bins
+             t % n_nuclide_bins = n_words
+          end if
+
+       else
+          ! No <nuclides> were specified -- create only one bin will be added
+          ! for the total material.
+          allocate(t % nuclide_bins(1))
+          t % nuclide_bins(1) % scalar = -1
+          t % n_nuclide_bins = 1
+       end if
+
+       ! =======================================================================
+       ! READ DATA FOR SCORES
+
        if (len_trim(tally_(i) % scores) > 0) then
           call split_string(tally_(i) % scores, words, n_words)
           allocate(t % score_bins(n_words))
@@ -1079,6 +1246,13 @@ contains
              call lower_case(word)
              select case (trim(word))
              case ('flux')
+                ! Prohibit user from tallying flux for an individual nuclide
+                if (.not. (t % n_nuclide_bins == 1 .and. &
+                     t % nuclide_bins(1) % scalar == -1)) then
+                   message = "Cannot tally flux for an individual nuclide."
+                   call fatal_error()
+                end if
+
                 t % score_bins(j) % scalar = SCORE_FLUX
                 if (t % n_filter_bins(FILTER_ENERGYOUT) > 0) then
                    message = "Cannot tally flux with an outgoing energy filter."
