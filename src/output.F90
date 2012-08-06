@@ -167,6 +167,8 @@ contains
        write(OUTPUT_UNIT,*)
        write(OUTPUT_UNIT,*) 'Options:'
        write(OUTPUT_UNIT,*) '  -p, --plot      Run in plotting mode'
+       write(OUTPUT_UNIT,*) '  -r, --restart   Restart a previous run'
+       write(OUTPUT_UNIT,*) '  -t, --tallies   Write tally results from state point'
        write(OUTPUT_UNIT,*) '  -v, --version   Show version information'
        write(OUTPUT_UNIT,*) '  -?, --help      Show this message'
     end if
@@ -268,7 +270,7 @@ contains
     ! Display weight, energy, grid index, and interpolation factor
     write(ou,*) '  Weight = ' // to_str(p % wgt)
     write(ou,*) '  Energy = ' // to_str(p % E)
-    write(ou,*) '  IE = ' // to_str(p % IE)
+    write(ou,*) '  Energy grid index = ' // to_str(p % index_grid)
     write(ou,*) '  Interpolation factor = ' // to_str(p % interp)
     write(ou,*)
 
@@ -286,7 +288,7 @@ contains
     write(ou,*) '    MT = ' // to_str(rxn % MT)
     write(ou,*) '    Q-value = ' // to_str(rxn % Q_value)
     write(ou,*) '    Multiplicity = ' // to_str(rxn % multiplicity)
-    write(ou,*) '    Starting index = ' // to_str(rxn % IE)
+    write(ou,*) '    Threshold = ' // to_str(rxn % threshold)
     if (rxn % has_energy_dist) then
        write(ou,*) '    Energy: Law ' // to_str(rxn % edist % law)
     end if
@@ -788,6 +790,7 @@ contains
     integer :: size_angle        ! memory used for an angle distribution (bytes)
     integer :: size_energy       ! memory used for a  energy distributions (bytes)
     integer :: size_urr          ! memory used for probability tables (bytes)
+    character(4) :: law          ! secondary energy distribution law
     type(Reaction), pointer :: rxn => null()
     type(UrrData),  pointer :: urr => null()
 
@@ -802,6 +805,7 @@ contains
     size_angle_total = 0
     size_energy_total = 0
     size_urr = 0
+    size_xs = 0
 
     ! Basic nuclide information
     write(unit_,*) 'Nuclide ' // trim(nuc % name)
@@ -814,7 +818,7 @@ contains
     write(unit_,*) '  # of reactions = ' // trim(to_str(nuc % n_reaction))
 
     ! Information on each reaction
-    write(unit_,*) '  Reaction    Q-value   Mult    IE    size(angle) size(energy)'
+    write(unit_,*) '  Reaction     Q-value  COM  Law    IE    size(angle) size(energy)'
     do i = 1, nuc % n_reaction
        rxn => nuc % reactions(i)
 
@@ -825,19 +829,21 @@ contains
           size_angle = 0
        end if
 
-       ! Determine size of energy distribution
+       ! Determine size of energy distribution and law
        if (rxn % has_energy_dist) then
           size_energy = size(rxn % edist % data) * 8
+          law = to_str(rxn % edist % law)
        else
           size_energy = 0
+          law = 'None'
        end if
 
-       write(unit_,'(3X,A11,1X,F8.3,2X,I4,2X,I6,1X,I11,1X,I11)') &
-            reaction_name(rxn % MT), rxn % Q_value, rxn % multiplicity, &
-            rxn % IE, size_angle, size_energy
+       write(unit_,'(3X,A11,1X,F8.3,3X,L1,3X,A4,1X,I6,1X,I11,1X,I11)') &
+            reaction_name(rxn % MT), rxn % Q_value, rxn % scatter_in_cm, &
+            law, rxn % threshold, size_angle, size_energy
 
        ! Accumulate data size
-       size_xs = size_xs + (nuc % n_grid - rxn%IE + 1) * 8
+       size_xs = size_xs + (nuc % n_grid - rxn%threshold + 1) * 8
        size_angle_total = size_angle_total + size_angle
        size_energy_total = size_energy_total + size_energy
     end do
@@ -1047,9 +1053,11 @@ contains
        ! INACTIVE BATCHES
 
        if (entropy_on) then
-          write(UNIT=OUTPUT_UNIT, FMT=102) current_batch, k_batch, entropy
+          write(UNIT=OUTPUT_UNIT, FMT=102) current_batch, &
+               k_batch(current_batch), entropy(current_batch)
        else
-          write(UNIT=OUTPUT_UNIT, FMT=100) current_batch, k_batch
+          write(UNIT=OUTPUT_UNIT, FMT=100) current_batch, &
+               k_batch(current_batch)
        end if
 
     elseif (current_batch == n_inactive + 1) then
@@ -1057,19 +1065,21 @@ contains
        ! ACTIVE BATCHES
 
        if (entropy_on) then
-          write(UNIT=OUTPUT_UNIT, FMT=102) current_batch, k_batch, entropy
+          write(UNIT=OUTPUT_UNIT, FMT=102) current_batch, &
+               k_batch(current_batch), entropy(current_batch)
        else
-          write(UNIT=OUTPUT_UNIT, FMT=100) current_batch, k_batch
+          write(UNIT=OUTPUT_UNIT, FMT=100) current_batch, &
+               k_batch(current_batch)
        end if
 
     elseif (current_batch > n_inactive + 1) then
 
        if (entropy_on) then
-          write(UNIT=OUTPUT_UNIT, FMT=103) current_batch, k_batch, &
-               entropy, keff, keff_std
+          write(UNIT=OUTPUT_UNIT, FMT=103) current_batch, &
+               k_batch(current_batch), entropy(current_batch), keff, keff_std
        else
-          write(UNIT=OUTPUT_UNIT, FMT=101) current_batch, k_batch, &
-               keff, keff_std
+          write(UNIT=OUTPUT_UNIT, FMT=101) current_batch, &
+               k_batch(current_batch), keff, keff_std
        end if
 
     end if

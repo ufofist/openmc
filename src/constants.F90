@@ -5,9 +5,14 @@ module constants
   ! ============================================================================
   ! VERSIONING NUMBERS
 
+  ! OpenMC major, minor, and release numbers
   integer, parameter :: VERSION_MAJOR   = 0
   integer, parameter :: VERSION_MINOR   = 4
-  integer, parameter :: VERSION_RELEASE = 1
+  integer, parameter :: VERSION_RELEASE = 3
+
+  ! Revision numbers for binary files
+  integer, parameter :: REVISION_SOURCE     = 1
+  integer, parameter :: REVISION_STATEPOINT = 1
 
   ! ============================================================================
   ! ADJUSTABLE PARAMETERS 
@@ -104,11 +109,6 @@ module constants
        SURF_BOX_Z  = 11, & ! Box extending infinitely in z-direction
        SURF_BOX    = 12, & ! Rectangular prism
        SURF_GQ     = 13    ! General quadratic surface
-
-  ! Surface senses
-  integer, parameter ::    &
-       SENSE_POSITIVE = 1, &
-       SENSE_NEGATIVE = -1
 
   ! ============================================================================
   ! CROSS SECTION RELATED CONSTANTS
@@ -311,6 +311,27 @@ module constants
        SERVER_END_RUN   = -TWO
 
   ! ============================================================================
+  ! EXTERNAL SOURCE PARAMETERS
+
+  ! Source spatial distribution types
+  integer, parameter :: &
+       SRC_SPACE_BOX   = 1, & ! Source in a rectangular prism
+       SRC_SPACE_POINT = 2    ! Source at a single point
+
+  ! Source angular distribution types
+  integer, parameter :: &
+       SRC_ANGLE_ISOTROPIC = 1, & ! Isotropic angular 
+       SRC_ANGLE_MONO      = 2, & ! Monodirectional source
+       SRC_ANGLE_TABULAR   = 3    ! Tabular distribution
+
+  ! Source energy distribution types
+  integer, parameter :: &
+       SRC_ENERGY_MONO    = 1, & ! Monoenergetic source
+       SRC_ENERGY_MAXWELL = 2, & ! Maxwell fission spectrum
+       SRC_ENERGY_WATT    = 3, & ! Watt fission spectrum
+       SRC_ENERGY_TABULAR = 4    ! Tabular distribution
+       
+  ! ============================================================================
   ! MISCELLANEOUS CONSTANTS
 
   ! indicates that an array index hasn't been set
@@ -327,17 +348,12 @@ module constants
        GRID_UNION    = 2, & ! union grid with pointers
        GRID_LETHARGY = 3    ! lethargy mapping (MC21)
 
-  ! Source types
-  integer, parameter ::   &
-       SRC_BOX     = 1, & ! Source in a rectangular prism
-       SRC_POINT   = 2, & ! Source at a single point
-       SRC_FILE    = 3    ! Source from a file
-
   ! Running modes
   integer, parameter ::        &
        MODE_FIXEDSOURCE = 1, & ! Fixed source mode
        MODE_CRITICALITY = 2, & ! Criticality mode
-       MODE_PLOTTING    = 3    ! Plotting mode
+       MODE_PLOTTING    = 3, & ! Plotting mode
+       MODE_TALLIES     = 4    ! Tally results mode
 
   ! Unit numbers
   integer, parameter :: UNIT_SUMMARY = 11 ! unit # for writing summary file
@@ -345,5 +361,6 @@ module constants
   integer, parameter :: UNIT_PLOT    = 13 ! unit # for writing plot file
   integer, parameter :: UNIT_XS      = 14 ! unit # for writing xs summary file
   integer, parameter :: UNIT_SOURCE  = 15 ! unit # for writing source file
+  integer, parameter :: UNIT_STATE   = 16 ! unit # for writing state point
 
 end module constants

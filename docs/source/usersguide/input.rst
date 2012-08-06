@@ -44,7 +44,7 @@ which should be plotted. OpenMC expects that these files are called:
 
 * ``geometry.xml``
 * ``materials.xml``
-* ``setings.xml``
+* ``settings.xml``
 * ``tallies.xml``
 * ``plots.xml``
 
@@ -131,7 +131,7 @@ treatment is slightly different than that employed in Serpent.
 ``<entropy>`` Element
 ---------------------
 
-The ``<entropy>`` element describes a mesh that is used for calculting Shannon
+The ``<entropy>`` element describes a mesh that is used for calculating Shannon
 entropy. This mesh should cover all possible fissionable materials in the
 problem. It has the following attributes/sub-elements:
 
@@ -142,12 +142,29 @@ problem. It has the following attributes/sub-elements:
      automatically determined by the code.
 
   :lower_left:
-    The Cartersian coordinates of the lower-left corner of the mesh.
+    The Cartesian coordinates of the lower-left corner of the mesh.
 
     *Default*: None
 
   :upper_right:
-    The Cartersian coordinates of the upper-right corner of the mesh.
+    The Cartesian coordinates of the upper-right corner of the mesh.
+
+    *Default*: None
+
+``<fixed_source>`` Element
+--------------------------
+
+The ``<fixed_source>`` element indicates that a fixed source calculation should be
+performed. It has the following attributes/sub-elements:
+
+  :batches: 
+    The total number of batches. For fixed source calculations, each batch
+    represents a realization of random variables for tallies.
+
+    *Default*: None
+
+  :particles:
+    The number of particles to simulate per batch.
 
     *Default*: None
 
@@ -184,26 +201,91 @@ pseudo-random number generator.
 ``<source>`` Element
 --------------------
 
-The ``source`` element gives information on an initial source guess for
-criticality calculations. It takes the following attributes:
+The ``source`` element gives information on an external source distribution to
+be used either as the source for a fixed source calculation or the initial
+source guess for criticality calculations. It takes the following
+attributes/sub-elements:
 
-  :type:
-    The type of source distribution. Setting this to "box" indicates that the
-    starting source should be sampled uniformly in a parallelepiped. Setting
-    this to "point" indicates that the starting source should be sampled from an
-    isotropic point source. Setting this to "file" indicates that the starting
-    source should be sampled from a ``source.binary`` file.
+  :file:
+    If this attribute is given, it indicates that the source is to be read from
+    a binary source file whose path is given by the value of this element
 
-  :coeffs:
-    For a "box" source distribution, ``coeffs`` should be given as six real
-    numbers, the first three of which specify the lower-left corner of a
-    parallelepiped and the last three of which specify the upper-right
-    corner. Source sites are sampled uniformly through that parallelepiped.
+    *Default*: None
 
-    For a "point" source distribution, ``coeffs`` should be given as three real
-    numbers which specify the (x,y,z) location of an isotropic point source
+  :space:
+    An element specifying the spatial distribution of source sites. This element
+    has the following attributes:
 
-    For a "file" source distribution, ``coeffs`` should not be specified.
+    :type: 
+      The type of spatial distribution. Valid options are "box" and "point". A
+      "box" spatial distribution has coordinates sampled uniformly in a
+      parallelepiped. A "point" spatial distribution has coordinates specified
+      by a triplet.
+
+      *Default*: None
+
+    :parameters:
+      For a "box" spatial distribution, ``parameters`` should be given as six
+      real numbers, the first three of which specify the lower-left corner of a
+      parallelepiped and the last three of which specify the upper-right
+      corner. Source sites are sampled uniformly through that parallelepiped.
+
+      For a "point" spatial distribution, ``parameters`` should be given as
+      three real numbers which specify the (x,y,z) location of an isotropic
+      point source
+
+      *Default*: None
+
+  :angle:
+    An element specifying the angular distribution of source sites. This element
+    has the following attributes:
+
+    :type: 
+      The type of angular distribution. Valid options are "isotropic" and
+      "monodirectional". The angle of the particle emitted from a source site is
+      isotropic if the "isotropic" option is given. The angle of the particle
+      emitted from a source site is the direction specified in the <parameters>
+      attribute if "monodirectional" option is given.
+
+      *Default*: isotropic
+
+    :parameters:
+      For an "isotropic" angular distribution, ``parameters`` should not be
+      specified
+
+      For a "monodirectional" angular distribution, ``parameters`` should be
+      given as three real numbers which specify the angular cosines with respect
+      to each axis.
+
+      *Default*: None
+
+  :energy:
+    An element specifying the energy distribution of source sites. This element
+    has the following attributes:
+
+    :type: 
+
+      The type of energy distribution. Valid options are "monoenergetic",
+      "watt", and "maxwell". The "monoenergetic" option produces source sites at
+      a single energy. The "watt" option produces source sites whose energy is
+      sampled from a Watt fission spectrum. The "maxwell" option produce source
+      sites whose energy is sampled from a Maxwell fission spectrum
+
+      *Default*: watt
+
+    :parameters:
+      For a "monoenergetic" energy distribution, ``parameters`` should not be
+      given as the energy in MeV of the source sites.
+
+      For a "watt" energy distribution, ``parameters`` should be given as two
+      real numbers :math:`a` and :math:`b` that parameterize the distribution
+      :math:`p(E) dE = c e^{-E/a} \sinh \sqrt{b \, E} dE`.
+
+      For a "maxwell" energy distribution, ``parameters`` should be given as one
+      real number :math:`a` that parameterizes the distribution :math:`p(E) dE =
+      c E e^{-E/a} dE`.
+
+      *Default*: 0.988 2.249
 
 ``<survival_biasing>`` Element
 ------------------------------
@@ -241,12 +323,12 @@ problem. It has the following attributes/sub-elements:
     *Default*: None
 
   :lower_left:
-    The Cartersian coordinates of the lower-left corner of the mesh.
+    The Cartesian coordinates of the lower-left corner of the mesh.
 
     *Default*: None
 
   :upper_right:
-    The Cartersian coordinates of the upper-right corner of the mesh.
+    The Cartesian coordinates of the upper-right corner of the mesh.
 
     *Default*: None
 
@@ -266,7 +348,7 @@ displayed. This element takes the following attributes:
 ------------------------------
 
 The ``<write_source>`` element has no attributes and has an accepted value of
-"on" or "off". If set to "on", a binary source file will be written to diskat
+"on" or "off". If set to "on", a binary source file will be written to disk at
 the end of the run that can be used as a starting source for another run.
 
   *Default*: off
@@ -372,17 +454,17 @@ The following quadratic surfaces can be modeled:
     specified are ":math:`A \: B \: C \: D`".
 
   :x-cylinder:
-    An infinite cylinder whose length is paralle to the x-axis. This is a
+    An infinite cylinder whose length is parallel to the x-axis. This is a
     quadratic surface of the form :math:`(y - y_0)^2 + (z - z_0)^2 = R^2`. The
     coefficients specified are ":math:`y_0 \: z_0 \: R`".
 
   :y-cylinder:
-    An infinite cylinder whose length is paralle to the y-axis. This is a
+    An infinite cylinder whose length is parallel to the y-axis. This is a
     quadratic surface of the form :math:`(x - x_0)^2 + (z - z_0)^2 = R^2`. The
     coefficients specified are ":math:`x_0 \: z_0 \: R`".
 
   :z-cylinder:
-    An infinite cylinder whose length is paralle to the z-axis. This is a
+    An infinite cylinder whose length is parallel to the z-axis. This is a
     quadratic surface of the form :math:`(x - x_0)^2 + (y - y_0)^2 = R^2`. The
     coefficients specified are ":math:`x_0 \: y_0 \: R`".
 
@@ -551,6 +633,11 @@ The two valid elements in the tallies.xml file are ``<tally>`` and ``<mesh>``.
 -------------------
 
 The ``<tally>`` element accepts the following sub-elements:
+
+  :label:
+    This is an optional sub-element specifying the name of this tally to be used
+    for output purposes. This string is limited to 52 characters for formatting 
+    purposes.
 
   :filters:
     A list of filters to specify what region of phase space should contribute to
@@ -760,7 +847,7 @@ sub-elements:
       Specifies the cell or material unique id for the color specification.
 
     :rgb:
-      Specifies the custom color for the cell or material.  Should be 3 intergers separated
+      Specifies the custom color for the cell or material.  Should be 3 integers separated
       by spaces.
 
     *Default*: None
@@ -768,7 +855,7 @@ sub-elements:
   :mask:
     The special ``mask`` sub-element allows for the selective plotting of *only*
     user-specified cells or materials.  Only one ``mask`` element is allowed per ``plot``
-    element, and it must contain as atributes or sub-elements a background masking color and
+    element, and it must contain as attributes or sub-elements a background masking color and
     a list of cells or materials to plot:
 
     :components:

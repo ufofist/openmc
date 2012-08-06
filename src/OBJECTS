@@ -13,6 +13,7 @@ energy_grid.o \
 error.o \
 finalize.o \
 fission.o \
+fixed_source.o \
 geometry.o \
 geometry_header.o \
 global.o \
@@ -35,6 +36,7 @@ random_lcg.o \
 search.o \
 source.o \
 source_header.o \
+state_point.o \
 string.o \
 tally.o \
 tally_header.o \

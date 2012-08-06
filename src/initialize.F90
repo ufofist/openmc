@@ -17,7 +17,8 @@ module initialize
                               print_plot, create_summary_file, print_usage,    &
                               create_xs_summary_file, print_version
   use random_lcg,       only: initialize_prng
-  use source,           only: allocate_banks, initialize_source
+  use source,           only: initialize_source
+  use state_point,      only: load_state_point
   use string,           only: to_str, str_to_int, starts_with, ends_with,      &
                               lower_case
   use tally,            only: create_tally_map
@@ -118,9 +119,20 @@ contains
           call timer_stop(time_unionize)
        end if
 
-       ! allocate banks and create source particles
-       call allocate_banks()
-       call initialize_source()
+       ! Determine how much work each processor should do
+       call calculate_work()
+
+       ! Allocate banks and create source particles -- for a fixed source
+       ! calculation, the external source distribution is sampled during the
+       ! run, not at initialization
+       if (run_mode == MODE_CRITICALITY) then
+          call allocate_banks()
+          call initialize_source()
+       end if
+
+       ! If this is a restart run, load the state point data and binary source
+       ! file
+       if (restart_run) call load_state_point()
     end if
 
     ! stop timer for initialization
@@ -246,8 +258,8 @@ contains
           case ('-p', '-plot', '--plot')
              run_mode = MODE_PLOTTING
           case ('-n', '-n_particles', '--n_particles')
-             i = i + 1
              ! Read number of particles per cycle
+             i = i + 1
              n_particles = str_to_int(argv(i))
 
              ! Check that number specified was valid
@@ -256,6 +268,26 @@ contains
                      " command-line flag."
                 call fatal_error()
              end if
+          case ('-r', '-restart', '--restart')
+             ! Read path for state point
+             i = i + 1
+             path_state_point = argv(i)
+             restart_run = .true.
+
+             ! Set path for binary source file
+             path_source = 'source.' // path_state_point(9 : &
+                  len_trim(path_state_point))
+          case ('-t', '-tallies', '--tallies')
+             run_mode = MODE_TALLIES
+
+             ! Read path for state point
+             i = i + 1
+             path_state_point = argv(i)
+             restart_run = .true.
+
+             ! Set path for binary source file
+             path_source = 'source.' // path_state_point(9 : &
+                  len_trim(path_state_point))
           case ('-?', '-help', '--help')
              call print_usage()
              stop
@@ -710,5 +742,51 @@ contains
     if (server) allocate(server_scores(scores_per_server))
 
   end subroutine initialize_servers
+
+!===============================================================================
+! CALCULATE_WORK
+!===============================================================================
+
+  subroutine calculate_work()
+
+    ! Determine maximum amount of particles to simulate on each processor
+    maxwork = ceiling(real(n_particles)/n_compute,8)
+
+    ! ID's of first and last source particles
+    bank_first = compute_rank*maxwork + 1
+    bank_last  = min((compute_rank+1)*maxwork, n_particles)
+
+    ! number of particles for this processor
+    work = bank_last - bank_first + 1
+
+  end subroutine calculate_work
+
+!===============================================================================
+! ALLOCATE_BANKS allocates memory for the fission and source banks
+!===============================================================================
+
+  subroutine allocate_banks()
+
+    integer    :: alloc_err  ! allocation error code
+
+    ! Allocate source bank
+    allocate(source_bank(maxwork), STAT=alloc_err)
+
+    ! Check for allocation errors 
+    if (alloc_err /= 0) then
+       message = "Failed to allocate source bank."
+       call fatal_error()
+    end if
+
+    ! Allocate fission bank
+    allocate(fission_bank(3*maxwork), STAT=alloc_err)
+
+    ! Check for allocation errors 
+    if (alloc_err /= 0) then
+       message = "Failed to allocate fission bank."
+       call fatal_error()
+    end if
+
+  end subroutine allocate_banks
 
 end module initialize

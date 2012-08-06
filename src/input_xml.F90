@@ -70,7 +70,11 @@ contains
     seed_ = 0_8
     write_source_ = ""
     no_reduce_ = ""
-    source_ % type = ""
+    servers_ = 0
+    source_ % file = ''
+    source_ % space % type = ''
+    source_ % angle % type = ''
+    source_ % energy % type = ''
     servers_ = 0
 
     ! Parse settings.xml file
@@ -95,35 +99,69 @@ contains
        path_cross_sections = trim(cross_sections_)
     end if
 
+    ! Make sure that either criticality or fixed source was specified
+    if (criticality_ % batches == 0 .and. fixed_source_ % batches == 0) then
+       message = "Number of batches on <criticality> or <fixed_source> " &
+            // "tag was zero."
+       call fatal_error()
+    end if
+
     ! Criticality information
-    if (criticality % batches > 0) then
-       if (run_mode /= MODE_PLOTTING) run_mode = MODE_CRITICALITY
+    if (criticality_ % batches > 0) then
+       ! Set run mode
+       if (run_mode == NONE) run_mode = MODE_CRITICALITY
 
        ! Check number of particles
-       if (len_trim(criticality % particles) == 0) then
+       if (len_trim(criticality_ % particles) == 0) then
           message = "Need to specify number of particles per cycles."
           call fatal_error()
        end if
 
        ! If the number of particles was specified as a command-line argument, we
        ! don't set it here
-       if (n_particles == 0) n_particles = str_to_int(criticality % particles)
+       if (n_particles == 0) n_particles = str_to_int(criticality_ % particles)
 
-       ! Copy cycle information
-       n_batches     = criticality % batches
-       n_inactive    = criticality % inactive
+       ! Copy batch and generation information
+       n_batches     = criticality_ % batches
+       n_inactive    = criticality_ % inactive
        n_active      = n_batches - n_inactive
-       gen_per_batch = criticality % generations_per_batch
+       gen_per_batch = criticality_ % generations_per_batch
 
-       ! Check number of active batches
-       if (n_active <= 0) then
-          message = "Number of active batches must be greater than 0."
+       ! Allocate array for batch keff and entropy
+       allocate(k_batch(n_batches))
+       allocate(entropy(n_batches))
+    end if
+
+    ! Fixed source calculation information
+    if (fixed_source_ % batches > 0) then
+       ! Set run mode
+       if (run_mode == NONE) run_mode = MODE_FIXEDSOURCE
+
+       ! Check number of particles
+       if (len_trim(fixed_source_ % particles) == 0) then
+          message = "Need to specify number of particles per cycles."
           call fatal_error()
        end if
-    else
-       message = "Need to specify number of batches with <batches> tag."
+
+       ! If the number of particles was specified as a command-line argument, we
+       ! don't set it here
+       if (n_particles == 0) n_particles = str_to_int(fixed_source_ % particles)
+
+       ! Copy batch information
+       n_batches     = fixed_source_ % batches
+       n_active      = fixed_source_ % batches
+       n_inactive    = 0
+       gen_per_batch = 1
+    end if
+
+    ! Check number of active batches
+    if (n_active <= 0) then
+       message = "Number of active batches must be greater than 0."
        call fatal_error()
     end if
+
+    ! Turn on tallies if no inactive batches
+    if (n_inactive == 0) tallies_on = .true.
 
     ! Copy random number seed if specified
     if (seed_ > 0) seed = seed_
@@ -145,37 +183,158 @@ contains
     ! Verbosity
     if (verbosity_ > 0) verbosity = verbosity_
 
-    if (len(source_ % type) > 0) then
-       ! Determine external source type
-       type = source_ % type
-       call lower_case(type)
-       select case (type)
-       case ('box')
-          external_source % type = SRC_BOX
-          coeffs_reqd = 6
-       case ('point')
-          external_source % type = SRC_POINT
-          coeffs_reqd = 3
-       case ('file')
-          external_source % type = SRC_FILE
-       case default
-          message = "Invalid source type: " // trim(source_ % type)
-          call fatal_error()
-       end select
+    ! ==========================================================================
+    ! EXTERNAL SOURCE
 
-       ! Coefficients for external surface
-       if (type /= 'file') then
-          n = size(source_ % coeffs)
+    if (source_ % file /= '') then
+       ! Copy path of source file
+       path_source = source_ % file
+       
+       ! Check if source file exists
+       inquire(FILE=path_source, EXIST=file_exists)
+       if (.not. file_exists) then
+          message = "Binary source file '" // trim(path_source) // &
+               "' does not exist!"
+          call fatal_error()
+       end if
+
+    else
+       ! Spatial distribution for external source
+       if (source_ % space % type /= '') then
+          ! Read type of spatial distribution
+          type = source_ % space % type
+          call lower_case(type)
+          select case (type)
+          case ('box')
+             external_source % type_space = SRC_SPACE_BOX
+             coeffs_reqd = 6
+          case ('point')
+             external_source % type_space = SRC_SPACE_POINT
+             coeffs_reqd = 3
+          case default
+             message = "Invalid spatial distribution for external source: " &
+                  // trim(source_ % space % type)
+             call fatal_error()
+          end select
+
+          ! Determine number of parameters specified
+          if (associated(source_ % space % parameters)) then
+             n = size(source_ % space % parameters)
+          else
+             n = 0
+          end if
+
+          ! Read parameters for spatial distribution
           if (n < coeffs_reqd) then
-             message = "Not enough coefficients specified for external source."
+             message = "Not enough parameters specified for spatial " &
+                  // "distribution of external source."
              call fatal_error()
           elseif (n > coeffs_reqd) then
-             message = "Too many coefficients specified for external source."
+             message = "Too many parameters specified for spatial " &
+                  // "distribution of external source."
              call fatal_error()
-          else
-             allocate(external_source % values(n))
-             external_source % values = source_ % coeffs
+          elseif (n > 0) then
+             allocate(external_source % params_space(n))
+             external_source % params_space = source_ % space % parameters
           end if
+       else
+          message = "No spatial distribution specified for external source!"
+          call fatal_error()
+       end if
+
+       ! Determine external source angular distribution
+       if (source_ % angle % type /= '') then
+          ! Read type of angular distribution
+          type = source_ % angle % type
+          call lower_case(type)
+          select case (type)
+          case ('isotropic')
+             external_source % type_angle = SRC_ANGLE_ISOTROPIC
+             coeffs_reqd = 0
+          case ('monodirectional')
+             external_source % type_angle = SRC_ANGLE_MONO
+             coeffs_reqd = 3
+          case ('tabular')
+             external_source % type_angle = SRC_ANGLE_TABULAR
+          case default
+             message = "Invalid angular distribution for external source: " &
+                  // trim(source_ % angle % type)
+             call fatal_error()
+          end select
+
+          ! Determine number of parameters specified
+          if (associated(source_ % angle % parameters)) then
+             n = size(source_ % angle % parameters)
+          else
+             n = 0
+          end if
+
+          ! Read parameters for angle distribution
+          if (n < coeffs_reqd) then
+             message = "Not enough parameters specified for angle " &
+                  // "distribution of external source."
+             call fatal_error()
+          elseif (n > coeffs_reqd) then
+             message = "Too many parameters specified for angle " &
+                  // "distribution of external source."
+             call fatal_error()
+          elseif (n > 0) then
+             allocate(external_source % params_angle(n))
+             external_source % params_angle = source_ % angle % parameters
+          end if
+       else
+          ! Set default angular distribution isotropic
+          external_source % type_angle  = SRC_ANGLE_ISOTROPIC
+       end if
+
+       ! Determine external source energy distribution
+       if (source_ % energy % type /= '') then
+          ! Read type of energy distribution
+          type = source_ % energy % type
+          call lower_case(type)
+          select case (type)
+          case ('monoenergetic')
+             external_source % type_energy = SRC_ENERGY_MONO
+             coeffs_reqd = 1
+          case ('maxwell')
+             external_source % type_energy = SRC_ENERGY_MAXWELL
+             coeffs_reqd = 1
+          case ('watt')
+             external_source % type_energy = SRC_ENERGY_WATT
+             coeffs_reqd = 2
+          case ('tabular')
+             external_source % type_energy = SRC_ENERGY_TABULAR
+          case default
+             message = "Invalid energy distribution for external source: " &
+                  // trim(source_ % energy % type)
+             call fatal_error()
+          end select
+
+          ! Determine number of parameters specified
+          if (associated(source_ % energy % parameters)) then
+             n = size(source_ % energy % parameters)
+          else
+             n = 0
+          end if
+
+          ! Read parameters for energy distribution
+          if (n < coeffs_reqd) then
+             message = "Not enough parameters specified for energy " &
+                  // "distribution of external source."
+             call fatal_error()
+          elseif (n > coeffs_reqd) then
+             message = "Too many parameters specified for energy " &
+                  // "distribution of external source."
+             call fatal_error()
+          elseif (n > 0) then
+             allocate(external_source % params_energy(n))
+             external_source % params_energy = source_ % energy % parameters
+          end if
+       else
+          ! Set default energy distribution to Watt fission spectrum
+          external_source % type_energy = SRC_ENERGY_WATT
+          allocate(external_source % params_energy(2))
+          external_source % params_energy = (/ 0.988_8, 2.249_8 /)
        end if
     end if
 
@@ -305,6 +464,16 @@ contains
     ! Check if the user has specified to write binary source file
     if (trim(write_source_) == 'on') write_source = .true.
 
+    ! Check if the user has specified to write state points
+    if (associated(write_state_point_)) then
+       ! Determine number of batches at which to store state points
+       n_state_points = size(write_state_point_)
+
+       ! Allocate and store batches
+       allocate(statepoint_batch(n_state_points))
+       statepoint_batch = write_state_point_
+    end if
+
     ! Check if the user has specified to not reduce tallies at the end of every
     ! batch
     if (trim(no_reduce_) == 'on') reduce_tallies = .false.
@@ -327,13 +496,6 @@ contains
     ! Determine number of compute processes
     n_compute = n_procs - n_servers
 
-    ! Determine number of realizations
-    if (reduce_tallies) then
-       n_realizations = n_active
-    else
-       n_realizations = n_active * n_procs
-    end if
-
   end subroutine read_settings_xml
 
 !===============================================================================
@@ -351,6 +513,7 @@ contains
     integer :: universe_num
     integer :: n_cells_in_univ
     integer :: coeffs_reqd
+    real(8) :: phi, theta, psi
     logical :: file_exists
     character(MAX_LINE_LEN) :: filename
     character(MAX_WORD_LEN) :: word
@@ -376,8 +539,16 @@ contains
     ! Parse geometry.xml file
     call read_xml_file_geometry_t(filename)
 
-    ! Allocate cells array
+    ! Get number of <cell> tags
     n_cells = size(cell_)
+
+    ! Check for no cells
+    if (n_cells == 0) then
+       message = "No cells found in geometry.xml!"
+       call fatal_error()
+    end if
+
+    ! Allocate cells array
     allocate(cells(n_cells))
 
     n_universes = 0
@@ -411,7 +582,7 @@ contains
        end select
 
        ! Check to make sure that either material or fill was specified
-       if (c % material == 0 .and. c % fill == 0) then
+       if (c % material == NONE .and. c % fill == NONE) then
           message = "Neither material nor fill was specified for cell " // & 
                trim(to_str(c % id))
           call fatal_error()
@@ -419,7 +590,7 @@ contains
 
        ! Check to make sure that both material and fill haven't been
        ! specified simultaneously
-       if (c % material /= 0 .and. c % fill /= 0) then
+       if (c % material /= NONE .and. c % fill /= NONE) then
           message = "Cannot specify material and fill simultaneously"
           call fatal_error()
        end if
@@ -436,6 +607,64 @@ contains
        c % n_surfaces = n
        allocate(c % surfaces(n))
        c % surfaces = cell_(i) % surfaces
+
+       ! Rotation matrix
+       if (associated(cell_(i) % rotation)) then
+          ! Rotations can only be applied to cells that are being filled with
+          ! another universe
+          if (c % fill == NONE) then
+             message = "Cannot apply a rotation to cell " // trim(to_str(&
+                  c % id)) // " because it is not filled with another universe"
+             call fatal_error()
+          end if
+
+          ! Read number of rotation parameters
+          n = size(cell_(i) % rotation)
+          if (n /= 3) then
+             message = "Incorrect number of rotation parameters on cell " // &
+                  to_str(c % id)
+             call fatal_error()
+          end if
+
+          ! Copy rotation angles in x,y,z directions
+          phi   = -cell_(i) % rotation(1) * PI/180.0
+          theta = -cell_(i) % rotation(2) * PI/180.0
+          psi   = -cell_(i) % rotation(3) * PI/180.0
+          
+          ! Calculate rotation matrix based on angles given
+          allocate(c % rotation(3,3))
+          c % rotation = reshape((/ &
+               cos(theta)*cos(psi), cos(theta)*sin(psi), -sin(theta), &
+               -cos(phi)*sin(psi) + sin(phi)*sin(theta)*cos(psi), &
+               cos(phi)*cos(psi) + sin(phi)*sin(theta)*sin(psi), &
+               sin(phi)*cos(theta), &
+               sin(phi)*sin(psi) + cos(phi)*sin(theta)*cos(psi), &
+               -sin(phi)*cos(psi) + cos(phi)*sin(theta)*sin(psi), &
+               cos(phi)*cos(theta) /), (/ 3,3 /))
+       end if
+
+       ! Translation vector
+       if (associated(cell_(i) % translation)) then
+          ! Translations can only be applied to cells that are being filled with
+          ! another universe
+          if (c % fill == NONE) then
+             message = "Cannot apply a translation to cell " // trim(to_str(&
+                  c % id)) // " because it is not filled with another universe"
+             call fatal_error()
+          end if
+
+          ! Read number of translation parameters
+          n = size(cell_(i) % translation)
+          if (n /= 3) then
+             message = "Incorrect number of translation parameters on cell " &
+                  // to_str(c % id)
+             call fatal_error()
+          end if
+
+          ! Copy translation vector
+          allocate(c % translation(3))
+          c % translation = cell_(i) % translation
+       end if
 
        ! Add cell to dictionary
        call dict_add_key(cell_dict, c % id, i)
@@ -458,8 +687,16 @@ contains
     ! ==========================================================================
     ! READ SURFACES FROM GEOMETRY.XML
 
-    ! Allocate cells array
+    ! Get number of <surface> tags
     n_surfaces = size(surface_)
+
+    ! Check for no surfaces
+    if (n_surfaces == 0) then
+       message = "No surfaces found in geometry.xml!"
+       call fatal_error()
+    end if
+
+    ! Allocate cells array
     allocate(surfaces(n_surfaces))
 
     do i = 1, n_surfaces
@@ -1051,6 +1288,9 @@ contains
 
        ! Copy material id
        t % id = tally_(i) % id
+       
+       ! Copy tally labe
+       t % label = tally_(i) % label
 
        ! =======================================================================
        ! READ DATA FOR FILTERS
@@ -1204,6 +1444,12 @@ contains
              ! Any other case, e.g. <nuclides>U-235 Pu-239</nuclides>
              allocate(t % nuclide_bins(n_words))
              do j = 1, n_words
+                ! Check if total material was specified
+                if (words(j) == 'total') then
+                   t % nuclide_bins(j) % scalar = -1
+                   cycle
+                end if
+
                 ! Check if xs specifier was given
                 if (ends_with(words(j), 'c')) then
                    word = words(j)

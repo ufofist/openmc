@@ -36,13 +36,13 @@ contains
 
   subroutine read_xs()
 
-    integer        :: i              ! index in materials array
-    integer        :: j              ! index over nuclides in material
-    integer        :: index_list     ! index in xs_listings array
-    integer        :: index_nuclide  ! index in nuclides
-    integer        :: index_sab      ! index in sab_tables
-    character(12)  :: name           ! name of isotope, e.g. 92235.03c
-    character(12)  :: alias          ! alias of nuclide, e.g. U-235.03c
+    integer        :: i         ! index in materials array
+    integer        :: j         ! index over nuclides in material
+    integer        :: i_listing ! index in xs_listings array
+    integer        :: i_nuclide ! index in nuclides
+    integer        :: i_sab     ! index in sab_tables
+    character(12)  :: name      ! name of isotope, e.g. 92235.03c
+    character(12)  :: alias     ! alias of nuclide, e.g. U-235.03c
     type(Material),  pointer :: mat => null()
     type(Nuclide),   pointer :: nuc => null()
     type(SAB_Table), pointer :: sab => null()
@@ -69,18 +69,18 @@ contains
           name = mat % names(j)
 
           if (.not. dict_has_key(already_read, name)) then
-             index_list = dict_get_key(xs_listing_dict, name)
-             index_nuclide = dict_get_key(nuclide_dict, name)
-             name  = xs_listings(index_list) % name
-             alias = xs_listings(index_list) % alias
+             i_listing = dict_get_key(xs_listing_dict, name)
+             i_nuclide = dict_get_key(nuclide_dict, name)
+             name  = xs_listings(i_listing) % name
+             alias = xs_listings(i_listing) % alias
 
              ! Keep track of what listing is associated with this nuclide
-             nuc => nuclides(index_nuclide)
-             nuc % listing = index_list
+             nuc => nuclides(i_nuclide)
+             nuc % listing = i_listing
 
              ! Read the ACE table into the appropriate entry on the nuclides
              ! array
-             call read_ace_table(index_nuclide, index_list)
+             call read_ace_table(i_nuclide, i_listing)
 
              ! Print out information on table to cross_sections.out file
              if (master) call print_nuclide(nuc, unit=UNIT_XS)
@@ -94,15 +94,15 @@ contains
           name = mat % sab_name
 
           if (.not. dict_has_key(already_read, name)) then
-             index_list = dict_get_key(xs_listing_dict, name)
-             index_sab  = dict_get_key(sab_dict, name)
+             i_listing = dict_get_key(xs_listing_dict, name)
+             i_sab  = dict_get_key(sab_dict, name)
 
              ! Read the ACE table into the appropriate entry on the sab_tables
              ! array
-             call read_ace_table(index_sab, index_list)
+             call read_ace_table(i_sab, i_listing)
 
              ! Print out information on table to cross_sections.out file
-             sab => sab_tables(index_sab)
+             sab => sab_tables(i_sab)
              if (master) call print_sab_table(sab, unit=UNIT_XS)
 
              call dict_add_key(already_read, name, 0)
@@ -148,10 +148,10 @@ contains
 ! appropriate subroutines to parse the actual data.
 !===============================================================================
 
-  subroutine read_ace_table(index_table, index_list)
+  subroutine read_ace_table(i_table, i_listing)
 
-    integer, intent(in) :: index_table ! index in nuclides/sab_tables
-    integer, intent(in) :: index_list  ! index in xs_listings
+    integer, intent(in) :: i_table   ! index in nuclides/sab_tables
+    integer, intent(in) :: i_listing ! index in xs_listings
 
     integer       :: i             ! loop index for XSS records
     integer       :: j, j1, j2     ! indices in XSS
@@ -177,7 +177,7 @@ contains
     type(XsListing), pointer :: listing => null()
 
     ! determine path, record length, and location of table
-    listing => xs_listings(index_list)
+    listing => xs_listings(i_listing)
     filename      = listing % path
     record_length = listing % recl
     location      = listing % location
@@ -254,7 +254,7 @@ contains
 
     select case(listing % type)
     case (ACE_NEUTRON)
-       nuc => nuclides(index_table)
+       nuc => nuclides(i_table)
        nuc % name = name
        nuc % awr  = awr
        nuc % kT   = kT
@@ -268,6 +268,14 @@ contains
        call read_energy_dist(nuc)
        call read_unr_res(nuc)
 
+       ! Currently subcritical fixed source calculations are not allowed. Thus,
+       ! if any fissionable material is found in a fixed source calculation,
+       ! abort the run.
+       if (run_mode == MODE_FIXEDSOURCE .and. nuc % fissionable) then
+          message = "Cannot have fissionable material in a fixed source run."
+          call fatal_error()
+       end if
+
        ! for fissionable nuclides, precalculate microscopic nu-fission cross
        ! sections so that we don't need to call the nu_total function during
        ! cross section lookups
@@ -275,7 +283,7 @@ contains
        if (nuc % fissionable) call generate_nu_fission(nuc)
 
     case (ACE_THERMAL)
-       sab => sab_tables(index_table)
+       sab => sab_tables(i_table)
        sab % name = name
        sab % awr  = awr
        sab % kT   = kT
@@ -569,7 +577,7 @@ contains
     rxn % MT            = 2
     rxn % Q_value       = ZERO
     rxn % multiplicity  = 1
-    rxn % IE            = 1
+    rxn % threshold     = 1
     rxn % scatter_in_cm = .true.
     rxn % has_angle_dist = .false.
     rxn % has_energy_dist = .false.
@@ -600,7 +608,7 @@ contains
        ! read starting energy index
        LOCA = int(XSS(LXS + i - 1))
        IE   = int(XSS(JXS7 + LOCA - 1))
-       rxn % IE = IE
+       rxn % threshold = IE
 
        ! read number of energies cross section values
        NE = int(XSS(JXS7 + LOCA))
@@ -637,6 +645,10 @@ contains
 
           ! Also need to add fission cross sections to absorption
           nuc % absorption(IE:IE+NE-1) = nuc % absorption(IE:IE+NE-1) + rxn % sigma
+
+          ! If total fission reaction is present, there's no need to store the
+          ! reaction cross-section since it was copied to nuc % fission
+          if (rxn % MT == N_FISSION) deallocate(rxn % sigma)
 
           ! Keep track of this reaction for easy searching later
           i_fission = i_fission + 1

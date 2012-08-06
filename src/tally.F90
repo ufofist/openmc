@@ -252,7 +252,7 @@ contains
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
     integer :: filter_index         ! single index for single bin
     integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
-    integer :: index_nuclide        ! index in nuclides array
+    integer :: i_nuclide            ! index in nuclides array
     integer :: score_index          ! scoring bin index
     real(8) :: score                ! analog tally score
     real(8) :: last_wgt             ! pre-collision particle weight
@@ -299,7 +299,7 @@ contains
 
        ! Check for nuclide bins
        k = 0
-       NUCLIDE_LOOP: do while (k <= t % n_nuclide_bins)
+       NUCLIDE_LOOP: do while (k < t % n_nuclide_bins)
 
           ! Increment the index in the list of nuclide bins
           k = k + 1
@@ -327,11 +327,10 @@ contains
              ! If the user has explicitly specified nuclides (or specified
              ! none), we need to search through the nuclide bin list one by
              ! one. First we need to get the value of the nuclide bin
-             index_nuclide = t % nuclide_bins(k) % scalar
+             i_nuclide = t % nuclide_bins(k) % scalar
 
              ! Now compare the value against that of the colliding nuclide.
-             if (index_nuclide /= p % event_nuclide .and. &
-                  index_nuclide /= -1) cycle
+             if (i_nuclide /= p % event_nuclide .and. i_nuclide /= -1) cycle
           end if
 
           ! Determine score for each bin
@@ -539,19 +538,19 @@ contains
        end do NUCLIDE_LOOP
 
        if (use_servers) call send_to_server(analog_tallies(i), filter_index, &
-            t % n_score_bins, scores)
+            t % n_score_bins * t % n_nuclide_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
        ! check the others. This cuts down on overhead when there are many
        ! tallies specified
 
-       if (assume_separate) return
-
-       ! Reset tally map positioning
-       position = 0
+       if (assume_separate) exit TALLY_LOOP
 
     end do TALLY_LOOP
+
+    ! Reset tally map positioning
+    position = 0
 
   end subroutine score_analog_tally
 
@@ -622,7 +621,7 @@ contains
     integer :: k                    ! loop index for nuclide bins
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
     integer :: filter_index         ! single index for single bin
-    integer :: index_nuclide        ! index in nuclides array
+    integer :: i_nuclide            ! index in nuclides array
     integer :: score_bin            ! scoring type, e.g. SCORE_FLUX
     integer :: score_index          ! scoring bin index
     real(8) :: flux                 ! tracklength estimate of flux
@@ -679,9 +678,9 @@ contains
 
           NUCLIDE_BIN_LOOP: do k = 1, t % n_nuclide_bins
              ! Get index of nuclide in nuclides array
-             index_nuclide = t % nuclide_bins(k) % scalar
+             i_nuclide = t % nuclide_bins(k) % scalar
 
-             if (index_nuclide > 0) then
+             if (i_nuclide > 0) then
                 ! Get pointer to current material
                 mat => materials(p % material)
 
@@ -689,8 +688,7 @@ contains
                 NUCLIDE_MAT_LOOP: do j = 1, mat % n_nuclides
                    ! If index of nuclide matches the j-th nuclide listed in the
                    ! material, break out of the loop
-                   if (index_nuclide == mat % nuclide(j)) &
-                        exit
+                   if (i_nuclide == mat % nuclide(j)) exit
 
                    ! If we've reached the last nuclide in the material, it means
                    ! the specified nuclide to be tallied is not in this material
@@ -707,24 +705,24 @@ contains
                 ! determine what type of score bin
                 score_bin = t % score_bins(j) % scalar
 
-                if (index_nuclide > 0) then
+                if (i_nuclide > 0) then
                    ! Determine macroscopic nuclide cross section 
                    select case(score_bin)
                    case (SCORE_TOTAL)
-                      score = micro_xs(index_nuclide) % total * &
+                      score = micro_xs(i_nuclide) % total * &
                            atom_density * flux
                    case (SCORE_SCATTER)
-                      score = (micro_xs(index_nuclide) % total - &
-                           micro_xs(index_nuclide) % absorption) * &
+                      score = (micro_xs(i_nuclide) % total - &
+                           micro_xs(i_nuclide) % absorption) * &
                            atom_density * flux
                    case (SCORE_ABSORPTION)
-                      score = micro_xs(index_nuclide) % absorption * &
+                      score = micro_xs(i_nuclide) % absorption * &
                            atom_density * flux
                    case (SCORE_FISSION)
-                      score = micro_xs(index_nuclide) % fission * &
+                      score = micro_xs(i_nuclide) % fission * &
                            atom_density * flux
                    case (SCORE_NU_FISSION)
-                      score = micro_xs(index_nuclide) % nu_fission * &
+                      score = micro_xs(i_nuclide) % nu_fission * &
                            atom_density * flux
                    case default
                       message = "Invalid score type on tally " // to_str(t % id) // "."
@@ -770,19 +768,19 @@ contains
        end if
 
        if (use_servers) call send_to_server(tracklength_tallies(i), &
-            filter_index, t % n_score_bins, scores)
+            filter_index, t % n_score_bins * t % n_nuclide_bins, scores)
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
        ! check the others. This cuts down on overhead when there are many
        ! tallies specified
 
-       if (assume_separate) return
-
-       ! Reset tally map positioning
-       position = 0
+       if (assume_separate) exit TALLY_LOOP
 
     end do TALLY_LOOP
+
+    ! Reset tally map positioning
+    position = 0
 
   end subroutine score_tracklength_tally
 
@@ -799,7 +797,7 @@ contains
 
     integer :: i             ! loop index for nuclides in material
     integer :: j             ! loop index for scoring bin types
-    integer :: index_nuclide ! index in nuclides array
+    integer :: i_nuclide     ! index in nuclides array
     integer :: score_bin     ! type of score, e.g. SCORE_FLUX
     integer :: score_index   ! scoring bin index
     real(8) :: score         ! actual scoring tally value
@@ -824,7 +822,7 @@ contains
 
        ! Determine index in nuclides array and atom density for i-th nuclide in
        ! current material
-       index_nuclide = mat % nuclide(i)
+       i_nuclide = mat % nuclide(i)
        atom_density = mat % atom_density(i)
 
        ! Loop over score types for each bin
@@ -835,16 +833,16 @@ contains
           ! Determine macroscopic nuclide cross section 
           select case(score_bin)
           case (SCORE_TOTAL)
-             score = micro_xs(index_nuclide) % total * atom_density * flux
+             score = micro_xs(i_nuclide) % total * atom_density * flux
           case (SCORE_SCATTER)
-             score = (micro_xs(index_nuclide) % total - &
-                  micro_xs(index_nuclide) % absorption) * atom_density * flux
+             score = (micro_xs(i_nuclide) % total - &
+                  micro_xs(i_nuclide) % absorption) * atom_density * flux
           case (SCORE_ABSORPTION)
-             score = micro_xs(index_nuclide) % absorption * atom_density * flux
+             score = micro_xs(i_nuclide) % absorption * atom_density * flux
           case (SCORE_FISSION)
-             score = micro_xs(index_nuclide) % fission * atom_density * flux
+             score = micro_xs(i_nuclide) % fission * atom_density * flux
           case (SCORE_NU_FISSION)
-             score = micro_xs(index_nuclide) % nu_fission * atom_density * flux
+             score = micro_xs(i_nuclide) % nu_fission * atom_density * flux
           case default
              message = "Invalid score type on tally " // to_str(t % id) // "."
              call fatal_error()
@@ -852,7 +850,7 @@ contains
 
           ! Determine scoring bin index based on what the index of the nuclide
           ! is in the nuclides array
-          score_index = (index_nuclide - 1)*t % n_score_bins + j
+          score_index = (i_nuclide - 1)*t % n_score_bins + j
 
           if (use_servers) then
              ! Copy score into array instead of talying
@@ -910,7 +908,7 @@ contains
     end do MATERIAL_SCORE_LOOP
 
     if (use_servers) call send_to_server(tracklength_tallies(i), &
-         filter_index, t % n_score_bins, scores)
+         filter_index, t % n_score_bins * t % n_nuclide_bins, scores)
 
   end subroutine score_all_nuclides
 
@@ -936,7 +934,7 @@ contains
     integer :: bins(N_FILTER_TYPES) ! scoring bin combination
     integer :: filter_index         ! single index for single bin
     integer :: score_bin            ! scoring bin, e.g. SCORE_FLUX
-    integer :: index_nuclide        ! index in nuclides array
+    integer :: i_nuclide            ! index in nuclides array
     integer :: score_index          ! scoring bin index
     real(8) :: atom_density         ! density of individual nuclide in atom/b-cm
     real(8) :: flux                 ! tracklength estimate of flux
@@ -1126,9 +1124,9 @@ contains
           else
              NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
                 ! Get index of nuclide in nuclides array
-                index_nuclide = t % nuclide_bins(b) % scalar
+                i_nuclide = t % nuclide_bins(b) % scalar
 
-                if (index_nuclide > 0) then
+                if (i_nuclide > 0) then
                    ! Get pointer to current material
                    mat => materials(p % material)
 
@@ -1136,8 +1134,7 @@ contains
                    NUCLIDE_MAT_LOOP: do j = 1, mat % n_nuclides
                       ! If index of nuclide matches the j-th nuclide listed in
                       ! the material, break out of the loop
-                      if (index_nuclide == mat % nuclide(j)) &
-                           exit
+                      if (i_nuclide == mat % nuclide(j)) exit
 
                       ! If we've reached the last nuclide in the material, it
                       ! means the specified nuclide to be tallied is not in this
@@ -1155,24 +1152,24 @@ contains
                    ! determine what type of score bin
                    score_bin = t % score_bins(j) % scalar
 
-                   if (index_nuclide > 0) then
+                   if (i_nuclide > 0) then
                       ! Determine macroscopic nuclide cross section 
                       select case(score_bin)
                       case (SCORE_TOTAL)
-                         score = micro_xs(index_nuclide) % total * &
+                         score = micro_xs(i_nuclide) % total * &
                               atom_density * flux
                       case (SCORE_SCATTER)
-                         score = (micro_xs(index_nuclide) % total - &
-                              micro_xs(index_nuclide) % absorption) * &
+                         score = (micro_xs(i_nuclide) % total - &
+                              micro_xs(i_nuclide) % absorption) * &
                               atom_density * flux
                       case (SCORE_ABSORPTION)
-                         score = micro_xs(index_nuclide) % absorption * &
+                         score = micro_xs(i_nuclide) % absorption * &
                               atom_density * flux
                       case (SCORE_FISSION)
-                         score = micro_xs(index_nuclide) % fission * &
+                         score = micro_xs(i_nuclide) % fission * &
                               atom_density * flux
                       case (SCORE_NU_FISSION)
-                         score = micro_xs(index_nuclide) % nu_fission * &
+                         score = micro_xs(i_nuclide) % nu_fission * &
                               atom_density * flux
                       case default
                          message = "Invalid score type on tally " // &
@@ -1702,10 +1699,19 @@ contains
        end if
     end if
 
+    ! Increase number of realizations
+    if (reduce_tallies) then
+       n_realizations = n_realizations + 1
+    else
+       n_realizations = n_realizations + n_procs
+    end if
+
     if (master .or. (.not. reduce_tallies)) then
-       ! Before accumulating scores for global_tallies, we need to get the
-       ! current batch estimate of k_analog for displaying to output
-       k_batch = global_tallies(K_ANALOG) % value
+       if (run_mode == MODE_CRITICALITY) then
+          ! Before accumulating scores for global_tallies, we need to get the
+          ! current batch estimate of k_analog for displaying to output
+          k_batch(current_batch) = global_tallies(K_ANALOG) % value
+       end if
 
        ! Accumulate scores for global tallies
        call accumulate_score(global_tallies)
@@ -1738,7 +1744,7 @@ contains
        do i = 1, n_tallies
           t => tallies(i)
 
-          m = t % n_score_bins
+          m = t % n_score_bins * t % n_nuclide_bins
           n = t % n_total_bins
           n_bins = m*n
 
@@ -1821,7 +1827,7 @@ contains
        do i = 1, n_tallies
           t => tallies(i)
 
-          m = t % n_score_bins
+          m = t % n_score_bins * t % n_nuclide_bins
           n = t % n_total_bins
           n_bins = m*n*2
 
@@ -1890,14 +1896,18 @@ contains
     integer :: last_filter                ! lowest level filter type
     integer :: filter_index               ! index in scores array for filters
     integer :: score_index                ! scoring bin index
-    integer :: index_nuclide              ! index in nuclides array
-    integer :: index_list                 ! index in xs_listings array
+    integer :: i_nuclide                  ! index in nuclides array
+    integer :: i_listing                  ! index in xs_listings array
     logical :: file_exists                ! does tallies.out file already exists? 
     logical :: has_filter(N_FILTER_TYPES) ! does tally have this filter?
+    logical :: no_filters                 ! does tally have no filters at all?
     character(MAX_FILE_LEN) :: filename                    ! name of output file
     character(15)           :: filter_name(N_FILTER_TYPES) ! names of tally filters
     character(27)           :: score_name(N_SCORE_TYPES)   ! names of scoring function
     type(TallyObject), pointer :: t
+
+    ! Initialize status of no filters
+    no_filters = .false.
 
     ! Skip if there are no tallies
     if (n_tallies == 0) return
@@ -1931,7 +1941,12 @@ contains
     score_name(abs(SCORE_NU_FISSION)) = "Nu-Fission Rate"
 
     ! Create filename for tally output
-    filename = trim(path_input) // "tallies.out"
+    if (run_mode == MODE_TALLIES) then
+       filename = trim(path_input) // "tallies." // &
+            trim(to_str(restart_batch)) // ".out"
+    else
+       filename = trim(path_input) // "tallies.out"
+    end if
 
     ! Check if tally file already exists
     inquire(FILE=filename, EXIST=file_exists)
@@ -1947,8 +1962,14 @@ contains
        t => tallies(i)
 
        ! Write header block
-       call header("TALLY " // trim(to_str(t % id)), unit=UNIT_TALLY, level=3)
-
+       if (t % label == "") then
+          call header("TALLY " // trim(to_str(t % id)), unit=UNIT_TALLY, &
+             level=3)
+       else
+          call header("TALLY " // trim(to_str(t % id)) // ": " &
+             // trim(t % label), unit=UNIT_TALLY, level=3)
+       endif
+       
        ! Handle surface current tallies separately
        if (t % type == TALLY_SURFACE_CURRENT) then
           call write_surface_current(t)
@@ -1964,6 +1985,9 @@ contains
              has_filter(j) = .false.
           end if
        end do
+
+       ! Check if this tally has no filters
+       if (all(has_filter .eqv. .false.)) no_filters = .true.
 
        ! WARNING: Admittedly, the logic for moving for printing scores is
        ! extremely confusing and took quite a bit of time to get correct. The
@@ -1999,6 +2023,7 @@ contains
              ! VALID BIN -- WRITE FILTER INFORMATION OR EXIT TO WRITE SCORES
 
              else
+                if (no_filters) exit find_bin
                 if (j == last_filter) then
                    exit find_bin
                 else
@@ -2015,8 +2040,10 @@ contains
           end do find_bin
 
           ! Print filter information
-          write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
-               trim(filter_name(j)), trim(get_label(t, j, bins(j)))
+          if (.not. no_filters) then
+             write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
+                  trim(filter_name(j)), trim(get_label(t, j, bins(j)))
+          end if
 
           ! Determine scoring index for this bin combination -- note that unlike
           ! in the score_tally subroutine, we have to use max(bins,1) since all
@@ -2026,17 +2053,17 @@ contains
 
           ! Write scores for this filter bin combination
           score_index = 0
-          indent = indent + 2
+          if (.not. no_filters) indent = indent + 2
           do n = 1, t % n_nuclide_bins
              ! Write label for nuclide
-             index_nuclide = t % nuclide_bins(n) % scalar
-             if (index_nuclide == -1) then
+             i_nuclide = t % nuclide_bins(n) % scalar
+             if (i_nuclide == -1) then
                 write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
                      "Total Material"
              else
-                index_list = nuclides(index_nuclide) % listing
+                i_listing = nuclides(i_nuclide) % listing
                 write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
-                     trim(xs_listings(index_list) % alias)
+                     trim(xs_listings(i_listing) % alias)
              end if
 
              indent = indent + 2
@@ -2489,10 +2516,12 @@ contains
 
        ! Check for end of batch
        if (score_data(1) == SERVER_END_BATCH) then
+          n_realizations = n_realizations + 1
           total_weight = score_data(2)
           call accumulate_score(server_scores)
           cycle
        elseif (score_data(1) == SERVER_END_RUN) then
+          n_realizations = n_realizations + 1
           total_weight = score_data(2)
           call accumulate_score(server_scores)
           exit

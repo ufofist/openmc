@@ -121,11 +121,11 @@ module global
   integer :: n_current_tallies     = 0 ! # of surface current tallies
 
   ! Normalization for statistics
-  integer :: n_realizations ! # of independent realizations
-  real(8) :: total_weight   ! total starting particle weight in realization
+  integer :: n_realizations = 0 ! # of independent realizations
+  real(8) :: total_weight       ! total starting particle weight in realization
 
   ! Flag for turning tallies on
-  logical :: tallies_on
+  logical :: tallies_on = .false.
 
   ! Assume all tallies are spatially distinct
   logical :: assume_separate = .false.
@@ -170,13 +170,13 @@ module global
   integer(8) :: maxwork      ! maximum number of particles per processor
 
   ! Temporary k-effective values
-  real(8) :: k_batch    ! single batch estimate of k
+  real(8), allocatable :: k_batch(:) ! batch estimates of k
   real(8) :: keff = ONE ! average k over active cycles
   real(8) :: keff_std   ! standard deviation of average k
 
   ! Shannon entropy
   logical :: entropy_on = .false.
-  real(8) :: entropy                         ! value of shannon entropy
+  real(8), allocatable :: entropy(:)         ! shannon entropy at each batch
   real(8), allocatable :: entropy_p(:,:,:,:) ! % of source sites in each cell
   type(StructuredMesh), pointer :: entropy_mesh
 
@@ -240,10 +240,16 @@ module global
   ! MISCELLANEOUS VARIABLES
 
   ! Mode to run in (fixed source, criticality, plotting, etc)
-  integer :: run_mode = MODE_CRITICALITY
+  integer :: run_mode = NONE
+
+  ! Restart run
+  logical :: restart_run = .false.
+  integer :: restart_batch
 
   character(MAX_FILE_LEN) :: path_input          ! Path to input file
   character(MAX_FILE_LEN) :: path_cross_sections ! Path to cross_sections.xml
+  character(MAX_FILE_LEN) :: path_source = ''    ! Path to binary source
+  character(MAX_FILE_LEN) :: path_state_point    ! Path to binary state point
 
   ! Message used in message/warning/fatal_error
   character(MAX_LINE_LEN) :: message
@@ -260,6 +266,10 @@ module global
   integer    :: trace_batch
   integer    :: trace_gen
   integer(8) :: trace_particle
+
+  ! Information about state points to be written
+  integer :: n_state_points = 0
+  integer, allocatable :: statepoint_batch(:)
 
 contains
 
