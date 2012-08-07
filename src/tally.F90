@@ -801,11 +801,11 @@ contains
     type(TallyObject), pointer :: t => null()
     type(Material),    pointer :: mat => null()
 
-    ! Get pointer to tally
-    t => tallies(i_tally)
-
     integer :: i_score
     real(8) :: scores(max_server_send)
+
+    ! Get pointer to tally
+    t => tallies(i_tally)
 
     ! Get pointer to current material. We need this in order to determine what
     ! nuclides are in the material
@@ -907,8 +907,8 @@ contains
 
     end do MATERIAL_SCORE_LOOP
 
-    if (use_servers) call send_to_server(tracklength_tallies(i), &
-         filter_index, t % n_score_bins * t % n_nuclide_bins, scores)
+    if (use_servers) call send_to_server(i_tally, filter_index, &
+         t % n_score_bins * t % n_nuclide_bins, scores)
 
   end subroutine score_all_nuclides
 
