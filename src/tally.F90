@@ -664,7 +664,7 @@ contains
        filter_index = sum((bins - 1) * t % stride) + 1
 
        if (t % all_nuclides) then
-          call score_all_nuclides(t, flux, filter_index)
+          call score_all_nuclides(tracklength_tallies(i), flux, filter_index)
 
        else
 
@@ -785,11 +785,11 @@ contains
 ! the user requests <nuclides>all</nuclides>.
 !===============================================================================
 
-  subroutine score_all_nuclides(t, flux, filter_index)
+  subroutine score_all_nuclides(i_tally, flux, filter_index)
 
-    type(TallyObject), pointer :: t
-    real(8),  intent(in) :: flux
-    integer,  intent(in) :: filter_index
+    integer, intent(in) :: i_tally
+    real(8), intent(in) :: flux
+    integer, intent(in) :: filter_index
 
     integer :: i             ! loop index for nuclides in material
     integer :: j             ! loop index for scoring bin types
@@ -798,7 +798,11 @@ contains
     integer :: score_index   ! scoring bin index
     real(8) :: score         ! actual scoring tally value
     real(8) :: atom_density  ! atom density of single nuclide in atom/b-cm
-    type(Material), pointer :: mat => null()
+    type(TallyObject), pointer :: t => null()
+    type(Material),    pointer :: mat => null()
+
+    ! Get pointer to tally
+    t => tallies(i_tally)
 
     integer :: i_score
     real(8) :: scores(max_server_send)
@@ -1115,7 +1119,7 @@ contains
 
           if (t % all_nuclides) then
              ! Score reaction rates for each nuclide in material
-             call score_all_nuclides(t, flux, filter_index)
+             call score_all_nuclides(index_tally, flux, filter_index)
 
           else
              NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
