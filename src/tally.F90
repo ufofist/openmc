@@ -522,8 +522,7 @@ contains
              
              if (use_servers) then
                 ! Copy score into array instead of talying
-                i_score = i_score + 1
-                scores(i_score) = score
+                scores(score_index) = score
              else
                 ! Add score to tally
                 call add_to_score(t % scores(score_index, filter_index), score)
@@ -627,7 +626,6 @@ contains
     type(TallyObject), pointer :: t => null()
     type(Material), pointer :: mat => null()
 
-    integer :: i_score
     real(8) :: scores(max_server_send)
 
     ! Determine track-length estimate of flux
@@ -669,7 +667,6 @@ contains
        else
 
           ! Reset index for buffered scores
-          i_score = 0
           scores = ZERO
 
           NUCLIDE_BIN_LOOP: do k = 1, t % n_nuclide_bins
@@ -751,8 +748,7 @@ contains
 
                 if (use_servers) then
                    ! Copy score into array instead of talying
-                   i_score = i_score + 1
-                   scores(i_score) = score
+                   scores(score_index) = score
                 else
                    ! Add score to tally
                    call add_to_score(t % scores(score_index, filter_index), score)
@@ -855,8 +851,7 @@ contains
 
           if (use_servers) then
              ! Copy score into array instead of talying
-             i_score = i_score + 1
-             scores(i_score) = score
+             scores(score_index) = score
           else
              ! Add score to tally
              call add_to_score(t % scores(score_index, filter_index), score)
@@ -899,8 +894,7 @@ contains
 
        if (use_servers) then
           ! Copy score into array instead of talying
-          i_score = i_score + 1
-          scores(i_score) = score
+          scores(score_index) = score
        else
           ! Add score to tally
           call add_to_score(t % scores(score_index, filter_index), score)
