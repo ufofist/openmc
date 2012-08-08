@@ -761,10 +761,11 @@ contains
              end do SCORE_LOOP
 
           end do NUCLIDE_BIN_LOOP
-       end if
 
-       if (use_servers) call send_to_server(tracklength_tallies(i), &
-            filter_index, t % n_score_bins * t % n_nuclide_bins, scores)
+          ! Send accumulated scores to server
+          if (use_servers) call send_to_server(tracklength_tallies(i), &
+               filter_index, t % n_score_bins * t % n_nuclide_bins, scores)
+       end if
 
        ! If the user has specified that we can assume all tallies are spatially
        ! separate, this implies that once a tally has been scored to, we needn't
