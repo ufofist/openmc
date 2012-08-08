@@ -947,6 +947,8 @@ contains
     type(StructuredMesh), pointer :: m => null()
     type(Material),       pointer :: mat => null()
 
+    real(8) :: scores(max_server_send)
+
     bins = 1
     t => tallies(i_tally)
 
@@ -1098,6 +1100,9 @@ contains
              call score_all_nuclides(i_tally, flux, filter_index)
 
           else
+             ! Reset index for buffered scores
+             scores = ZERO
+
              NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
                 ! Get index of nuclide in nuclides array
                 i_nuclide = t % nuclide_bins(b) % scalar
@@ -1178,12 +1183,22 @@ contains
                    ! Determine scoring bin index
                    score_index = (b - 1)*t % n_score_bins + j
 
-                   ! Add score to tally
-                   call add_to_score(t % scores(score_index, filter_index), score)
+                   if (use_servers) then
+                      ! Copy score into array instead of tallying
+                      scores(score_index) = score
+                   else
+                      ! Add score to tally
+                      call add_to_score(t % scores(score_index, &
+                           filter_index), score)
+                   end if
 
                 end do SCORE_LOOP
 
              end do NUCLIDE_BIN_LOOP
+
+             if (use_servers) call send_to_server(i_tally, filter_index, &
+                  t % n_score_bins * t % n_nuclide_bins, scores)
+
           end if
        end if
 
