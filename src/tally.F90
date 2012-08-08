@@ -918,9 +918,9 @@ contains
 ! these tallies, it is possible to score to multiple mesh cells for each track.
 !===============================================================================
 
-  subroutine score_tl_on_mesh(index_tally, d_track)
+  subroutine score_tl_on_mesh(i_tally, d_track)
 
-    integer, intent(in) :: index_tally
+    integer, intent(in) :: i_tally
     real(8), intent(in) :: d_track
 
     integer :: i                    ! loop index for filter/score bins
@@ -954,7 +954,7 @@ contains
 
     found_bin = .true.
     bins = 1
-    t => tallies(index_tally)
+    t => tallies(i_tally)
 
     ! ==========================================================================
     ! CHECK IF THIS TRACK INTERSECTS THE MESH
@@ -988,7 +988,7 @@ contains
           ! determine next universe bin
           ! TODO: Account for multiple universes when performing this filter
           bins(FILTER_UNIVERSE) = get_next_bin(FILTER_UNIVERSE, &
-               p % coord % universe, index_tally)
+               p % coord % universe, i_tally)
           if (bins(FILTER_UNIVERSE) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -996,7 +996,7 @@ contains
 
        case (FILTER_MATERIAL)
           bins(FILTER_MATERIAL) = get_next_bin(FILTER_MATERIAL, &
-               p % material, index_tally)
+               p % material, i_tally)
           if (bins(FILTER_MATERIAL) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1006,7 +1006,7 @@ contains
           ! determine next cell bin
           ! TODO: Account for cells in multiple levels when performing this filter
           bins(FILTER_CELL) = get_next_bin(FILTER_CELL, &
-               p % coord % cell, index_tally)
+               p % coord % cell, i_tally)
           if (bins(FILTER_CELL) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1015,7 +1015,7 @@ contains
        case (FILTER_CELLBORN)
           ! determine next cellborn bin
           bins(FILTER_CELLBORN) = get_next_bin(FILTER_CELLBORN, &
-               p % cell_born, index_tally)
+               p % cell_born, i_tally)
           if (bins(FILTER_CELLBORN) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1024,7 +1024,7 @@ contains
        case (FILTER_SURFACE)
           ! determine next surface bin
           bins(FILTER_SURFACE) = get_next_bin(FILTER_SURFACE, &
-               p % surface, index_tally)
+               p % surface, i_tally)
           if (bins(FILTER_SURFACE) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1119,7 +1119,7 @@ contains
 
           if (t % all_nuclides) then
              ! Score reaction rates for each nuclide in material
-             call score_all_nuclides(index_tally, flux, filter_index)
+             call score_all_nuclides(i_tally, flux, filter_index)
 
           else
              NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
@@ -1223,9 +1223,9 @@ contains
 ! for a tally based on the particle's current attributes.
 !===============================================================================
 
-  subroutine get_scoring_bins(index_tally, bins, found_bin)
+  subroutine get_scoring_bins(i_tally, bins, found_bin)
 
-    integer, intent(in)     :: index_tally
+    integer, intent(in)     :: i_tally
     integer, intent(out)    :: bins(N_FILTER_TYPES)
     logical, intent(out)    :: found_bin
 
@@ -1237,7 +1237,7 @@ contains
     type(StructuredMesh), pointer :: m => null()
 
     found_bin = .true.
-    t => tallies(index_tally)
+    t => tallies(i_tally)
     bins = 1
 
     FILTER_LOOP: do i = 1, t % n_filters
@@ -1259,7 +1259,7 @@ contains
           ! determine next universe bin
           ! TODO: Account for multiple universes when performing this filter
           bins(FILTER_UNIVERSE) = get_next_bin(FILTER_UNIVERSE, &
-               p % coord % universe, index_tally)
+               p % coord % universe, i_tally)
           if (bins(FILTER_UNIVERSE) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1267,7 +1267,7 @@ contains
 
        case (FILTER_MATERIAL)
           bins(FILTER_MATERIAL) = get_next_bin(FILTER_MATERIAL, &
-               p % material, index_tally)
+               p % material, i_tally)
           if (bins(FILTER_MATERIAL) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1277,7 +1277,7 @@ contains
           ! determine next cell bin
           ! TODO: Account for cells in multiple levels when performing this filter
           bins(FILTER_CELL) = get_next_bin(FILTER_CELL, &
-               p % coord % cell, index_tally)
+               p % coord % cell, i_tally)
           if (bins(FILTER_CELL) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1286,7 +1286,7 @@ contains
        case (FILTER_CELLBORN)
           ! determine next cellborn bin
           bins(FILTER_CELLBORN) = get_next_bin(FILTER_CELLBORN, &
-               p % cell_born, index_tally)
+               p % cell_born, i_tally)
           if (bins(FILTER_CELLBORN) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1295,7 +1295,7 @@ contains
        case (FILTER_SURFACE)
           ! determine next surface bin
           bins(FILTER_SURFACE) = get_next_bin(FILTER_SURFACE, &
-               p % surface, index_tally)
+               p % surface, i_tally)
           if (bins(FILTER_SURFACE) == NO_BIN_FOUND) then
              found_bin = .false.
              return
@@ -1615,52 +1615,50 @@ contains
 ! GET_NEXT_BIN determines the next scoring bin for a particular filter variable
 !===============================================================================
 
-  function get_next_bin(i_map, i_item, i_tally) result(bin)
+  function get_next_bin(filter_type, filter_value, i_tally) result(bin)
 
-    integer, intent(in) :: i_map
-    integer, intent(in) :: i_item
-    integer, intent(in) :: i_tally
-    integer             :: bin
+    integer, intent(in) :: filter_type  ! e.g. FILTER_MATERIAL
+    integer, intent(in) :: filter_value ! value of filter, e.g. material 3
+    integer, intent(in) :: i_tally      ! index of tally
+    integer             :: bin          ! index of filter
 
-    integer :: index_tally
-    integer :: index_bin
+    integer :: i_tally_check
     integer :: n
 
     ! If there are no scoring bins for this item, then return immediately
-    if (.not. allocated(tally_maps(i_map) % items(i_item) % elements)) then
+    if (.not. allocated(tally_maps(filter_type) % items(filter_value) % elements)) then
        bin = NO_BIN_FOUND
        return
     end if
 
     ! Check how many elements there are for this item
-    n = size(tally_maps(i_map) % items(i_item) % elements)
+    n = size(tally_maps(filter_type) % items(filter_value) % elements)
 
     do
        ! Increment position in elements
-       position(i_map) = position(i_map) + 1
+       position(filter_type) = position(filter_type) + 1
 
        ! If we've reached the end of the array, there is no more bin to score to
-       if (position(i_map) > n) then
-          position(i_map) = 0
+       if (position(filter_type) > n) then
+          position(filter_type) = 0
           bin = NO_BIN_FOUND
           return
        end if
 
-       index_tally = tally_maps(i_map) % items(i_item) % &
-            elements(position(i_map)) % index_tally
-       index_bin = tally_maps(i_map) % items(i_item) % &
-            elements(position(i_map)) % index_bin
+       i_tally_check = tally_maps(filter_type) % items(filter_value) % &
+            elements(position(filter_type)) % index_tally
 
-       if (index_tally > i_tally) then
+       if (i_tally_check > i_tally) then
           ! Since the index being checked against is greater than the index we
           ! need (and the tally indices were added to elements sequentially), we
           ! know that no more bins will be scoring bins for this tally
-          position(i_map) = 0
+          position(filter_type) = 0
           bin = NO_BIN_FOUND
           return
-       elseif (index_tally == i_tally) then
+       elseif (i_tally_check == i_tally) then
           ! Found a match
-          bin = index_bin
+          bin = tally_maps(filter_type) % items(filter_value) % &
+               elements(position(filter_type)) % index_bin
           return
        end if
 
