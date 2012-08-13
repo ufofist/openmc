@@ -130,6 +130,9 @@ module global
   ! Assume all tallies are spatially distinct
   logical :: assume_separate = .false.
 
+  ! Use confidence intervals for results instead of standard deviations
+  logical :: confidence_intervals = .false.
+
   ! Tally server information
   logical :: use_servers       ! are tally servers on?
   integer :: support_ratio     ! # of compute procs per server

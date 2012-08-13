@@ -478,6 +478,10 @@ contains
     ! batch
     if (trim(no_reduce_) == 'on') reduce_tallies = .false.
 
+    ! Check if the user has specified to use confidence intervals for
+    ! uncertainties rather than standard deviations
+    if (trim(confidence_intervals_) == 'on') confidence_intervals = .true.
+
     ! Determine number of tally servers
     if (servers_ > 0) then
        use_servers = .true.
