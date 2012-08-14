@@ -194,14 +194,15 @@ module global
   ! ============================================================================
   ! PARALLEL PROCESSING VARIABLES
 
-  integer :: n_procs     ! number of processes
-  integer :: n_compute   ! number of compute processes
-  integer :: n_servers   ! # of tally servers
-  integer :: rank        ! rank of process
-  logical :: master      ! master process?
-  logical :: mpi_enabled ! is MPI in use and initialized?
-  integer :: mpi_err     ! MPI error code
-  integer :: MPI_BANK    ! MPI datatype for fission bank
+  integer :: n_procs        ! number of processes
+  integer :: n_compute      ! number of compute processes
+  integer :: n_servers      ! # of tally servers
+  integer :: rank           ! rank of process
+  logical :: master         ! master process?
+  logical :: mpi_enabled    ! is MPI in use and initialized?
+  integer :: mpi_err        ! MPI error code
+  integer :: MPI_BANK       ! MPI datatype for fission bank
+  integer :: MPI_TALLYSCORE ! MPI datatype for TallyScore
 
   logical :: server = .false. ! server process?
 
