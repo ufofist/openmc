@@ -310,7 +310,7 @@ contains
        call MPI_FILE_WRITE(fh, n_tallies, 1, MPI_INTEGER, &
             MPI_STATUS_IGNORE, mpi_err)
 
-       ! Write out tallies sum and sum_sq
+       ! Write out dimensions of filters and scores for each tally
        do i = 1, n_tallies
           n_scores = tallies(i) % n_score_bins * tallies(i) % n_nuclide_bins
           n_filters = tallies(i) % n_total_bins
@@ -319,10 +319,26 @@ contains
                MPI_STATUS_IGNORE, mpi_err)
           call MPI_FILE_WRITE(fh, n_filters, 1, MPI_INTEGER, &
                MPI_STATUS_IGNORE, mpi_err)
-          call MPI_FILE_WRITE(fh, server_scores, n, &
-               MPI_TALLYSCORE, MPI_STATUS_IGNORE, mpi_err)
        end do
     end if
+
+    ! Advanced offset to global_tallies
+    offset = 52
+    if (run_mode == MODE_CRITICALITY) then
+       offset = offset + 8*current_batch
+       if (entropy_on) offset = offset + 8*current_batch
+    end if
+
+    ! Advance offset past global tallies
+    offset = offset + 4 + 8*(2*N_GLOBAL_TALLIES)
+
+    ! Advance offset past tally header
+    offset = offset + 4*(1 + 2*n_tallies)
+
+    ! Set offset for each server
+    offset = offset + compute_rank*scores_per_server
+    call MPI_FILE_WRITE_AT(fh, offset, server_scores, scores_per_server, &
+         MPI_TALLYSCORE, MPI_STATUS_IGNORE, mpi_err)
 
     ! Close binary source file
     call MPI_FILE_CLOSE(fh, mpi_err)
