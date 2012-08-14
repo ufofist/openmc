@@ -217,4 +217,109 @@ contains
 
   end subroutine replay_batch_history
 
+!===============================================================================
+! CREATE_STATE_POINT creates a state point binary file that can be used for
+! restarting a run
+!===============================================================================
+
+#ifdef MPI
+  subroutine server_create_state_point()
+
+    integer :: i         ! loop index
+    integer :: n_scores  ! total number of score bins
+    integer :: n_filters ! total number of filter bins
+    integer :: n         ! total number of bins
+    integer :: fh        ! file handle
+    integer(MPI_OFFSET_KIND) :: offset ! offset in memory (0=beginning of file)
+
+    ! Set current batch to last batch
+    current_batch = n_batches
+
+    ! Set filename for binary state point
+    path_state_point = 'restart.' // trim(to_str(current_batch)) // '.binary'
+
+    ! Write message
+    message = "Creating state point " // trim(path_state_point) // "..."
+    call write_message()
+
+    ! Open binary state point file for writing
+    call MPI_FILE_OPEN(compute_comm, path_state_point, MPI_MODE_CREATE + &
+         MPI_MODE_WRONLY, MPI_INFO_NULL, fh, mpi_err)
+
+    ! Only first server needs to write basic information
+    if (rank == support_ratio - 1) then
+       ! Write revision number for state point file
+       call MPI_FILE_WRITE(fh, REVISION_STATEPOINT, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+    
+       ! Write OpenMC version
+       call MPI_FILE_WRITE(fh, VERSION_MAJOR, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, VERSION_MINOR, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, VERSION_RELEASE, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write out random number seed
+       call MPI_FILE_WRITE(fh, seed, 1, MPI_INTEGER8, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write run information
+       call MPI_FILE_WRITE(fh, run_mode, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, n_particles, 1, MPI_INTEGER8, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, n_batches, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, n_inactive, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, gen_per_batch, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write out current batch number
+       call MPI_FILE_WRITE(fh, current_batch, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write out keff and entropy for each batch
+       if (run_mode == MODE_CRITICALITY) then
+          call MPI_FILE_WRITE(fh, k_batch, current_batch, MPI_REAL8, &
+               MPI_STATUS_IGNORE, mpi_err)
+          if (entropy_on) then
+             call MPI_FILE_WRITE(fh, entropy, current_batch, MPI_REAL8, &
+                  MPI_STATUS_IGNORE, mpi_err)
+          end if
+       end if
+
+       ! Write out global tallies sum and sum_sq
+       call MPI_FILE_WRITE(fh, N_GLOBAL_TALLIES, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, global_tallies(:) % sum, N_GLOBAL_TALLIES, &
+            MPI_REAL8, MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, global_tallies(:) % sum_sq, N_GLOBAL_TALLIES, &
+            MPI_REAL8, MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write out number of tallies
+       call MPI_FILE_WRITE(fh, n_tallies, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write out tallies sum and sum_sq
+       do i = 1, n_tallies
+          n_scores = tallies(i) % n_score_bins * tallies(i) % n_nuclide_bins
+          n_filters = tallies(i) % n_total_bins
+          n = n_scores * n_filters
+          call MPI_FILE_WRITE(fh, n_scores, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, n_filters, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, server_scores, n, &
+               MPI_TALLYSCORE, MPI_STATUS_IGNORE, mpi_err)
+       end do
+    end if
+
+    ! Close binary source file
+    call MPI_FILE_CLOSE(fh, mpi_err)
+
+  end subroutine server_create_state_point
+#endif
+
 end module state_point

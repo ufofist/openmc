@@ -6,6 +6,10 @@ module finalize
   use tally,          only: write_tallies, tally_statistics, statistics_score
   use timing,         only: timer_start, timer_stop
 
+#ifdef MPI
+  use state_point,    only: server_create_state_point
+#endif
+
 #ifdef HDF5
   use hdf5_interface, only: hdf5_write_results, hdf5_close_output
 #endif
@@ -26,7 +30,10 @@ contains
 
     if (run_mode /= MODE_PLOTTING) then
        if (use_servers) then
-          if (server) call statistics_score(server_scores)
+          if (server) then
+             call server_create_state_point()
+             call statistics_score(server_scores)
+          end if
           if (master) call statistics_score(global_tallies)
        else
           ! Calculate statistics for tallies and write to tallies.out
