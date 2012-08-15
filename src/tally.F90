@@ -1673,7 +1673,7 @@ contains
     ! Accumulate scores for each tally
     if (use_servers) then
        ! Make sure all outstanding requests were completed
-       call MPI_WAIT(request, MPI_STATUS_IGNORE, mpi_err)
+       ! call MPI_WAIT(request, MPI_STATUS_IGNORE, mpi_err)
        call MPI_BARRIER(compute_comm, mpi_err)
 
        if (master) then
@@ -2557,7 +2557,9 @@ contains
        ! Add score values to send buffer
        buffer(j+1:j+n_send) = scores(i+1:i+n_send)
 
-       call MPI_ISEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+!!$       call MPI_ISEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+!!$            MPI_COMM_WORLD, request, mpi_err)
+       call MPI_SEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
             MPI_COMM_WORLD, request, mpi_err)
 
        i = i + n_send
