@@ -336,7 +336,7 @@ contains
     offset = offset + 4*(1 + 2*n_tallies)
 
     ! Set offset for each server
-    offset = offset + compute_rank*scores_per_server
+    offset = offset + compute_rank*scores_per_server*16
     call MPI_FILE_WRITE_AT(fh, offset, server_scores, scores_per_server, &
          MPI_TALLYSCORE, MPI_STATUS_IGNORE, mpi_err)
 
