@@ -8,6 +8,7 @@ module output
   use endf,            only: reaction_name
   use geometry_header, only: Cell, Universe, Surface, BASE_UNIVERSE
   use global
+  use math,            only: t_percentile
   use mesh_header,     only: StructuredMesh
   use particle_header, only: LocalCoord
   use plot_header
@@ -841,7 +842,7 @@ contains
     integer :: size_angle        ! memory used for an angle distribution (bytes)
     integer :: size_energy       ! memory used for a  energy distributions (bytes)
     integer :: size_urr          ! memory used for probability tables (bytes)
-    character(4) :: law          ! secondary energy distribution law
+    character(11) :: law         ! secondary energy distribution law
     type(Reaction), pointer :: rxn => null()
     type(UrrData),  pointer :: urr => null()
 
@@ -891,7 +892,7 @@ contains
 
        write(unit_,'(3X,A11,1X,F8.3,3X,L1,3X,A4,1X,I6,1X,I11,1X,I11)') &
             reaction_name(rxn % MT), rxn % Q_value, rxn % scatter_in_cm, &
-            law, rxn % threshold, size_angle, size_energy
+            law(1:4), rxn % threshold, size_angle, size_energy
 
        ! Accumulate data size
        size_xs = size_xs + (nuc % n_grid - rxn%threshold + 1) * 8
@@ -950,8 +951,8 @@ contains
     type(SAB_Table), pointer :: sab
     integer,        optional :: unit
 
-    integer :: size  ! memory used by S(a,b) table
-    integer :: unit_ ! unit to write to
+    integer :: size_sab ! memory used by S(a,b) table
+    integer :: unit_    ! unit to write to
 
     ! set default unit for writing information
     if (present(unit)) then
@@ -987,10 +988,10 @@ contains
     end if
 
     ! Determine memory used by S(a,b) table and write out
-    size = 8 * (sab % n_inelastic_e_in * (2 + sab % n_inelastic_e_out * &
+    size_sab = 8 * (sab % n_inelastic_e_in * (2 + sab % n_inelastic_e_out * &
          (1 + sab % n_inelastic_mu)) + sab % n_elastic_e_in * &
          (2 + sab % n_elastic_mu))
-    write(unit_,*) '  Memory Used = ' // trim(to_str(size)) // ' bytes'
+    write(unit_,*) '  Memory Used = ' // trim(to_str(size_sab)) // ' bytes'
 
     ! Blank line at end
     write(unit_,*)
@@ -1194,6 +1195,8 @@ contains
 
     integer(8)    :: total_particles ! total # of particles simulated
     real(8)       :: speed           ! # of neutrons/second
+    real(8)       :: alpha           ! significance level for CI
+    real(8)       :: t_value         ! t-value for confidence intervals
     character(15) :: string
 
     ! display header block
@@ -1215,8 +1218,14 @@ contains
     write(ou,100) "Total time for finalization", time_finalize % elapsed
     write(ou,100) "Total time elapsed", time_total % elapsed
 
-    ! display calculate rate and final keff
-    total_particles = n_particles * n_batches * gen_per_batch
+    if (restart_run) then
+       total_particles = n_particles * (n_batches - &
+            restart_batch) * gen_per_batch
+    else
+       total_particles = n_particles * n_batches * gen_per_batch
+    end if
+
+    ! display calculate rate
     speed = real(total_particles) / (time_inactive % elapsed + &
          time_active % elapsed)
     string = to_str(speed)
@@ -1225,6 +1234,15 @@ contains
     ! display header block for results
     call header("Results")
 
+    if (confidence_intervals) then
+       ! Calculate t-value for confidence intervals
+       alpha = ONE - CONFIDENCE_LEVEL
+       t_value = t_percentile(ONE - alpha/TWO, n_realizations)
+
+       ! Adjust sum_sq
+       global_tallies(:) % sum_sq = t_value * global_tallies(:) % sum_sq
+    end if
+    
     ! write global tallies
     write(ou,102) "k-effective (Analog)", global_tallies(K_ANALOG) % sum, &
          global_tallies(K_ANALOG) % sum_sq
