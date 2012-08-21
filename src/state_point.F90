@@ -91,15 +91,15 @@ contains
 
           select case (t % filters(j))
           case(FILTER_UNIVERSE)
-             write(UNIT_STATE) t % universe_bins(:) % scalar
+             write(UNIT_STATE) t % universe_bins
           case(FILTER_MATERIAL)
-             write(UNIT_STATE) t % material_bins(:) % scalar
+             write(UNIT_STATE) t % material_bins
           case(FILTER_CELL)
-             write(UNIT_STATE) t % cell_bins(:) % scalar
+             write(UNIT_STATE) t % cell_bins
           case(FILTER_CELLBORN)
-             write(UNIT_STATE) t % cellborn_bins(:) % scalar
+             write(UNIT_STATE) t % cellborn_bins
           case(FILTER_SURFACE)
-             write(UNIT_STATE) t % surface_bins(:) % scalar
+             write(UNIT_STATE) t % surface_bins
           case(FILTER_MESH)
              write(UNIT_STATE) t % mesh
           case(FILTER_ENERGYIN)
@@ -114,16 +114,16 @@ contains
 
        ! Write nuclide bins
        do j = 1, t % n_nuclide_bins
-          if (t % nuclide_bins(j) % scalar > 0) then
-             write(UNIT_STATE) nuclides(t % nuclide_bins(j) % scalar) % zaid
+          if (t % nuclide_bins(j) > 0) then
+             write(UNIT_STATE) nuclides(t % nuclide_bins(j)) % zaid
           else
-             write(UNIT_STATE) t % nuclide_bins(j) % scalar
+             write(UNIT_STATE) t % nuclide_bins(j)
           end if
        end do
 
        ! Write number of score bins
        write(UNIT_STATE) t % n_score_bins
-       write(UNIT_STATE) t % score_bins(:) % scalar
+       write(UNIT_STATE) t % score_bins
     end do
 
     if (tallies_on) then
@@ -343,22 +343,24 @@ contains
        ! calculate mean keff
        keff = temp(1) / n_realizations
 
-       if (confidence_intervals) then
-          ! Calculate t-value for confidence intervals
-          alpha = ONE - CONFIDENCE_LEVEL
-          t_value = t_percentile(ONE - alpha/TWO, n_realizations)
-       else
-          t_value = ONE
-       end if
+       if (n_realizations > 1) then
+          if (confidence_intervals) then
+             ! Calculate t-value for confidence intervals
+             alpha = ONE - CONFIDENCE_LEVEL
+             t_value = t_percentile(ONE - alpha/TWO, n_realizations - 1)
+          else
+             t_value = ONE
+          end if
 
-       keff_std = t_value * sqrt((temp(2)/n_realizations - keff*keff) &
-            / (n_realizations - 1))
+          keff_std = t_value * sqrt((temp(2)/n_realizations - keff*keff) &
+               / (n_realizations - 1))
+       end if
     else
        keff = k_batch(current_batch)
     end if
 
     ! print out batch keff
-    call print_batch_keff()
+    if (master) call print_batch_keff()
 
     ! Write message at end
     if (current_batch == restart_batch) then

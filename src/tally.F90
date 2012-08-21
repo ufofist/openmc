@@ -134,7 +134,7 @@ contains
        t % stride(FILTER_SURFACE) = filter_bins
        if (n > 0) then
           do j = 1, n
-             i_item = t % surface_bins(j) % scalar
+             i_item = t % surface_bins(j)
              call add_map_element(tally_maps(FILTER_SURFACE) % items(i_item), i, j)
           end do
           filter_bins = filter_bins * n
@@ -145,7 +145,7 @@ contains
        t % stride(FILTER_CELLBORN) = filter_bins
        if (n > 0) then
           do j = 1, n
-             i_item = t % cellborn_bins(j) % scalar
+             i_item = t % cellborn_bins(j)
              call add_map_element(tally_maps(FILTER_CELLBORN) % items(i_item), i, j)
           end do
           filter_bins = filter_bins * n
@@ -156,7 +156,7 @@ contains
        t % stride(FILTER_CELL) = filter_bins
        if (n > 0) then
           do j = 1, n
-             i_item = t % cell_bins(j) % scalar
+             i_item = t % cell_bins(j)
              call add_map_element(tally_maps(FILTER_CELL) % items(i_item), i, j)
           end do
           filter_bins = filter_bins * n
@@ -167,7 +167,7 @@ contains
        t % stride(FILTER_MATERIAL) = filter_bins
        if (n > 0) then
           do j = 1, n
-             i_item = t % material_bins(j) % scalar
+             i_item = t % material_bins(j)
              call add_map_element(tally_maps(FILTER_MATERIAL) % items(i_item), i, j)
           end do
           filter_bins = filter_bins * n
@@ -178,7 +178,7 @@ contains
        t % stride(FILTER_UNIVERSE) = filter_bins
        if (n > 0) then
           do j = 1, n
-             i_item = t % universe_bins(j) % scalar
+             i_item = t % universe_bins(j)
              call add_map_element(tally_maps(FILTER_UNIVERSE) % items(i_item), i, j)
           end do
           filter_bins = filter_bins * n
@@ -324,7 +324,7 @@ contains
              ! If the user has explicitly specified nuclides (or specified
              ! none), we need to search through the nuclide bin list one by
              ! one. First we need to get the value of the nuclide bin
-             i_nuclide = t % nuclide_bins(k) % scalar
+             i_nuclide = t % nuclide_bins(k)
 
              ! Now compare the value against that of the colliding nuclide.
              if (i_nuclide /= p % event_nuclide .and. i_nuclide /= -1) cycle
@@ -333,7 +333,7 @@ contains
           ! Determine score for each bin
           SCORE_LOOP: do j = 1, t % n_score_bins
              ! determine what type of score bin
-             score_bin = t % score_bins(j) % scalar
+             score_bin = t % score_bins(j)
 
              ! determine scoring bin index
              score_index = (k - 1)*t % n_score_bins + j
@@ -672,7 +672,7 @@ contains
 
           NUCLIDE_BIN_LOOP: do k = 1, t % n_nuclide_bins
              ! Get index of nuclide in nuclides array
-             i_nuclide = t % nuclide_bins(k) % scalar
+             i_nuclide = t % nuclide_bins(k)
 
              if (i_nuclide > 0) then
                 ! Get pointer to current material
@@ -697,7 +697,7 @@ contains
              ! Determine score for each bin
              SCORE_LOOP: do j = 1, t % n_score_bins
                 ! determine what type of score bin
-                score_bin = t % score_bins(j) % scalar
+                score_bin = t % score_bins(j)
 
                 if (i_nuclide > 0) then
                    ! Determine macroscopic nuclide cross section 
@@ -826,7 +826,7 @@ contains
        ! Loop over score types for each bin
        SCORE_LOOP: do j = 1, t % n_score_bins
           ! determine what type of score bin
-          score_bin = t % score_bins(j) % scalar
+          score_bin = t % score_bins(j)
 
           ! Determine macroscopic nuclide cross section 
           select case(score_bin)
@@ -868,7 +868,7 @@ contains
     ! Loop over score types for each bin
     MATERIAL_SCORE_LOOP: do j = 1, t % n_score_bins
        ! determine what type of score bin
-       score_bin = t % score_bins(j) % scalar
+       score_bin = t % score_bins(j)
 
        ! Determine macroscopic material cross section 
        select case(score_bin)
@@ -1106,7 +1106,7 @@ contains
 
              NUCLIDE_BIN_LOOP: do b = 1, t % n_nuclide_bins
                 ! Get index of nuclide in nuclides array
-                i_nuclide = t % nuclide_bins(b) % scalar
+                i_nuclide = t % nuclide_bins(b)
 
                 if (i_nuclide > 0) then
                    ! Get pointer to current material
@@ -1132,7 +1132,7 @@ contains
                 ! Determine score for each bin
                 SCORE_LOOP: do j = 1, t % n_score_bins
                    ! determine what type of score bin
-                   score_bin = t % score_bins(j) % scalar
+                   score_bin = t % score_bins(j)
 
                    if (i_nuclide > 0) then
                       ! Determine macroscopic nuclide cross section 
@@ -1953,7 +1953,7 @@ contains
     ! Calculate t-value for confidence intervals
     if (confidence_intervals) then
        alpha = ONE - CONFIDENCE_LEVEL
-       t_value = t_percentile(ONE - alpha/TWO, n_realizations)
+       t_value = t_percentile(ONE - alpha/TWO, n_realizations - 1)
     end if
 
     do i = 1, n_tallies
@@ -2063,7 +2063,7 @@ contains
           if (.not. no_filters) indent = indent + 2
           do n = 1, t % n_nuclide_bins
              ! Write label for nuclide
-             i_nuclide = t % nuclide_bins(n) % scalar
+             i_nuclide = t % nuclide_bins(n)
              if (i_nuclide == -1) then
                 write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A)') repeat(" ", indent), &
                      "Total Material"
@@ -2077,7 +2077,7 @@ contains
              do k = 1, t % n_score_bins
                 score_index = score_index + 1
                 write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                     repeat(" ", indent), score_name(abs(t % score_bins(k) % scalar)), &
+                     repeat(" ", indent), score_name(abs(t % score_bins(k))), &
                      to_str(t % scores(score_index,filter_index) % sum), &
                      trim(to_str(t % scores(score_index,filter_index) % sum_sq))
              end do
@@ -2275,19 +2275,19 @@ contains
 
     select case(filter_type)
     case (FILTER_UNIVERSE)
-       i = t % universe_bins(bin) % scalar
+       i = t % universe_bins(bin)
        label = to_str(universes(i) % id)
     case (FILTER_MATERIAL)
-       i = t % material_bins(bin) % scalar
+       i = t % material_bins(bin)
        label = to_str(materials(i) % id)
     case (FILTER_CELL)
-       i = t % cell_bins(bin) % scalar
+       i = t % cell_bins(bin)
        label = to_str(cells(i) % id)
     case (FILTER_CELLBORN)
-       i = t % cellborn_bins(bin) % scalar
+       i = t % cellborn_bins(bin)
        label = to_str(cells(i) % id)
     case (FILTER_SURFACE)
-       i = t % surface_bins(bin) % scalar
+       i = t % surface_bins(bin)
        label = to_str(surfaces(i) % id)
     case (FILTER_MESH)
        m => meshes(t % mesh)
