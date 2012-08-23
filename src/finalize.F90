@@ -31,10 +31,31 @@ contains
     if (run_mode /= MODE_PLOTTING) then
        if (use_servers) then
           if (server) then
+             if (compute_rank == 0) then
+                ! Get k_batch and entropy from master processor
+                call MPI_RECV(k_batch, n_batches, MPI_REAL8, 0, &
+                     0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+                call MPI_RECV(entropy, n_batches, MPI_REAL8, 0, &
+                     0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+                call MPI_RECV(global_tallies, n_global_tallies, &
+                     MPI_TALLYSCORE, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, &
+                     mpi_err)
+             end if
+             
              call server_create_state_point()
              call statistics_score(server_scores)
+          elseif (master) then
+             ! Send k_batch, entropy, and global tallies to first server
+             call MPI_SEND(k_batch, n_batches, MPI_REAL8, support_ratio - 1, &
+                  0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+             call MPI_SEND(entropy, n_batches, MPI_REAL8, support_ratio - 1, &
+                  0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+             call MPI_SEND(global_tallies, n_global_tallies, MPI_TALLYSCORE, &
+                  support_ratio - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, &
+                  mpi_err)
+
+             call statistics_score(global_tallies)
           end if
-          if (master) call statistics_score(global_tallies)
        else
           ! Calculate statistics for tallies and write to tallies.out
           call tally_statistics()

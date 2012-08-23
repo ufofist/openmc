@@ -378,12 +378,13 @@ contains
 #ifdef MPI
   subroutine server_create_state_point()
 
-    integer :: i         ! loop index
-    integer :: n_scores  ! total number of score bins
-    integer :: n_filters ! total number of filter bins
-    integer :: n         ! total number of bins
-    integer :: fh        ! file handle
+    integer :: i, j                    ! loop index
+    integer :: n_scores                ! total number of score bins
+    integer :: n                       ! total number of bins
+    integer :: fh                      ! file handle
+    integer :: size_offset_kind        ! size of MPI_OFFSET_KIND (bytes)
     integer(MPI_OFFSET_KIND) :: offset ! offset in memory (0=beginning of file)
+    type(TallyObject), pointer :: t => null()
 
     ! Set current batch to last batch
     current_batch = n_batches
@@ -404,7 +405,7 @@ contains
        ! Write revision number for state point file
        call MPI_FILE_WRITE(fh, REVISION_STATEPOINT, 1, MPI_INTEGER, &
             MPI_STATUS_IGNORE, mpi_err)
-    
+
        ! Write OpenMC version
        call MPI_FILE_WRITE(fh, VERSION_MAJOR, 1, MPI_INTEGER, &
             MPI_STATUS_IGNORE, mpi_err)
@@ -451,34 +452,122 @@ contains
        call MPI_FILE_WRITE(fh, global_tallies(:) % sum_sq, N_GLOBAL_TALLIES, &
             MPI_REAL8, MPI_STATUS_IGNORE, mpi_err)
 
+       ! Write number of meshes
+       call MPI_FILE_WRITE(fh, n_meshes, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write information for meshes
+       do i = 1, n_meshes
+          call MPI_FILE_WRITE(fh, meshes(i) % type, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, meshes(i) % n_dimension, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+
+          n = meshes(i) % n_dimension
+          call MPI_FILE_WRITE(fh, meshes(i) % dimension, n, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, meshes(i) % lower_left, n, MPI_REAL8, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, meshes(i) % upper_right, n, MPI_REAL8, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, meshes(i) % width, n, MPI_REAL8, &
+               MPI_STATUS_IGNORE, mpi_err)
+       end do
+
+
        ! Write out number of tallies
        call MPI_FILE_WRITE(fh, n_tallies, 1, MPI_INTEGER, &
             MPI_STATUS_IGNORE, mpi_err)
 
        ! Write out dimensions of filters and scores for each tally
-       do i = 1, n_tallies
-          n_scores = tallies(i) % n_score_bins * tallies(i) % n_nuclide_bins
-          n_filters = tallies(i) % n_total_bins
-          n = n_scores * n_filters
+       TALLY_LOOP: do i = 1, n_tallies
+          t => tallies(i)
+          
+          n_scores = t % n_score_bins * t % n_nuclide_bins
           call MPI_FILE_WRITE(fh, n_scores, 1, MPI_INTEGER, &
                MPI_STATUS_IGNORE, mpi_err)
-          call MPI_FILE_WRITE(fh, n_filters, 1, MPI_INTEGER, &
+          call MPI_FILE_WRITE(fh, t % n_total_bins, 1, MPI_INTEGER, &
                MPI_STATUS_IGNORE, mpi_err)
-       end do
+
+          ! Write number of filters
+          call MPI_FILE_WRITE(fh, t % n_filters, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+
+          FILTER_LOOP: do j = 1, t % n_filters
+             ! Write type of filter
+             call MPI_FILE_WRITE(fh, t % filters(j), 1, MPI_INTEGER, &
+                  MPI_STATUS_IGNORE, mpi_err)
+
+             ! Write number of bins for this filter
+             n = t % n_filter_bins(t % filters(j))
+             call MPI_FILE_WRITE(fh, t % n_filter_bins(t % filters(j)), &
+                  1, MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+
+             select case (t % filters(j))
+             case(FILTER_UNIVERSE)
+                call MPI_FILE_WRITE(fh, t % universe_bins, n, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_MATERIAL)
+                call MPI_FILE_WRITE(fh, t % material_bins, n, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_CELL)
+                call MPI_FILE_WRITE(fh, t % cell_bins, n, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_CELLBORN)
+                call MPI_FILE_WRITE(fh, t % cellborn_bins, n, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_SURFACE)
+                call MPI_FILE_WRITE(fh, t % surface_bins, n, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_MESH)
+                call MPI_FILE_WRITE(fh, t % mesh, 1, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_ENERGYIN)
+                call MPI_FILE_WRITE(fh, t % energy_in, n+1, &
+                     MPI_REAL8, MPI_STATUS_IGNORE, mpi_err)
+             case(FILTER_ENERGYOUT)
+                call MPI_FILE_WRITE(fh, t % energy_out, n+1, &
+                     MPI_REAL8, MPI_STATUS_IGNORE, mpi_err)
+             end select
+          end do FILTER_LOOP
+
+          ! Write number of nuclide bins
+          call MPI_FILE_WRITE(fh, t % n_nuclide_bins, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+
+          ! Write nuclide bins
+          NUCLIDE_LOOP: do j = 1, t % n_nuclide_bins
+             if (t % nuclide_bins(j) > 0) then
+                call MPI_FILE_WRITE(fh, nuclides(t % nuclide_bins(j)) % zaid, &
+                     1, MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             else
+                call MPI_FILE_WRITE(fh, t % nuclide_bins(j), 1, &
+                     MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+             end if
+          end do NUCLIDE_LOOP
+
+          ! Write number of score bins
+          call MPI_FILE_WRITE(fh, t % n_score_bins, 1, MPI_INTEGER, &
+               MPI_STATUS_IGNORE, mpi_err)
+          call MPI_FILE_WRITE(fh, t % score_bins, t % n_score_bins, &
+               MPI_INTEGER, MPI_STATUS_IGNORE, mpi_err)
+       end do TALLY_LOOP
+
+       ! Get current offset in file
+       call MPI_FILE_GET_POSITION(fh, offset, mpi_err)
     end if
 
-    ! Advanced offset to global_tallies
-    offset = 52
-    if (run_mode == MODE_CRITICALITY) then
-       offset = offset + 8*current_batch
-       if (entropy_on) offset = offset + 8*current_batch
-    end if
-
-    ! Advance offset past global tallies
-    offset = offset + 4 + 8*(2*N_GLOBAL_TALLIES)
-
-    ! Advance offset past tally header
-    offset = offset + 4*(1 + 2*n_tallies)
+    ! First server broadcasts file offset to other servers
+    call MPI_SIZEOF(offset, size_offset_kind, mpi_err)
+    select case (size_offset_kind)
+    case (4)
+       call MPI_BCAST(offset, 1, MPI_INTEGER, 0, compute_comm, mpi_err)
+    case (8)
+       call MPI_BCAST(offset, 1, MPI_INTEGER8, 0, compute_comm, mpi_err)
+    case default
+       message = "Unsupported offset_kind size."
+       call fatal_error()
+    end select
 
     ! Set offset for each server
     offset = offset + compute_rank*scores_per_server*16
