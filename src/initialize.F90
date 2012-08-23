@@ -58,10 +58,6 @@ contains
     call read_command_line()
 
     if (master) then
-       ! Create output files
-       call create_summary_file()
-       call create_xs_summary_file()
-
 #ifdef HDF5
        ! Open HDF5 output file for writing and write header information
        call hdf5_create_output()
@@ -78,6 +74,12 @@ contains
 
     ! Read XML input files
     call read_input_xml()
+
+    ! Create output files
+    if (master) then
+       if (output_summary) call create_summary_file()
+       if (output_xs) call create_xs_summary_file()
+    end if
 
     ! Initialize random number generator
     call initialize_prng()
@@ -127,7 +129,7 @@ contains
        ! run, not at initialization
        if (run_mode == MODE_CRITICALITY) then
           call allocate_banks()
-          call initialize_source()
+          if (.not. restart_run) call initialize_source()
        end if
 
        ! If this is a restart run, load the state point data and binary source
@@ -138,10 +140,10 @@ contains
     ! stop timer for initialization
     if (master) then
        if (run_mode == MODE_PLOTTING) then
-          call print_geometry()
+          if (output_summary) call print_geometry()
           call print_plot()
        else
-          call print_summary()
+          if (output_summary) call print_summary()
 #ifdef HDF5
           call hdf5_write_summary()
 #endif
@@ -303,9 +305,6 @@ contains
              path_state_point = argv(i)
              restart_run = .true.
 
-             ! Set path for binary source file
-             path_source = 'source.' // path_state_point(9 : &
-                  len_trim(path_state_point))
           case ('-t', '-tallies', '--tallies')
              run_mode = MODE_TALLIES
 
@@ -314,9 +313,6 @@ contains
              path_state_point = argv(i)
              restart_run = .true.
 
-             ! Set path for binary source file
-             path_source = 'source.' // path_state_point(9 : &
-                  len_trim(path_state_point))
           case ('-?', '-help', '--help')
              call print_usage()
              stop

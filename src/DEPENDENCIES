@@ -52,7 +52,6 @@ energy_grid.o: output.o
 finalize.o: global.o
 finalize.o: hdf5_interface.o
 finalize.o: output.o
-finalize.o: source.o
 finalize.o: state_point.o
 finalize.o: tally.o
 finalize.o: timing.o
@@ -246,6 +245,7 @@ state_point.o: error.o
 state_point.o: global.o
 state_point.o: math.o
 state_point.o: output.o
+state_point.o: source.o
 state_point.o: string.o
 state_point.o: tally_header.o
 

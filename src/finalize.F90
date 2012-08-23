@@ -2,7 +2,6 @@ module finalize
 
   use global
   use output,         only: print_runtime
-  use source,         only: write_source_binary
   use tally,          only: write_tallies, tally_statistics, statistics_score
   use timing,         only: timer_start, timer_stop
 
@@ -57,19 +56,19 @@ contains
              call statistics_score(global_tallies)
           end if
        else
-          ! Calculate statistics for tallies and write to tallies.out
-          call tally_statistics()
-          if (master) call write_tallies()
-
-          ! Write out binary source
-          if (write_source) call write_source_binary()
+          if (output_tallies) then
+             ! Calculate statistics for tallies and write to tallies.out
+             call tally_statistics()
+             if (master) call write_tallies()
+          end if
        end if
     end if
 
     ! stop timers and show timing statistics
     call timer_stop(time_finalize)
     call timer_stop(time_total)
-    if (master .and. (run_mode /= MODE_PLOTTING)) call print_runtime()
+    if (master .and. (run_mode /= MODE_PLOTTING .and. &
+         run_mode /= MODE_TALLIES)) call print_runtime()
 
 #ifdef HDF5
     ! Write time statistics to HDF5 output 

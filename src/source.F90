@@ -233,23 +233,12 @@ contains
 ! can be used as a starting source in a new simulation
 !===============================================================================
 
-  subroutine write_source_binary(path)
-
-    character(*), optional :: path
+  subroutine write_source_binary()
 
 #ifdef MPI
     integer                  :: fh     ! file handle
     integer(MPI_OFFSET_KIND) :: offset ! offset in memory (0=beginning of file)
-#endif
 
-    ! Determine path to binary source file to write
-    if (present(path)) then
-       path_source = path
-    else
-       path_source = 'source.binary'
-    end if
-
-#ifdef MPI
     ! ==========================================================================
     ! PARALLEL I/O USING MPI-2 ROUTINES
 
@@ -264,7 +253,7 @@ contains
     end if
 
     ! Set proper offset for source data on this processor
-    offset = 8*(1 + rank*maxwork*9)
+    offset = 8*(1 + rank*maxwork*8)
 
     ! Write all source sites
     call MPI_FILE_WRITE_AT(fh, offset, source_bank(1), work, MPI_BANK, &
@@ -328,7 +317,7 @@ contains
        call fatal_error()
     else
        ! Set proper offset for source data on this processor
-       offset = 8*(1 + rank*maxwork*9)
+       offset = 8*(1 + rank*maxwork*8)
 
        ! Read all source sites
        call MPI_FILE_READ_AT(fh, offset, source_bank(1), work, MPI_BANK, &

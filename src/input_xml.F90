@@ -44,12 +44,16 @@ contains
 
     use xml_data_settings_t
 
+    integer :: i ! loop index
     integer :: n
     integer :: coeffs_reqd
     logical :: file_exists
     character(MAX_FILE_LEN) :: env_variable
     character(MAX_WORD_LEN) :: type
     character(MAX_LINE_LEN) :: filename
+
+    integer :: n_words       ! number of words read
+    character(MAX_WORD_LEN) :: words(MAX_WORDS)
 
     ! Display output message
     message = "Reading settings XML file..."
@@ -68,9 +72,9 @@ contains
     verbosity_ = 0
     energy_grid_ = "union"
     seed_ = 0_8
-    write_source_ = ""
     no_reduce_ = ""
     servers_ = 0
+    output_ = ""
     source_ % file = ''
     source_ % space % type = ''
     source_ % angle % type = ''
@@ -461,17 +465,38 @@ contains
             ufs_mesh % dimension(2), ufs_mesh % dimension(3)))
     end if
 
-    ! Check if the user has specified to write binary source file
-    if (trim(write_source_) == 'on') write_source = .true.
-
     ! Check if the user has specified to write state points
-    if (associated(write_state_point_)) then
+    if (size(state_point_) > 0) then
        ! Determine number of batches at which to store state points
-       n_state_points = size(write_state_point_)
+       n_state_points = size(state_point_(1) % batches)
 
-       ! Allocate and store batches
+       if (n_state_points > 0) then
+          ! User gave specific batches to write state points
+          allocate(statepoint_batch(n_state_points))
+          statepoint_batch = state_point_(1) % batches
+
+       elseif (state_point_(1) % interval /= 0) then
+          ! User gave an interval for writing state points
+          n_state_points = n_batches / state_point_(1) % interval
+          allocate(statepoint_batch(n_state_points))
+          statepoint_batch = (/ (state_point_(1) % interval * i, i = 1, &
+               n_state_points) /)
+       else
+          ! If neither were specified, write state point at last batch
+          n_state_points = 1
+          allocate(statepoint_batch(n_state_points))
+          statepoint_batch(1) = n_batches
+       end if
+
+       ! Check if the user has specified to write binary source file
+       if (trim(state_point_(1) % source_separate) == 'on') &
+            source_separate = .true.
+    else
+       ! If no <state_point> tag was present, by default write state point at
+       ! last batch only
+       n_state_points = 1
        allocate(statepoint_batch(n_state_points))
-       statepoint_batch = write_state_point_
+       statepoint_batch(1) = n_batches
     end if
 
     ! Check if the user has specified to not reduce tallies at the end of every
@@ -481,6 +506,22 @@ contains
     ! Check if the user has specified to use confidence intervals for
     ! uncertainties rather than standard deviations
     if (trim(confidence_intervals_) == 'on') confidence_intervals = .true.
+
+    ! Check for output options
+    if (len_trim(output_) > 0) then
+       call split_string(output_, words, n_words)
+       do i = 1, n_words
+          call lower_case(words(i))
+          select case (words(i))
+          case ('summary')
+             output_summary = .true.
+          case ('cross_sections')
+             output_xs = .true.
+          case ('tallies')
+             output_tallies = .true.
+          end select
+       end do
+    end if
 
     ! Determine number of tally servers
     if (servers_ > 0) then

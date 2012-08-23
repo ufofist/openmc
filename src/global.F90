@@ -189,7 +189,7 @@ module global
   real(8), allocatable :: source_frac(:,:,:,:)
 
   ! Write source at end of simulation
-  logical :: write_source = .false.
+  logical :: source_separate = .false.
 
   ! ============================================================================
   ! PARALLEL PROCESSING VARIABLES
@@ -274,6 +274,11 @@ module global
   ! Information about state points to be written
   integer :: n_state_points = 0
   integer, allocatable :: statepoint_batch(:)
+
+  ! Various output options
+  logical :: output_summary = .false.
+  logical :: output_xs      = .false.
+  logical :: output_tallies = .true.
 
 contains
 
