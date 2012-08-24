@@ -929,7 +929,7 @@ contains
 
     ! Set offset for each server
     offset = offset + compute_rank*scores_per_server*16
-    call MPI_FILE_WRITE_AT(fh, offset, server_scores, scores_per_server, &
+    call MPI_FILE_WRITE_AT(fh, offset, server_scores, n_server_scores, &
          MPI_TALLYSCORE, MPI_STATUS_IGNORE, mpi_err)
 
     ! Close binary source file

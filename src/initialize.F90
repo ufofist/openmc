@@ -761,10 +761,18 @@ contains
     ! determine maximum number of scores per server
     scores_per_server = (n_scores - 1)/n_servers + 1
 
-    ! TODO: handle odd number of total scores
+    if (server) then
+       ! Determine how many scores this server should store
+       if (compute_rank == n_servers - 1) then
+          n_server_scores = scores_per_server
+       else
+          n_server_scores = min(n_scores - compute_rank*scores_per_server, &
+               scores_per_server)
+       end if
 
-    ! allocate TallyScore objects for each server
-    if (server) allocate(server_scores(scores_per_server))
+       ! allocate TallyScore objects for each server
+       allocate(server_scores(n_server_scores))
+    end if
 
   end subroutine initialize_servers
 
