@@ -527,6 +527,7 @@ contains
     if (servers_ > 0) then
        use_servers = .true.
        n_servers = servers_
+       n_state_points = 0
     else
        use_servers = .false.
        n_servers = 0

@@ -884,6 +884,7 @@ contains
   subroutine server_create_state_point()
 
     integer :: fh                      ! file handle
+    integer :: temp
     integer :: size_offset_kind        ! size of MPI_OFFSET_KIND (bytes)
     integer(MPI_OFFSET_KIND) :: offset ! offset in memory (0=beginning of file)
 
@@ -891,7 +892,7 @@ contains
     current_batch = n_batches
 
     ! Set filename for binary state point
-    path_state_point = 'restart.' // trim(to_str(current_batch)) // '.binary'
+    path_state_point = 'statepoint.' // trim(to_str(current_batch)) // '.binary'
 
     ! Write message
     message = "Creating state point " // trim(path_state_point) // "..."
@@ -904,6 +905,11 @@ contains
     ! Only first server needs to write basic information
     if (rank == support_ratio - 1) then
        call write_state_point_header(fh)
+
+       ! Write tallies present flag
+       temp = 1
+       call MPI_FILE_WRITE(fh, temp, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
 
        ! Get current offset in file
        call MPI_FILE_GET_POSITION(fh, offset, mpi_err)
