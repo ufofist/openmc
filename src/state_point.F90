@@ -911,16 +911,17 @@ contains
     ! Set filename for binary state point
     path_state_point = 'statepoint.' // trim(to_str(current_batch)) // '.binary'
 
-    ! Write message
-    message = "Creating state point " // trim(path_state_point) // "..."
-    call write_message()
-
     ! Open binary state point file for writing
     call MPI_FILE_OPEN(compute_comm, path_state_point, MPI_MODE_CREATE + &
          MPI_MODE_WRONLY, MPI_INFO_NULL, fh, mpi_err)
 
     ! Only first server needs to write basic information
     if (rank == support_ratio - 1) then
+       ! Print message
+       message = "Creating state point " // trim(path_state_point) // "..."
+       call write_message()
+
+       ! Write header information
        call write_state_point_header(fh)
 
        ! Write tallies present flag
