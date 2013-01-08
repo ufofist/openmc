@@ -122,6 +122,7 @@ datatypes.o: datatypes_header.o
 doppler.o: constants.o
 
 endf.o: constants.o
+endf.o: endf_header.o
 endf.o: string.o
 
 energy_grid.o: constants.o

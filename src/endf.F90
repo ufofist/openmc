@@ -1,6 +1,7 @@
 module endf
 
   use constants
+  use endf_header
   use string, only: to_str
 
 contains
@@ -148,6 +149,79 @@ contains
     end select
 
   end function reaction_name
+
+!===============================================================================
+! READ_CONT_RECORD
+!===============================================================================
+
+  subroutine read_cont_record(fh, cont)
+
+    integer,        intent(in)    :: fh
+    type(EndfCont), intent(inout) :: cont
+
+    read(fh,'(2G11.0,4I11,I4,I2,I3,I5)') cont % rvalues, cont % ivalues, &
+         cont % MAT, cont % MF, cont % MT, cont % NS
+
+  end subroutine read_cont_record
+
+!===============================================================================
+! READ_LIST_RECORD
+!===============================================================================
+
+  subroutine read_list_record(fh, list)
+
+    integer, intent(in) :: fh
+    type(EndfList), intent(inout) :: list
+
+    integer :: i ! implied do index
+    integer :: n ! length of list
+
+    ! Read first line and determine list length
+    read(fh,'(2G11.0,4I11,I4,I2,I3,I5)') list % rvalues, list % ivalues, &
+         list % MAT, list % MF, list % MT, list % NS
+    n = list % ivalues(3)
+
+    ! Allocate array for list
+    if (allocated(list%B)) deallocate(list%B)
+    allocate(list%B(n))
+
+    ! Read list
+    read(fh,'(6G11.0)') (list%B(i), i=1,n)
+
+  end subroutine read_list_record
+
+!===============================================================================
+! READ_TAB1_RECORD
+!===============================================================================
+
+  subroutine read_tab1_record(fh, t)
+
+    integer,    intent(in)    :: fh
+    type(Tab1), intent(inout) :: t
+
+    integer :: i ! implied do loop index
+
+    ! read first list with information on number of regions and pairs
+    read(fh,'(2G11.0,4I11,I4,I2,I3,I5)') t % rvalues, t % ivalues, &
+         t % n_regions, t % n_pairs
+
+    ! deallocate any allocatable components
+    if (allocated(t%nbt)) deallocate(t%nbt)
+    if (allocated(t%int)) deallocate(t%int)
+    if (allocated(t%x)) deallocate(t%x)
+    if (allocated(t%y)) deallocate(t%y)
+
+    ! allocate components
+    allocate(t%nbt(t%n_regions))
+    allocate(t%int(t%n_regions))
+    allocate(t%x(t%n_pairs))
+    allocate(t%y(t%n_pairs))
+
+    ! read interpolation schemes, then (x,y) pairs
+    read(fh,'(6I11)') (t%nbt(i), t%int(i), i=1,t%n_regions)
+    read(fh,'(6G11.0)') (t%x(i), t%y(i), i=1,t%n_pairs)
+
+  end subroutine read_tab1_record
 
 !===============================================================================
 ! IS_FISSION determines if a given MT number is that of a fission event. This
