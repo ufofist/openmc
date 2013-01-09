@@ -71,18 +71,100 @@ contains
       allocate(decay % modes(decay % n_modes))
 
       ! Store decay mode information
-      do i = 1, decay % n_modes
+      DECAY_MODE: do i = 1, decay % n_modes
         decay % modes(i) % type = int(list % B(6*(i-1) + 1))
         decay % modes(i) % state = int(list % B(6*(i-1) + 2))
         decay % modes(i) % Q_value = list % B(6*(i-1) + 3)
         decay % modes(i) % branching_ratio = list % B(6*(i-1) + 5)
-      end do
+      end do DECAY_MODE
     end if
 
     ! close ENDF file
     close(UNIT=UNIT_ENDF)
 
   end subroutine read_decay
+
+!===============================================================================
+! READ_FISSION_YIELD
+!===============================================================================
+
+  subroutine read_fission_yield(filename)
+
+    character(*), intent(in) :: filename
+
+    integer :: i      ! loop index for each yield
+    integer :: j      ! loop index for each fission product
+    integer :: ZA     ! atomic/mass number
+    integer :: m      ! isomeric state
+    logical :: file_exists ! does specified ENDF file exist?
+    type(EndfCont) :: cont ! ENDF HEAD/CONT record
+    type(EndfList) :: list ! ENDF LIST record
+    type(EndfFissionYield) :: iyield ! independent fission yield
+
+    ! Check that file exists
+    inquire(FILE=filename, EXIST=file_exists)
+    if (.not. file_exists) then
+      message = "ENDF file " // trim(filename) // " does not exist!"
+      call fatal_error()
+    end if
+
+    ! open ENDF file
+    open(FILE=filename, UNIT=UNIT_ENDF, STATUS='old', ACTION='read')
+
+    ! Find descriptive data
+    call seek_mfmt(UNIT_ENDF, 1, 451)
+
+    ! Read head record
+    call read_cont_record(UNIT_ENDF, cont)
+    ZA = int(cont % rvalues(1))
+
+    ! Read cont record to get isomeric state
+    call read_cont_record(UNIT_ENDF, cont)
+    m = cont % ivalues(2)
+
+    ! Set identifier
+    iyield % zzaaam = ZA*10 + m
+
+    ! Find independent fission yields at MF=8, MT=454
+    call seek_mfmt(UNIT_ENDF, 8, 454)
+
+    ! Read head record
+    call read_cont_record(UNIT_ENDF, cont)
+    iyield % n_energy = cont % ivalues(1) - 1
+
+    ! Allocate separate yields for each energy
+    allocate(iyield % yield(iyield % n_energy))
+
+    ! Read independent yield for each energy
+    INDEPENDENT_YIELD: do i = 1, iyield % n_energy
+      call read_list_record(UNIT_ENDF, list)
+
+      ! Store incident energy for this yield
+      iyield % yield(i) % energy = list % rvalues(1)
+      iyield % yield(i) % n_products = list % ivalues(4)
+
+      ! Allocate fission products
+      allocate(iyield % yield(i) % products(iyield%yield(i)%n_products))
+
+      FISSION_PRODUCTS: do j = 1, iyield % yield(i) % n_products
+        ! Determine ZA and isomeric state from list items
+        ZA = int(list % B(4*(j-1) + 1))
+        m = int(list % B(4*(j-1) + 2))
+
+        ! Set zzaaam
+        iyield % yield(i) % products(j) % zzaaam = ZA*10 + m
+
+        ! Set yield
+        iyield % yield(i) % products(j) % yield = list % B(4*(j-1) + 3)
+      end do FISSION_PRODUCTS
+
+      ! TODO: Add check for sum of yields -- should be around 2
+    end do INDEPENDENT_YIELD
+
+    ! close ENDF file
+    close(UNIT=UNIT_ENDF)
+
+  end subroutine read_fission_yield
 
 !===============================================================================
 ! SEEK_MFMT
@@ -112,7 +194,8 @@ contains
 
       ! Check for end-of-file
       if (is_iostat_end(ioError)) then
-        message = "Could not find specified MF,MT"
+        message = "Could not find MF=" // trim(to_str(MF)) // ", MT=" // &
+             trim(to_str(MT)) // " in ENDF file."
         call fatal_error()
       end if
 

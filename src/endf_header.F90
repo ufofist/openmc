@@ -84,8 +84,8 @@ module endf_header
 
   type EndfYield
     real(8) :: energy
-    integer :: n_fiss_product
-    type(FissionProduct), allocatable :: fiss_products(:)
+    integer :: n_products
+    type(FissionProduct), allocatable :: products(:)
   end type EndfYield
 
 !===============================================================================
@@ -93,6 +93,7 @@ module endf_header
 !===============================================================================
 
   type EndfFissionYield
+    integer :: zzaaam
     integer :: n_energy
     type(EndfYield), allocatable :: yield(:)
   end type EndfFissionYield
