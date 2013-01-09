@@ -230,6 +230,20 @@ module constants
   ! Maximum number of partial fission reactions
   integer, parameter :: PARTIAL_FISSION_MAX = 4
 
+  ! ENDF decay modes
+  integer, parameter :: &
+       DECAY_GAMMA    = 0, & ! Gamma decay
+       DECAY_BETA     = 1, & ! Beta decay
+       DECAY_EC       = 2, & ! Electron capture and/or positron emission
+       DECAY_IT       = 3, & ! Isomeric transition
+       DECAY_ALPHA    = 4, & ! Alpha decay
+       DECAY_NEUTRON  = 5, & ! Neutron emission
+       DECAY_SF       = 6, & ! Spontaneous fission
+       DECAY_PROTON   = 7, & ! Proton emission
+       DECAY_ELECTRON = 8, & ! "Discrete electrons"
+       DECAY_XRAY     = 9, & ! X-rays and annihilation radiation
+       DECAY_UNKNOWN  = 10
+
   ! ============================================================================
   ! TALLY-RELATED CONSTANTS
 
@@ -356,7 +370,8 @@ module constants
   integer, parameter :: UNIT_XS      = 14 ! unit # for writing xs summary file
   integer, parameter :: UNIT_SOURCE  = 15 ! unit # for writing source file
   integer, parameter :: UNIT_STATE   = 16 ! unit # for writing state point
-  integer, parameter :: CMFD_BALANCE = 17 ! unit # for writing cmfd balance file
+  integer, parameter :: UNIT_ENDF    = 17 ! unit # for reading ENDF files
+  integer, parameter :: CMFD_BALANCE = 18 ! unit # for writing cmfd balance file
 
   !=============================================================================
   ! CMFD CONSTANTS

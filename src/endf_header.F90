@@ -45,4 +45,56 @@ module endf_header
     real(8), allocatable :: y(:)   ! values of ordinate
   end type Tab1
 
+!===============================================================================
+! ENDFDECAYMODE
+!===============================================================================
+
+  type EndfDecayMode
+    integer :: type
+    integer :: state
+    real(8) :: Q_value
+    real(8) :: branching_ratio
+  end type EndfDecayMode
+
+!===============================================================================
+! ENDFDECAY
+!===============================================================================
+
+  type EndfDecay
+    integer :: zzaaam
+    real(8) :: awr
+    real(8) :: lambda
+    real(8) :: energy
+    integer :: n_modes
+    type(EndfDecayMode), allocatable :: modes(:)
+  end type EndfDecay
+
+!===============================================================================
+! FISSIONPRODUCT
+!===============================================================================
+
+  type FissionProduct
+    integer :: zzaaam
+    real(8) :: yield
+  end type FissionProduct
+
+!===============================================================================
+! ENDFYIELD
+!===============================================================================
+
+  type EndfYield
+    real(8) :: energy
+    integer :: n_fiss_product
+    type(FissionProduct), allocatable :: fiss_products(:)
+  end type EndfYield
+
+!===============================================================================
+! ENDFFISSIONYIELD
+!===============================================================================
+
+  type EndfFissionYield
+    integer :: n_energy
+    type(EndfYield), allocatable :: yield(:)
+  end type EndfFissionYield
+
 end module endf_header
