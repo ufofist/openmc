@@ -157,4 +157,102 @@ contains
 
   end subroutine symbolic_factorization
 
+!===============================================================================
+! NUMERICAL_ELIMINATION
+!===============================================================================
+
+  subroutine numerical_elimination(fill, b)
+
+    type(SparseMatrix),       intent(inout) :: fill ! fill matrix
+    complex(8), dimension(:), intent(inout) :: b    ! right-hand side
+
+    integer :: i          ! row index
+    integer :: i_val      ! index in columns/values
+    integer :: i_val2     ! another index in columns/values
+    integer :: j          ! column index
+    integer :: k          ! another column index
+    integer :: n          ! number of columns
+    complex(8) :: fill_ij ! (i,j) element in fill matrix
+    complex(8) :: fill_jj ! (j,j) element in fill matrix
+    complex(8) :: fill_jk ! (j,k) element in fill matrix
+    complex(8) :: frac    ! F_ij / F_jj
+    complex(8), allocatable :: v(:)
+    complex(8), allocatable :: diag(:)
+
+    ! Size of matrix
+    n = fill % n
+
+    ! Allocate arrays for storing a single row and the diagonal
+    allocate(v(n))
+    allocate(diag(n))
+
+    ! Initialize v and diag
+    v = ZERO
+    diag = ZERO
+
+    ROWS: do i = 2, n
+
+      ! Copy row i to vector v and save diagonal
+      do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+        j = fill % columns(i_val)
+
+        if (j < 0) exit
+
+        ! Copy value into v vector
+        v(j) = fill % values(i_val)
+
+        ! Save diagonal
+        if (i == j) diag(j) = v(j)
+      end do
+
+      COL_IN_ROW_I: do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+        j = fill % columns(i_val)
+
+        if (j < 0) exit
+
+        if (j < i) then
+          fill_ij = v(j)
+          fill_jj = diag(j)
+
+          ! TODO: Check norm of diagonal term
+
+          ! Update right-hand side term in row i
+          frac = fill_ij/fill_jj
+          b(i) = b(i) - frac*b(j)
+
+          ! Update matrix elements
+          COL_IN_ROW_J: do i_val2 = fill % row_ptr(j), fill % row_ptr(j+1) - 1
+            k = fill % columns(i_val2)
+
+            ! We only need to update the terms
+            if (j < k) then
+              fill_jk = fill % columns(i_val2)
+              v(k) = v(k) - frac*fill_jk
+            end if             
+          end do COL_IN_ROW_J
+        end if
+
+      end do COL_IN_ROW_I
+
+      ! ========================================================================
+      ! UPDATE ROW I
+
+      do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+        j = fill % columns(i_val)
+
+        ! Update diagonal
+        if (i == j) diag(j) = v(j)
+
+        ! Update element (i,j)
+        fill % values(i_val) = v(j)
+      end do
+
+    end do ROWS
+
+    ! Free up space from arrays
+    deallocate(v)
+    deallocate(diag)
+
+  end subroutine numerical_elimination
+
 end module depletion
