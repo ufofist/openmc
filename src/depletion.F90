@@ -161,10 +161,11 @@ contains
 ! NUMERICAL_ELIMINATION
 !===============================================================================
 
-  subroutine numerical_elimination(fill, b)
+  subroutine numerical_elimination(fill, b, x)
 
     type(SparseMatrix), intent(inout) :: fill ! fill matrix
     complex(8),         intent(inout) :: b(:) ! right-hand side
+    complex(8),         intent(out)   :: X(:) ! solution
 
     integer :: i          ! row index
     integer :: i_val      ! index in columns/values
@@ -176,6 +177,7 @@ contains
     complex(8) :: fill_jj ! (j,j) element in fill matrix
     complex(8) :: fill_jk ! (j,k) element in fill matrix
     complex(8) :: frac    ! F_ij / F_jj
+    complex(8) :: sum     ! temporary sum for back substitution
     complex(8), allocatable :: v(:)
     complex(8), allocatable :: diag(:)
 
@@ -254,29 +256,10 @@ contains
 
     end do ROWS
 
-    ! Free up space from arrays
-    deallocate(v)
-    deallocate(diag)
+    !===========================================================================
+    ! BACK_SUBSTITUTION
 
-  end subroutine numerical_elimination
-
-!===============================================================================
-! BACK_SUBSTITUTION
-!===============================================================================
-
-  subroutine back_substitution(fill, diag, b, x)
-
-    type(SparseMatrix), intent(inout) :: fill    ! fill matrix
-    complex(8),         intent(in)    :: diag(:) ! diagonal elements of fill
-    complex(8),         intent(in)    :: b(:)    ! right-hand side
-    complex(8),         intent(out)   :: x(:)    ! solution
-
-    integer    :: i     ! row index
-    integer    :: i_val ! index in columns/values
-    integer    :: j     ! column index
-    complex(8) :: sum   ! temporary sum
-
-    do i = fill % n, 1, -1
+    do i = n, 1, -1
       ! Initialize sum
       sum = ZERO
 
@@ -297,6 +280,10 @@ contains
       x(i) = (b(i) - sum)/diag(i)
     end do
 
-  end subroutine back_substitution
+    ! Free up space from arrays
+    deallocate(v)
+    deallocate(diag)
+
+  end subroutine numerical_elimination
 
 end module depletion
