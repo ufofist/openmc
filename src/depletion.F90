@@ -88,7 +88,7 @@ contains
       n_nonzero = matrix % row_ptr(j+1) - matrix % row_ptr(j)
 
       ! ========================================================================
-      ! Find non-zeros in row i in lower triangular part
+      ! Find non-zeros in row i in lower triangular part of original matrix
 
       COLUMNS_IN_ROW_I: do i_val = matrix % row_ptr(i), matrix % row_ptr(i+1) - 1
         ! Get index of column
@@ -115,7 +115,7 @@ contains
           ! Get index of column
           k = fill % columns(i_val)
 
-          ! Check for end of non-zero rows in this column
+          ! Check for end of non-zero columns in this row
           if (k == -1) exit
 
           ! If column k is in lower triangular part and the k-th column in row i is
@@ -163,8 +163,8 @@ contains
 
   subroutine numerical_elimination(fill, b)
 
-    type(SparseMatrix),       intent(inout) :: fill ! fill matrix
-    complex(8), dimension(:), intent(inout) :: b    ! right-hand side
+    type(SparseMatrix), intent(inout) :: fill ! fill matrix
+    complex(8),         intent(inout) :: b(:) ! right-hand side
 
     integer :: i          ! row index
     integer :: i_val      ! index in columns/values
@@ -196,7 +196,8 @@ contains
       do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
         j = fill % columns(i_val)
 
-        if (j < 0) exit
+        ! Check for end of non-zero columns in this row
+        if (j == -1) exit
 
         ! Copy value into v vector
         v(j) = fill % values(i_val)
@@ -208,7 +209,8 @@ contains
       COL_IN_ROW_I: do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
         j = fill % columns(i_val)
 
-        if (j < 0) exit
+        ! Check for end of non-zero columns in this row
+        if (j == -1) exit
 
         if (j < i) then
           fill_ij = v(j)
@@ -223,6 +225,9 @@ contains
           ! Update matrix elements
           COL_IN_ROW_J: do i_val2 = fill % row_ptr(j), fill % row_ptr(j+1) - 1
             k = fill % columns(i_val2)
+
+            ! Check for end of non-zero columns in this row
+            if (k == -1) exit
 
             ! We only need to update the terms
             if (j < k) then
@@ -254,5 +259,44 @@ contains
     deallocate(diag)
 
   end subroutine numerical_elimination
+
+!===============================================================================
+! BACK_SUBSTITUTION
+!===============================================================================
+
+  subroutine back_substitution(fill, diag, b, x)
+
+    type(SparseMatrix), intent(inout) :: fill    ! fill matrix
+    complex(8),         intent(in)    :: diag(:) ! diagonal elements of fill
+    complex(8),         intent(in)    :: b(:)    ! right-hand side
+    complex(8),         intent(out)   :: x(:)    ! solution
+
+    integer    :: i     ! row index
+    integer    :: i_val ! index in columns/values
+    integer    :: j     ! column index
+    complex(8) :: sum   ! temporary sum
+
+    do i = fill % n, 1, -1
+      ! Initialize sum
+      sum = ZERO
+
+      do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+        ! Get index of column
+        j = fill % columns(i_val)
+
+        ! Check for end of non-zero columns in this row
+        if (j == -1) exit
+
+        ! Add A_ij * x_j to the sum -- only use upper triangular portion
+        if (j > i) sum = sum + fill % values(i_val) * x(j)
+      end do
+
+      ! TODO: check norm of diagonal
+
+      ! Calculate i-th element of solution
+      x(i) = (b(i) - sum)/diag(i)
+    end do
+
+  end subroutine back_substitution
 
 end module depletion
