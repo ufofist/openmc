@@ -1,0 +1,160 @@
+module depletion
+
+  use constants
+  use depletion_header
+
+contains
+
+!===============================================================================
+! SYMBOLIC_FACTORIZATION compute the non-zero structure of the fill-in matrix
+! resulting from Gaussian elimination on a sparse matrix 'A'. The algorithm used
+! here is the FILL2 algorithm from D. J. Rose and R. E. Tarjan, "Algorithmic
+! aspects of vertex elimination on directed graphs," SIAM J. Appl. Math, 40,
+! pp. 176--197 (1978).
+!===============================================================================
+
+  subroutine symbolic_factorization(matrix, fill)
+
+    type(SparseMatrix), intent(in)    :: matrix
+    type(SparseMatrix), intent(inout) :: fill
+
+    integer :: i       ! row index
+    integer :: i_val   ! index in columns/values
+    integer :: i_val2  ! another index in columns/values
+    integer :: j       ! column index
+    integer :: k       ! another column index
+    integer :: n       ! number of columns
+    integer :: n_nonzero ! number of non-zeros
+    integer :: extra     ! number of extra elements on each row
+    integer :: i_Omega   ! length of Omega 
+    integer, allocatable :: Omega(:)    ! list of rows to check
+    integer, allocatable :: a(:) ! temporary fill list (one row)
+
+    ! ==========================================================================
+    ! Initialize fill-in matrix
+
+    n = matrix % n ! Copy size of matrix
+
+    ! Allocate Omega and fill_row
+    allocate(a(n))
+    allocate(Omega(n))
+
+    ! Allocate F with 10% more non-zero values
+    extra = 0.1*n
+    n_nonzero = matrix % n_nonzero + n*extra
+    fill % m = n
+    fill % n = n
+    fill % n_nonzero = n_nonzero
+    allocate(fill % row_ptr(n + 1))
+    allocate(fill % columns(n_nonzero))
+    allocate(fill % values(n_nonzero))
+
+    ! Copy existing values from A into F
+    do i = 1, n
+      ! Get original number of non-zeros in column
+      n_nonzero = matrix % row_ptr(i+1) - matrix % row_ptr(i)
+
+      ! Set column pointers for F matrix (with extra space)
+      fill % row_ptr(i) = matrix % row_ptr(i) + (i-1)*extra
+
+      ! Copy non-zero rows and values from A into F
+      i_val  = fill % row_ptr(i)
+      i_val2 = matrix % row_ptr(i)
+      fill % columns(i_val  : i_val+n_nonzero-1) = &
+           matrix % columns(i_val2 : i_val2+n_nonzero-1)
+      fill % values(i_val : i_val+n_nonzero-1) = &
+           matrix % values(i_val2 : i_val2+n_nonzero-1)
+
+      ! Initialize extra values that were allocated -- the extra non-zero rows
+      ! are set to -1 to indicate that they haven't been used yet
+      fill % columns(i_val+n_nonzero : i_val+n_nonzero+extra-1) = -1
+      fill % values(i_val+n_nonzero : i_val+n_nonzero+extra-1) = ZERO
+    end do
+
+    ! Set final column ptr
+    fill % row_ptr(n+1) = fill % n_nonzero + 1
+
+    ! ==========================================================================
+    ! Symbolic decomposition
+
+    ROWS: do i = 2, n
+      ! Indicate that the Omega set is empty
+      i_Omega = 0
+
+      ! Set the vector 'a' to zero
+      a = 0
+
+      ! number of non-zeros in column j of matrix A
+      n_nonzero = matrix % row_ptr(j+1) - matrix % row_ptr(j)
+
+      ! ========================================================================
+      ! Find non-zeros in row i in lower triangular part
+
+      COLUMNS_IN_ROW_I: do i_val = matrix % row_ptr(i), matrix % row_ptr(i+1) - 1
+        ! Get index of column
+        j = matrix % columns(i_val)
+
+        ! Save positions of non-zero index
+        a(j) = 1
+
+        ! If non-zero is in upper triangular part, add it to Omega
+        if (j < i) then
+          i_Omega = i_Omega + 1
+          Omega(i_Omega) = i
+        end if
+      end do COLUMNS_IN_ROW_I
+
+      ! Loop while the list of neighbor rows is empty
+      NEIGHBOR_LIST: do while (i_Omega > 0)
+        ! Get last item on Omega list
+        j = Omega(i_Omega)
+        i_Omega = i_Omega - 1
+
+        ! Now loop over the columns in row j
+        COLUMNS_IN_ROW_J: do i_val = fill % row_ptr(j), fill % row_ptr(j+1) - 1
+          ! Get index of column
+          k = fill % columns(i_val)
+
+          ! Check for end of non-zero rows in this column
+          if (k == -1) exit
+
+          ! If column k is in lower triangular part and the k-th column in row i is
+          ! a zero entry, then (i,k) should be added to the fill-in
+          if (j < k .and. a(k) == 0) then
+            ! Index in columns for new entry in row j
+            i_val2 = fill % row_ptr(i) + n_nonzero
+
+            ! Check if enough extra space exists
+            if (i_val2 >= fill % row_ptr(i+1)) then
+              ! TODO: Add extra space
+            end if
+
+            ! Add (k,j) to fill-in matrix
+            fill % columns(i_val2) = k
+            n_nonzero = n_nonzero + 1
+
+            ! Save k to temporary fill list
+            a(k) = 1
+
+            ! If j < k < i, there is a prospect for a longer path to node i
+            ! through the nodes j and k, and therefore the node k should be
+            ! added to Omega
+            if (k < i) then
+              i_Omega = i_Omega + 1
+              Omega(i_Omega) = k
+            end if
+          end if
+        end do COLUMNS_IN_ROW_J
+      end do NEIGHBOR_LIST
+    end do ROWS
+
+    ! Free space from the arrays a and Omega
+    deallocate(a)
+    deallocate(Omega)
+
+    ! The list of non-zero rows in each column at this point is out of order, so
+    ! we need to order them
+
+  end subroutine symbolic_factorization
+
+end module depletion

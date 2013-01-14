@@ -16,6 +16,8 @@ cmfd_snes_solver.o \
 cross_section.o \
 datatypes.o \
 datatypes_header.o \
+depletion.o \
+depletion_header.o \
 doppler.o \
 eigenvalue.o \
 endf.o \

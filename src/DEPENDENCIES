@@ -119,6 +119,9 @@ cross_section.o: search.o
 
 datatypes.o: datatypes_header.o
 
+depletion.o: constants.o
+depletion.o: depletion_header.o
+
 doppler.o: constants.o
 
 endf.o: constants.o
