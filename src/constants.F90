@@ -388,4 +388,10 @@ module constants
   ! constant for writing out no residual
   real(8), parameter :: CMFD_NORES = 99999.0_8
 
+  !=============================================================================
+  ! DEPLETION CONSTANTS
+
+  ! Indicate a blank column in sparse matrix
+  integer, parameter :: NULL_COLUMN = -1
+
 end module constants

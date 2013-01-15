@@ -6,7 +6,7 @@ module depletion
 contains
 
 !===============================================================================
-! SYMBOLIC_FACTORIZATION compute the non-zero structure of the fill-in matrix
+! SYMBOLIC_FACTORIZATION computes the non-zero structure of the fill-in matrix
 ! resulting from Gaussian elimination on a sparse matrix 'A'. The algorithm used
 ! here is the FILL2 algorithm from D. J. Rose and R. E. Tarjan, "Algorithmic
 ! aspects of vertex elimination on directed graphs," SIAM J. Appl. Math, 40,
@@ -42,7 +42,7 @@ contains
     allocate(Omega(n))
 
     ! Allocate F with 10% more non-zero values
-    extra = 0.1*n
+    extra = int(0.1*n)
     n_nonzero = matrix % n_nonzero + n*extra
     fill % m = n
     fill % n = n
@@ -121,18 +121,16 @@ contains
           k = fill % columns(i_val)
 
           ! Check for end of non-zero columns in this row
-          if (k == -1) exit
+          if (k == NULL_COLUMN) exit
 
-          ! If column k is in lower triangular part and the k-th column in row i is
-          ! a zero entry, then (i,k) should be added to the fill-in
+          ! If column k is in lower triangular part and the k-th column in row i
+          ! is a zero entry, then (i,k) should be added to the fill-in
           if (j < k .and. a(k) == 0) then
             ! Index in columns for new entry in row j
             i_val2 = fill % row_ptr(i) + n_nonzero
 
-            ! Check if enough extra space exists
-            if (i_val2 >= fill % row_ptr(i+1)) then
-              ! TODO: Add extra space
-            end if
+            ! Check if enough extra space exists -- if not, add extra space
+            if (i_val2 >= fill % row_ptr(i+1)) call expand_row(fill, i, extra)
 
             ! Add (k,j) to fill-in matrix
             fill % columns(i_val2) = k
@@ -166,7 +164,7 @@ contains
         j = fill % columns(i_val)
 
         ! Check for end of non-zero columns in this row
-        if (j == -1) exit
+        if (j == NULL_COLUMN) exit
 
         ! Save value to move
         k = i_val
@@ -238,7 +236,7 @@ contains
         j = fill % columns(i_val)
 
         ! Check for end of non-zero columns in this row
-        if (j == -1) exit
+        if (j == NULL_COLUMN) exit
 
         ! Copy value into v vector
         v(j) = fill % values(i_val)
@@ -251,7 +249,7 @@ contains
         j = fill % columns(i_val)
 
         ! Check for end of non-zero columns in this row
-        if (j == -1) exit
+        if (j == NULL_COLUMN) exit
 
         if (j < i) then
           fill_ij = v(j)
@@ -268,7 +266,7 @@ contains
             k = fill % columns(i_val2)
 
             ! Check for end of non-zero columns in this row
-            if (k == -1) exit
+            if (k == NULL_COLUMN) exit
 
             ! We only need to update the terms
             if (j < k) then
@@ -307,7 +305,7 @@ contains
         j = fill % columns(i_val)
 
         ! Check for end of non-zero columns in this row
-        if (j == -1) exit
+        if (j == NULL_COLUMN) exit
 
         ! Add A_ij * x_j to the sum -- only use upper triangular portion
         if (j > i) sum = sum + fill % values(i_val) * x(j)
@@ -324,5 +322,61 @@ contains
     deallocate(diag)
 
   end subroutine numerical_elimination
+
+!===============================================================================
+! EXPAND_ROW adds extra space to a row in a sparse matrix. This is used in
+! sparse factorization when fill-in elements are added.
+!===============================================================================
+
+  subroutine expand_row(A, i, space)
+
+    type(SparseMatrix), intent(inout) :: A      ! sparse matrix
+    integer,            intent(in)    :: i      ! row to expand
+    integer,            intent(in)    :: space  ! number of items to add
+
+    integer :: n      ! original size of A%columns
+    integer :: i_val  ! index in columns/values
+    integer :: i_val2 ! another index in columns/values
+    integer,    allocatable :: columns(:) ! expanded copy of columns
+    complex(8), allocatable :: values(:)  ! expanded copy of values
+
+    ! Get original size of columns
+    n = size(A % columns)
+
+    ! Allocate temporary arrays
+    allocate(columns(n + space))
+    allocate(values(n + space))
+
+    ! Get pointers to start of rows i and i+1
+    i_val = A % row_ptr(i)
+    i_val2 = A % row_ptr(i+1)
+
+    ! Copy rows 1, i-1
+    columns(1 : i_val-1) = A % columns(1 : i_val-1)
+    values(1 : i_val-1)  = A % values(1 : i_val-1)
+
+    ! Copy row i
+    columns(i_val : i_val2-1) = A % columns(i_val : i_val2-1)
+    values(i_val : i_val2-1)  = A % values(i_val : i_val2-1)
+
+    ! Initialize extra space in row i
+    columns(i_val2 : i_val2+space-1) = -1
+    values(i_val2 : i_val2+space-1)   = ZERO
+
+    ! Copy rows i+1, n
+    columns(i_val2+space:) = A % columns(i_val2:)
+    values(i_val2+space:)  = A % values(i_val2:)
+
+    ! Move allocation back
+    call move_alloc(FROM=columns, TO=A%columns)
+    call move_alloc(FROM=values, TO=A%values)
+
+    ! Adjust row pointers
+    A % row_ptr(i+1:) = A % row_ptr(i+1:) + space
+
+    ! Increase number of non-zeros
+    A % n_nonzero = A % n_nonzero + space
+
+  end subroutine expand_row
 
 end module depletion
