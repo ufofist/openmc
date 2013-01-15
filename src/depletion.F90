@@ -18,17 +18,19 @@ contains
     type(SparseMatrix), intent(in)    :: matrix
     type(SparseMatrix), intent(inout) :: fill
 
-    integer :: i       ! row index
-    integer :: i_val   ! index in columns/values
-    integer :: i_val2  ! another index in columns/values
-    integer :: j       ! column index
-    integer :: k       ! another column index
-    integer :: n       ! number of columns
+    integer :: i         ! row index
+    integer :: i_val     ! index in columns/values
+    integer :: i_val2    ! another index in columns/values
+    integer :: j         ! column index
+    integer :: k         ! another column index
+    integer :: n         ! number of columns
     integer :: n_nonzero ! number of non-zeros
     integer :: extra     ! number of extra elements on each row
-    integer :: i_Omega   ! length of Omega 
-    integer, allocatable :: Omega(:)    ! list of rows to check
-    integer, allocatable :: a(:) ! temporary fill list (one row)
+    integer :: i_Omega   ! length of Omega
+    integer :: tmpcol    ! saved column used during sorting
+    complex(8) :: tmpval ! saved value used during sorting
+    integer, allocatable :: Omega(:) ! list of rows to check
+    integer, allocatable :: a(:)     ! temporary fill list (one row)
 
     ! ==========================================================================
     ! Initialize fill-in matrix
@@ -75,7 +77,7 @@ contains
     fill % row_ptr(n+1) = fill % n_nonzero + 1
 
     ! ==========================================================================
-    ! Symbolic decomposition
+    ! SYMBOLIC DECOMPOSITION
 
     ROWS: do i = 2, n
       ! Indicate that the Omega set is empty
@@ -103,6 +105,9 @@ contains
           Omega(i_Omega) = i
         end if
       end do COLUMNS_IN_ROW_I
+
+      ! ========================================================================
+      ! Add fill-in where necessary
 
       ! Loop while the list of neighbor rows is empty
       NEIGHBOR_LIST: do while (i_Omega > 0)
@@ -152,8 +157,35 @@ contains
     deallocate(a)
     deallocate(Omega)
 
-    ! The list of non-zero rows in each column at this point is out of order, so
-    ! we need to order them
+    ! ==========================================================================
+    ! SORT LIST OF NON-ZERO COLUMNS FOR EACH ROW
+
+    do i = 1, n
+      do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+        ! Get index of column
+        j = fill % columns(i_val)
+
+        ! Check for end of non-zero columns in this row
+        if (j == -1) exit
+
+        ! Save value to move
+        k = i_val
+        tmpcol = fill % columns(i_val)
+        tmpval = fill % values(i_val)
+
+        do while((fill%columns(k-1) > tmpcol) .and. (k > fill%row_ptr(i)))
+          ! Move values over until hitting one that's not larger
+          fill % columns(k) = fill % columns(k-1)
+          fill % values(k)  = fill % values(k-1)
+
+          k = k - 1
+        end do
+
+        ! Put the originally value into its new position
+        fill % columns(k) = tmpcol
+        fill % values(k)  = tmpval
+      end do
+    end do
 
   end subroutine symbolic_factorization
 
