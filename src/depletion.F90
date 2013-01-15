@@ -190,7 +190,14 @@ contains
   end subroutine symbolic_factorization
 
 !===============================================================================
-! NUMERICAL_ELIMINATION
+! NUMERICAL_ELIMINATION zeros out entries in the matrix below the diagonal using
+! Gaussian elimination. A recent paper -- M. Pusa and J. Leppanen, "An efficient
+! implementation of the Chebyshev Rational Approximation Method for solving the
+! burnup equations," Proc. PHYSOR 2012, Knoxville, TN, Apr. 15-20, 2012 --
+! argues that partial pivoting is not required (based on properties of the
+! burnup matrix). The actual algorithm for elimination on the sparse matrix is
+! the CELIMINATE algorithm from R. E. Tarjan, "Graph Theory and Gaussian
+! Elimination," Stanford STAN-CS-75-526, November 1975.
 !===============================================================================
 
   subroutine numerical_elimination(fill, b, x)
