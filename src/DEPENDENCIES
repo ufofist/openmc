@@ -122,6 +122,8 @@ datatypes.o: datatypes_header.o
 depletion.o: constants.o
 depletion.o: depletion_header.o
 
+depletion_header.o: constants.o
+
 doppler.o: constants.o
 
 endf.o: constants.o

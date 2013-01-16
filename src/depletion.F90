@@ -32,6 +32,8 @@ contains
     integer, allocatable :: Omega(:) ! list of rows to check
     integer, allocatable :: a(:)     ! temporary fill list (one row)
 
+    real(8), parameter :: EXTRA_SPACE_FRAC = 0.1
+
     ! ==========================================================================
     ! Initialize fill-in matrix
 
@@ -42,14 +44,9 @@ contains
     allocate(Omega(n))
 
     ! Allocate F with 10% more non-zero values
-    extra = int(0.1*n)
+    extra = int(EXTRA_SPACE_FRAC*n)
     n_nonzero = matrix % n_nonzero + n*extra
-    fill % m = n
-    fill % n = n
-    fill % n_nonzero = n_nonzero
-    allocate(fill % row_ptr(n + 1))
-    allocate(fill % columns(n_nonzero))
-    allocate(fill % values(n_nonzero))
+    call sparse_matrix_init(fill, n, n, n_nonzero)
 
     ! Copy existing values from A into F
     do i = 1, n
