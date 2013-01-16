@@ -395,6 +395,7 @@ module constants
   ! decomposition coefficients for Chebyshev rational approximation on the
   ! negative real axis," arXiv:1206.2880v1 [math.NA] 13 Jun 2012.
 
+  integer, parameter :: CRAM_ORDER = 14
   complex(8), parameter :: CRAM_ALPHA0 = (1.8321743782540412751e-14_8, 0.0_8)
   complex(8), parameter :: CRAM_ALPHA(7) = (/ &
        (-7.1542880635890672853e-5_8, +1.4361043349541300111e-4_8), &

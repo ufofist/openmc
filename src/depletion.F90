@@ -6,6 +6,77 @@ module depletion
 contains
 
 !===============================================================================
+! SOLVE_CRAM solves the matrix exponential using the Chebyshev rational
+! approximation method. This method is described in M. Pusa and J. Leppanen,
+! "Computing the Matrix Exponential in Burnup Calculations," Nucl. Sci. Eng.,
+! 164, p. 140--150 (2010) as well as M. Pusa, "Rational Approximations to the
+! Matrix Exponential in Burnup Calculations," Nucl. Sci. Eng., 169, p. 155--167
+! (2011).
+!===============================================================================
+
+  subroutine solve_cram(A, x0, x, t)
+
+    type(SparseMatrix), intent(in)  :: A     ! burnup matrix
+    complex(8),         intent(in)  :: x0(:) ! starting concentration vector
+    complex(8),         intent(out) :: x(:)  ! end-of-step concentration vector
+    real(8),            intent(in)  :: t     ! time interval
+
+    integer :: i     ! row index
+    integer :: j     ! column index
+    integer :: k     ! loop index for CRAM order
+    integer :: i_val ! index in columns/values
+    integer :: n     ! size of solution vector
+    complex(8), allocatable :: b(:) ! right-hand side
+    complex(8), allocatable :: y(:) ! solution to linear system
+    type(SparseMatrix) :: fill      ! fill-in matrix
+    type(SparseMatrix) :: lu        ! matrix used during LU decomposition
+
+    ! Allocate arrays
+    n = size(x0)
+    allocate(b(n))
+    allocate(y(n))
+
+    ! Perform symbolic factorization on the burnup matrix for LU decomposition
+    call symbolic_factorization(A, fill)
+
+    ! Multiply elements in LU by time interval
+    fill % values = cmplx(real(fill % values) * t, aimag(fill % values))
+
+    ! Compute first term of solution
+    x = CRAM_ALPHA0 * x0
+
+    do k = 1, CRAM_ORDER/2
+      ! Copy fill matrix
+      lu = fill
+
+      ! Calculate right hand side
+      b = CRAM_ALPHA(k) * x0
+
+      ! Subtract theta on diagonal terms
+      ROWS: do i = 1, n
+        COLUMNS: do i_val = lu % row_ptr(i), lu % row_ptr(i+1) - 1
+          ! Get index of column
+          j = lu % columns(i_val)
+
+          ! Subtract theta from diagonal term
+          if (i == j) lu % values(i_val) = lu % values(i_val) - CRAM_THETA(k)
+        end do COLUMNS
+      end do ROWS
+
+      ! Perform gaussian elimination
+      call numerical_elimination(lu, b, y)
+
+      ! Add to solution
+      x = x + TWO * y
+    end do
+
+    ! Free space for temporary arrays
+    deallocate(b)
+    deallocate(y)
+
+  end subroutine solve_cram
+
+!===============================================================================
 ! SYMBOLIC_FACTORIZATION computes the non-zero structure of the fill-in matrix
 ! resulting from Gaussian elimination on a sparse matrix 'A'. The algorithm used
 ! here is the FILL2 algorithm from D. J. Rose and R. E. Tarjan, "Algorithmic
@@ -199,7 +270,7 @@ contains
 
     type(SparseMatrix), intent(inout) :: fill ! fill matrix
     complex(8),         intent(inout) :: b(:) ! right-hand side
-    complex(8),         intent(out)   :: X(:) ! solution
+    complex(8),         intent(out)   :: x(:) ! solution
 
     integer :: i          ! row index
     integer :: i_val      ! index in columns/values
