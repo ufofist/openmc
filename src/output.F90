@@ -4,7 +4,6 @@ module output
 
   use ace_header,      only: Nuclide, Reaction, UrrData
   use constants
-  use datatypes,       only: dict_get_key
   use endf,            only: reaction_name
   use geometry_header, only: Cell, Universe, Surface, BASE_UNIVERSE
   use global
@@ -346,7 +345,7 @@ contains
     write(unit_,*) 'Cell ' // to_str(c % id)
 
     ! Find index in cells array and write
-    index_cell = dict_get_key(cell_dict, c % id)
+    index_cell = cell_dict % get_key(c % id)
     write(unit_,*) '    Array Index = ' // to_str(index_cell)
 
     ! Write what universe this cell is in
@@ -815,6 +814,8 @@ contains
         string = trim(string) // ' fission'
       case (SCORE_NU_FISSION)
         string = trim(string) // ' nu-fission'
+      case (SCORE_KAPPA_FISSION)
+        string = trim(string) // ' kappa-fission'
       case (SCORE_CURRENT)
         string = trim(string) // ' current'
       case default
@@ -1442,19 +1443,20 @@ contains
     filter_name(FILTER_ENERGYOUT) = "Outgoing Energy"
 
     ! Initialize names for scores
-    score_names(abs(SCORE_FLUX))       = "Flux"
-    score_names(abs(SCORE_TOTAL))      = "Total Reaction Rate"
-    score_names(abs(SCORE_SCATTER))    = "Scattering Rate"
-    score_names(abs(SCORE_NU_SCATTER)) = "Scattering Production Rate"
-    score_names(abs(SCORE_SCATTER_N))  = ""
-    score_names(abs(SCORE_SCATTER_PN)) = ""
-    score_names(abs(SCORE_TRANSPORT))  = "Transport Rate"
-    score_names(abs(SCORE_DIFFUSION))  = "Diffusion Coefficient"
-    score_names(abs(SCORE_N_1N))       = "(n,1n) Rate"
-    score_names(abs(SCORE_ABSORPTION)) = "Absorption Rate"
-    score_names(abs(SCORE_FISSION))    = "Fission Rate"
-    score_names(abs(SCORE_NU_FISSION)) = "Nu-Fission Rate"
-    score_names(abs(SCORE_EVENTS))     = "Events"
+    score_names(abs(SCORE_FLUX))          = "Flux"
+    score_names(abs(SCORE_TOTAL))         = "Total Reaction Rate"
+    score_names(abs(SCORE_SCATTER))       = "Scattering Rate"
+    score_names(abs(SCORE_NU_SCATTER))    = "Scattering Production Rate"
+    score_names(abs(SCORE_SCATTER_N))     = ""
+    score_names(abs(SCORE_SCATTER_PN))    = ""
+    score_names(abs(SCORE_TRANSPORT))     = "Transport Rate"
+    score_names(abs(SCORE_DIFFUSION))     = "Diffusion Coefficient"
+    score_names(abs(SCORE_N_1N))          = "(n,1n) Rate"
+    score_names(abs(SCORE_ABSORPTION))    = "Absorption Rate"
+    score_names(abs(SCORE_FISSION))       = "Fission Rate"
+    score_names(abs(SCORE_NU_FISSION))    = "Nu-Fission Rate"
+    score_names(abs(SCORE_KAPPA_FISSION)) = "Kappa-Fission Rate"
+    score_names(abs(SCORE_EVENTS))        = "Events"
 
     ! Create filename for tally output
     if (run_mode == MODE_TALLIES) then
