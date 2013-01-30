@@ -13,6 +13,7 @@ module input_xml
   use string,           only: lower_case, to_str, str_to_int, str_to_real, &
                               starts_with, ends_with
   use tally_header,     only: TallyObject, TallyFilter
+  use tally_initialize, only: add_tallies
 
   implicit none
 
@@ -567,9 +568,9 @@ contains
 
     use xml_data_geometry_t
 
-    integer :: i, j, k
+    integer :: i, j, k, m
     integer :: n
-    integer :: n_x, n_y
+    integer :: n_x, n_y, n_z
     integer :: universe_num
     integer :: n_cells_in_univ
     integer :: coeffs_reqd
@@ -579,7 +580,7 @@ contains
     character(MAX_WORD_LEN) :: word
     type(Cell),    pointer :: c => null()
     type(Surface), pointer :: s => null()
-    type(Lattice), pointer :: l => null()
+    type(Lattice), pointer :: lat => null()
 
     ! Display output message
     message = "Reading geometry XML file..."
@@ -871,19 +872,19 @@ contains
     allocate(lattices(n_lattices))
 
     do i = 1, n_lattices
-      l => lattices(i)
+      lat => lattices(i)
 
       ! ID of lattice
-      l % id = lattice_(i) % id
+      lat % id = lattice_(i) % id
 
       ! Read lattice type
       word = lattice_(i) % type
       call lower_case(word)
       select case (trim(word))
       case ('rect', 'rectangle', 'rectangular')
-        l % type = LATTICE_RECT
+        lat % type = LATTICE_RECT
       case ('hex', 'hexagon', 'hexagonal')
-        l % type = LATTICE_HEX
+        lat % type = LATTICE_HEX
       case default
         message = "Invalid lattice type: " // trim(lattice_(i) % type)
         call fatal_error()
@@ -895,10 +896,10 @@ contains
         message = "Lattice must be two or three dimensions."
         call fatal_error()
       end if
-      n_x = lattice_(i) % dimension(1)
-      n_y = lattice_(i) % dimension(2)
-      l % n_x = n_x
-      l % n_y = n_y
+
+      lat % n_dimension = n
+      allocate(lat % dimension(n))
+      lat % dimension = lattice_(i) % dimension
 
       ! Read lattice lower-left location
       if (size(lattice_(i) % dimension) /= size(lattice_(i) % lower_left)) then
@@ -906,8 +907,9 @@ contains
              "the number of entries on <dimension>."
         call fatal_error()
       end if
-      l % x0 = lattice_(i) % lower_left(1)
-      l % y0 = lattice_(i) % lower_left(2)
+
+      allocate(lat % lower_left(n))
+      lat % lower_left = lattice_(i) % lower_left
 
       ! Read lattice widths
       if (size(lattice_(i) % width) /= size(lattice_(i) % lower_left)) then
@@ -915,19 +917,39 @@ contains
              "the number of entries on <lower_left>."
         call fatal_error()
       end if
-      l % width_x = lattice_(i) % width(1)
-      l % width_y = lattice_(i) % width(2)
+
+      allocate(lat % width(n))
+      lat % width = lattice_(i) % width
+
+      ! Copy number of dimensions
+      n_x = lat % dimension(1)
+      n_y = lat % dimension(2)
+      if (lat % n_dimension == 3) then
+        n_z = lat % dimension(3)
+      else
+        n_z = 1
+      end if
+      allocate(lat % universes(n_x, n_y, n_z))
+
+      ! Check that number of universes matches size
+      if (size(lattice_(i) % universes) /= n_x*n_y*n_z) then
+        message = "Number of universes on <universes> does not match size of &
+             &lattice " // trim(to_str(lat % id)) // "."
+        call fatal_error()
+      end if
 
       ! Read universes
-      allocate(l % element(n_x, n_y))
-      do k = 0, n_y - 1
-        do j = 1, n_x
-          l % element(j, n_y - k) = lattice_(i) % universes(j + k*n_x)
+      do m = 1, n_z
+        do k = 0, n_y - 1
+          do j = 1, n_x
+            lat % universes(j, n_y - k, m) = lattice_(i) % &
+                 universes(j + n_x*k + n_x*n_y*(m-1))
+          end do
         end do
       end do
-
+        
       ! Add lattice to dictionary
-      call lattice_dict % add_key(l % id, i)
+      call lattice_dict % add_key(lat % id, i)
 
     end do
 
@@ -1207,9 +1229,6 @@ contains
     integer :: j             ! loop over words
     integer :: k             ! another loop index
     integer :: l             ! another loop index
-    integer :: i_analog      ! index in analog_tallies array
-    integer :: i_tracklength ! index in tracklength_tallies array
-    integer :: i_current     ! index in current_tallies array
     integer :: id            ! user-specified identifier
     integer :: i_mesh        ! index in meshes array
     integer :: n             ! size of arrays in mesh specification
@@ -1269,15 +1288,12 @@ contains
       call warning()
     else
       n_user_tallies = size(tally_)
-      if (cmfd_run) then
-        n_tallies = n_user_tallies + n_cmfd_tallies
-      else
-        n_tallies = n_user_tallies
-      end if
     end if
 
     ! Allocate tally array
-    if (n_tallies > 0) allocate(tallies(n_tallies))
+    if (n_user_tallies > 0) then
+      call add_tallies(user_tallies, n_user_tallies, i_user_tallies)
+    end if
 
     ! Check for <assume_separate> setting
     if (separate_ == 'yes') assume_separate = .true.
@@ -1965,61 +1981,7 @@ contains
         end select
       end if
 
-      ! Count number of tallies by type
-      if (t % type == TALLY_VOLUME) then
-        if (t % estimator == ESTIMATOR_ANALOG) then
-          n_user_analog_tallies = n_user_analog_tallies + 1
-        elseif (t % estimator == ESTIMATOR_TRACKLENGTH) then
-          n_user_tracklength_tallies = n_user_tracklength_tallies + 1
-        end if
-      elseif (t % type == TALLY_SURFACE_CURRENT) then
-        n_user_current_tallies = n_user_current_tallies + 1
-      end if
-
-
     end do READ_TALLIES
-
-    ! ==========================================================================
-    ! LISTS FOR ANALOG, TRACKLENGTH, CURRENT TALLIES
-
-    ! Determine number of types of tallies
-    if (cmfd_run) then
-      n_analog_tallies = n_user_analog_tallies + n_cmfd_analog_tallies
-      n_tracklength_tallies = n_user_tracklength_tallies + n_cmfd_tracklength_tallies
-      n_current_tallies = n_user_current_tallies + n_cmfd_current_tallies
-    else
-      n_analog_tallies = n_user_analog_tallies
-      n_tracklength_tallies = n_user_tracklength_tallies
-      n_current_tallies = n_user_current_tallies
-    end if
-
-    ! Allocate list of pointers for tallies by type
-    allocate(analog_tallies(n_analog_tallies))
-    allocate(tracklength_tallies(n_tracklength_tallies))
-    allocate(current_tallies(n_current_tallies))
-
-    ! Set indices for tally pointer lists to zero
-    i_analog = 0
-    i_tracklength = 0
-    i_current = 0
-
-    do i = 1, n_user_tallies
-      t => tallies(i)
-
-      ! Increment the appropriate index and set pointer
-      if (t % type == TALLY_VOLUME) then
-        if (t % estimator == ESTIMATOR_ANALOG) then
-          i_analog = i_analog + 1
-          analog_tallies(i_analog) = i
-        elseif (t % estimator == ESTIMATOR_TRACKLENGTH) then
-          i_tracklength = i_tracklength + 1
-          tracklength_tallies(i_tracklength) = i
-        end if
-      elseif (t % type == TALLY_SURFACE_CURRENT) then
-        i_current = i_current + 1
-        current_tallies(i_current) = i
-      end if
-    end do
 
   end subroutine read_tallies_xml
 
