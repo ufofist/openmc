@@ -1292,11 +1292,12 @@ contains
 
     ! Allocate tally array
     if (n_user_tallies > 0) then
-      call add_tallies(user_tallies, n_user_tallies, i_user_tallies)
+      call add_tallies("user", n_user_tallies)
     end if
 
     ! Check for <assume_separate> setting
-    if (separate_ == 'yes') assume_separate = .true.
+    call lower_case(separate_)
+    if (separate_ == 'true' .or. separate_ == '1') assume_separate = .true.
 
     ! ==========================================================================
     ! READ MESH DATA
