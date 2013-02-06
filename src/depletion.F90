@@ -2,8 +2,27 @@ module depletion
 
   use constants
   use depletion_header
+  use eigenvalue,       only: run_eigenvalue
+  use global
+  use output,           only: header
 
 contains
+
+!===============================================================================
+! RUN_DEPLETION
+!===============================================================================
+
+  subroutine run_depletion()
+
+    integer :: i
+
+    if (master) call header("DEPLETION SIMULATION", level=1)
+
+    do i = 1, n_depletion_steps
+      ! call run_eigenvalue()
+    end do
+
+  end subroutine run_depletion
 
 !===============================================================================
 ! SOLVE_CRAM solves the matrix exponential using the Chebyshev rational

@@ -114,6 +114,9 @@ cross_section.o: search.o
 
 depletion.o: constants.o
 depletion.o: depletion_header.o
+depletion.o: eigenvalue.o
+depletion.o: global.o
+depletion.o: output.o
 
 depletion_header.o: constants.o
 
@@ -241,6 +244,7 @@ interpolation.o: string.o
 list_header.o: constants.o
 
 main.o: constants.o
+main.o: depletion.o
 main.o: eigenvalue.o
 main.o: finalize.o
 main.o: fixed_source.o

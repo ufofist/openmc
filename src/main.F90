@@ -1,6 +1,7 @@
 program main
 
   use constants
+  use depletion,    only: run_depletion
   use eigenvalue,   only: run_eigenvalue
   use finalize,     only: finalize_run
   use fixed_source, only: run_fixedsource
@@ -24,6 +25,8 @@ program main
   case (MODE_TALLIES)
     ! For tallies-only mode, we just skip straight to finalize_run to write out
     ! the tally results
+  case (MODE_DEPLETION)
+    call run_depletion()
   end select
 
   ! finalize run
