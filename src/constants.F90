@@ -364,7 +364,8 @@ module constants
        MODE_FIXEDSOURCE = 1, & ! Fixed source mode
        MODE_EIGENVALUE  = 2, & ! K eigenvalue mode
        MODE_PLOTTING    = 3, & ! Plotting mode
-       MODE_TALLIES     = 4    ! Tally results mode
+       MODE_TALLIES     = 4, & ! Tally results mode
+       MODE_DEPLETION   = 5    ! Depletion mode
 
   ! Unit numbers
   integer, parameter :: UNIT_SUMMARY = 11 ! unit # for writing summary file
@@ -419,5 +420,13 @@ module constants
 
   ! Indicate a blank column in sparse matrix
   integer, parameter :: NULL_COLUMN = -1
+
+  ! Depletion step units
+  integer, parameter :: &
+       DEPLETION_STEP_DAY   = 1, & ! Step in days
+       DEPLETION_STEP_MWDKG = 2    ! Step in MWd/kgU
+
+  ! Indicate that depletion step is decay only
+  real(8), parameter :: DEPLETION_DECAY = -1.0_8
 
 end module constants

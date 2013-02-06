@@ -5,6 +5,7 @@ module global
   use bank_header,      only: Bank
   use cmfd_header
   use constants
+  use depletion_header, only: DepletionStep
   use dict_header,      only: DictCharInt, DictIntInt
   use geometry_header,  only: Cell, Universe, Lattice, Surface
   use material_header,  only: Material
@@ -184,6 +185,12 @@ module global
 
   ! Write source at end of simulation
   logical :: source_separate = .false.
+
+  ! ============================================================================
+  ! DEPLETION VARIABLES
+
+  integer :: n_depletion_steps = 0
+  type(DepletionStep), allocatable :: depletion_steps(:)
 
   ! ============================================================================
   ! PARALLEL PROCESSING VARIABLES

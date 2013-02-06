@@ -99,6 +99,44 @@ contains
       path_cross_sections = trim(cross_sections_)
     end if
 
+    ! Check for depletion
+    if (associated(depletion_ % step)) then
+      ! Set mode to depletion
+      run_mode = MODE_DEPLETION
+
+      ! Set number of depletion steps and allocate steps
+      n_depletion_steps = size(depletion_ % step)
+      allocate(depletion_steps(n_depletion_steps))
+
+      ! Read each depletion step
+      do i = 1, n_depletion_steps
+        ! Copy user-specified value
+        depletion_steps(i) % value = depletion_ % step(i) % value
+
+        ! Determine units of step
+        call lower_case(depletion_ % step(i) % units)
+        select case(depletion_ % step(i) % units)
+        case ('day', 'days')
+          depletion_steps(i) % units = DEPLETION_STEP_DAY
+          depletion_steps(i) % time = depletion_steps(i) % value * 86400.0_8
+        case ('mwdkg', 'mwdkgu', 'mwd/kgu', 'mwd/kg')
+          depletion_steps(i) % units = DEPLETION_STEP_MWDKG
+          ! TODO: Convert MWd/kgU to days
+        case default
+          ! Set units to days by default
+          depletion_steps(i) % units = DEPLETION_STEP_DAY
+          depletion_steps(i) % time = depletion_steps(i) % value * 86400.0_8
+        end select
+
+        ! Determine power percentage
+        if (depletion_ % step(i) % power < ZERO) then
+          depletion_steps(i) % power = DEPLETION_DECAY
+        else
+          depletion_steps(i) % power = depletion_ % step(i) % power / 100.0_8
+        end if
+      end do
+    end if
+
     ! Make sure that either criticality or fixed source was specified
     if (eigenvalue_ % batches == 0 .and. fixed_source_ % batches == 0 &
          .and. criticality_ % batches == 0) then

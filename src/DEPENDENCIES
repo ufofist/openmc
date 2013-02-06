@@ -169,6 +169,7 @@ global.o: ace_header.o
 global.o: bank_header.o
 global.o: cmfd_header.o
 global.o: constants.o
+global.o: depletion_header.o
 global.o: dict_header.o
 global.o: geometry_header.o
 global.o: material_header.o

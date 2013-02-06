@@ -27,6 +27,16 @@ element settings {
     (element weight_avg { xsd:double } | attribute weight_avg { xsd:double })?
   }? &
 
+  element depletion {
+    element step {
+      (element value { xsd:double { minExclusive = "0.0" } } |
+        attribute value { xsd:double { minExclusive = "0.0" } } ) &
+      (element power { xsd:double } | attribute power { xsd:double } )? &
+      (element units { xsd:string { maxLength = "10" } } |
+        attribute units { xsd:string { maxLength = "10" } })?
+    }+
+  } &
+
   element energy_grid { ( "nuclide" | "union" | "lethargy" ) }? &
 
   element entropy {
