@@ -1016,6 +1016,11 @@ contains
       ! Copy material id
       mat % id = material_(i) % id
 
+      ! Check if depletable
+      call lower_case(material_(i) % deplete)
+      if (material_(i) % deplete == "true" .or. &
+           material_(i) % deplete == "1") mat % depletable = .true.
+
       ! =======================================================================
       ! READ AND PARSE <density> TAG
 

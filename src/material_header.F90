@@ -19,6 +19,9 @@ module material_header
     character(12) :: sab_name        ! name of S(a,b) table
     integer       :: sab_table   = 0 ! index in sab_tables
     integer       :: sab_nuclide = 0 ! index of nuclide which has S(a,b) table
+
+    ! Depletion components
+    logical :: depletable = .false.
   end type Material
 
 end module material_header

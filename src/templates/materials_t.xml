@@ -32,6 +32,7 @@
 
   <typedef name="material_xml">
     <component name="id" type="integer" />
+    <component name="deplete" type="word" length="5" />
     <component name="density" type="density_xml" />
     <component name="nuclides" tag="nuclide" type="nuclide_xml" dimension="1" />
     <component name="sab" type="sab_xml" dimension="1" />
