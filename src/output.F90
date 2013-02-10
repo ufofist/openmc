@@ -537,12 +537,6 @@ contains
       string = "Y Cone"
     case (SURF_CONE_Z)
       string = "Z Cone"
-    case (SURF_BOX_X)
-    case (SURF_BOX_Y)
-    case (SURF_BOX_Z)
-    case (SURF_BOX)
-    case (SURF_GQ)
-      string = "General Quadratic"
     end select
     write(unit_,*) '    Type = ' // trim(string)
 
@@ -630,8 +624,12 @@ contains
     end do
 
     ! Write information on S(a,b) table
-    if (mat % has_sab_table) then
-      write(unit_,*) '    S(a,b) table = ' // trim(mat % sab_name)
+    if (mat % n_sab > 0) then
+        write(unit_,*) '    S(a,b) tables:'
+      do i = 1, mat % n_sab
+        write(unit_,*) '      ' // trim(&
+             sab_tables(mat % i_sab_tables(i)) % name)
+      end do
     end if
     write(unit_,*)
 
@@ -1309,7 +1307,7 @@ contains
   subroutine print_plot()
 
     integer :: i ! loop index for plots
-    type(Plot), pointer :: pl => null()
+    type(PlotSlice), pointer :: pl => null()
 
     ! Display header for plotting
     call header("PLOTTING SUMMARY")
