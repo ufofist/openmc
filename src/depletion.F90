@@ -246,7 +246,7 @@ contains
     ! SORT LIST OF NON-ZERO COLUMNS FOR EACH ROW
 
     do i = 1, n
-      do i_val = fill % row_ptr(i), fill % row_ptr(i+1) - 1
+      do i_val = fill % row_ptr(i) + 1, fill % row_ptr(i+1) - 1
         ! Get index of column
         j = fill % columns(i_val)
 
@@ -258,15 +258,20 @@ contains
         tmpcol = fill % columns(i_val)
         tmpval = fill % values(i_val)
 
-        do while((fill%columns(k-1) > tmpcol) .and. (k > fill%row_ptr(i)))
+        do
+          ! Check if insertion value is greater than (k-1)th value
+          if (tmpcol >= fill % columns(k-1)) exit
+
           ! Move values over until hitting one that's not larger
           fill % columns(k) = fill % columns(k-1)
           fill % values(k)  = fill % values(k-1)
-
           k = k - 1
+
+          ! Exit if we've reached the beginning of this row
+          if (k == fill % row_ptr(i)) exit
         end do
 
-        ! Put the originally value into its new position
+        ! Put the original value into its new position
         fill % columns(k) = tmpcol
         fill % values(k)  = tmpval
       end do
