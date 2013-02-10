@@ -218,7 +218,7 @@ contains
             i_val2 = fill % row_ptr(i) + n_nonzero
 
             ! Check if enough extra space exists -- if not, add extra space
-            if (i_val2 >= fill % row_ptr(i+1)) call expand_row(fill, i, extra)
+            if (i_val2 >= fill % row_ptr(i+1)) call fill % expand(i, extra)
 
             ! Add (k,j) to fill-in matrix
             fill % columns(i_val2) = k
@@ -415,61 +415,5 @@ contains
     deallocate(diag)
 
   end subroutine numerical_elimination
-
-!===============================================================================
-! EXPAND_ROW adds extra space to a row in a sparse matrix. This is used in
-! sparse factorization when fill-in elements are added.
-!===============================================================================
-
-  subroutine expand_row(A, i, space)
-
-    type(SparseCsrComplex), intent(inout) :: A      ! sparse matrix
-    integer,                intent(in)    :: i      ! row to expand
-    integer,                intent(in)    :: space  ! number of items to add
-
-    integer :: n      ! original size of A%columns
-    integer :: i_val  ! index in columns/values
-    integer :: i_val2 ! another index in columns/values
-    integer,    allocatable :: columns(:) ! expanded copy of columns
-    complex(8), allocatable :: values(:)  ! expanded copy of values
-
-    ! Get original size of columns
-    n = size(A % columns)
-
-    ! Allocate temporary arrays
-    allocate(columns(n + space))
-    allocate(values(n + space))
-
-    ! Get pointers to start of rows i and i+1
-    i_val = A % row_ptr(i)
-    i_val2 = A % row_ptr(i+1)
-
-    ! Copy rows 1, i-1
-    columns(1 : i_val-1) = A % columns(1 : i_val-1)
-    values(1 : i_val-1)  = A % values(1 : i_val-1)
-
-    ! Copy row i
-    columns(i_val : i_val2-1) = A % columns(i_val : i_val2-1)
-    values(i_val : i_val2-1)  = A % values(i_val : i_val2-1)
-
-    ! Initialize extra space in row i
-    columns(i_val2 : i_val2+space-1) = -1
-    values(i_val2 : i_val2+space-1)   = ZERO
-
-    ! Copy rows i+1, n
-    columns(i_val2+space:) = A % columns(i_val2:)
-    values(i_val2+space:)  = A % values(i_val2:)
-
-    ! Move allocation back
-    call move_alloc(FROM=columns, TO=A%columns)
-    call move_alloc(FROM=values, TO=A%values)
-
-    ! Adjust row pointers
-    A % row_ptr(i+1:) = A % row_ptr(i+1:) + space
-
-    ! Increase number of non-zeros
-    A % n_nonzero = A % n_nonzero + space
-
-  end subroutine expand_row
 
 end module depletion
