@@ -117,6 +117,7 @@ depletion.o: depletion_header.o
 depletion.o: eigenvalue.o
 depletion.o: global.o
 depletion.o: output.o
+depletion.o: sparse_header.o
 
 depletion_header.o: constants.o
 
@@ -326,6 +327,8 @@ source.o: particle_header.o
 source.o: physics.o
 source.o: random_lcg.o
 source.o: string.o
+
+sparse_header.o: constants.o
 
 state_point.o: error.o
 state_point.o: global.o

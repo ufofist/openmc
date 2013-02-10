@@ -51,6 +51,7 @@ search.o \
 set_header.o \
 source.o \
 source_header.o \
+sparse_header.o \
 state_point.o \
 string.o \
 tally.o \

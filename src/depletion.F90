@@ -5,6 +5,7 @@ module depletion
   use eigenvalue,       only: run_eigenvalue
   use global
   use output,           only: header
+  use sparse_header,    only: SparseCsrComplex
 
 contains
 
@@ -35,10 +36,10 @@ contains
 
   subroutine solve_cram(A, x0, x, t)
 
-    type(SparseMatrix), intent(in)  :: A     ! burnup matrix
-    complex(8),         intent(in)  :: x0(:) ! starting concentration vector
-    complex(8),         intent(out) :: x(:)  ! end-of-step concentration vector
-    real(8),            intent(in)  :: t     ! time interval
+    type(SparseCsrComplex), intent(in) :: A ! burnup matrix
+    complex(8), intent(in)  :: x0(:)        ! starting concentration vector
+    complex(8), intent(out) :: x(:)         ! end-of-step concentration vector
+    real(8),    intent(in)  :: t            ! time interval
 
     integer :: i     ! row index
     integer :: j     ! column index
@@ -47,8 +48,8 @@ contains
     integer :: n     ! size of solution vector
     complex(8), allocatable :: b(:) ! right-hand side
     complex(8), allocatable :: y(:) ! solution to linear system
-    type(SparseMatrix) :: fill      ! fill-in matrix
-    type(SparseMatrix) :: lu        ! matrix used during LU decomposition
+    type(SparseCsrComplex) :: fill  ! fill-in matrix
+    type(SparseCsrComplex) :: lu    ! matrix used during LU decomposition
 
     ! Allocate arrays
     n = size(x0)
@@ -105,8 +106,8 @@ contains
 
   subroutine symbolic_factorization(matrix, fill)
 
-    type(SparseMatrix), intent(in)    :: matrix
-    type(SparseMatrix), intent(inout) :: fill
+    type(SparseCsrComplex), intent(in)    :: matrix
+    type(SparseCsrComplex), intent(inout) :: fill
 
     integer :: i         ! row index
     integer :: i_val     ! index in columns/values
@@ -136,7 +137,7 @@ contains
     ! Allocate F with 10% more non-zero values
     extra = int(EXTRA_SPACE_FRAC*n)
     n_nonzero = matrix % n_nonzero + n*extra
-    call sparse_matrix_init(fill, n, n, n_nonzero)
+    call fill % init(n, n, n_nonzero)
 
     ! Copy existing values from A into F
     do i = 1, n
@@ -292,7 +293,7 @@ contains
 
   subroutine numerical_elimination(fill, b, x)
 
-    type(SparseMatrix), intent(inout) :: fill ! fill matrix
+    type(SparseCsrComplex), intent(inout) :: fill ! fill matrix
     complex(8),         intent(inout) :: b(:) ! right-hand side
     complex(8),         intent(out)   :: x(:) ! solution
 
@@ -422,9 +423,9 @@ contains
 
   subroutine expand_row(A, i, space)
 
-    type(SparseMatrix), intent(inout) :: A      ! sparse matrix
-    integer,            intent(in)    :: i      ! row to expand
-    integer,            intent(in)    :: space  ! number of items to add
+    type(SparseCsrComplex), intent(inout) :: A      ! sparse matrix
+    integer,                intent(in)    :: i      ! row to expand
+    integer,                intent(in)    :: space  ! number of items to add
 
     integer :: n      ! original size of A%columns
     integer :: i_val  ! index in columns/values
