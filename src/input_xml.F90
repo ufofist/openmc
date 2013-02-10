@@ -1058,7 +1058,7 @@ contains
     index_nuclide = 0
     index_sab = 0
 
-    do i = 1, n_materials
+    ALL_MATERIALS: do i = 1, n_materials
       mat => materials(i)
 
       ! Copy material id
@@ -1074,7 +1074,10 @@ contains
       ! Check if depletable
       call lower_case(material_(i) % deplete)
       if (material_(i) % deplete == "true" .or. &
-           material_(i) % deplete == "1") mat % depletable = .true.
+           material_(i) % deplete == "1") then
+        mat % depletable = .true.
+        call depletion_materials % add(i)
+      end if
 
       ! =======================================================================
       ! READ AND PARSE <density> TAG
@@ -1342,11 +1345,15 @@ contains
 
       ! Add material to dictionary
       call material_dict % add_key(mat % id, i)
-    end do
+    end do ALL_MATERIALS
 
     ! Set total number of nuclides and S(a,b) tables
     n_nuclides_total = index_nuclide
     n_sab_tables     = index_sab
+
+    ! Add depletion tallies
+    n_depletion_tallies = depletion_materials % size()
+    call add_tallies("depletion", n_depletion_tallies)
 
   end subroutine read_materials_xml
 

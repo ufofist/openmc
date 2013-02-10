@@ -105,10 +105,12 @@ module global
   ! Pointers for different tallies
   type(TallyObject), pointer :: user_tallies(:) => null()
   type(TallyObject), pointer :: cmfd_tallies(:) => null()
+  type(TallyObject), pointer :: depletion_tallies(:) => null()
 
   ! Starting index (minus 1) in tallies for each tally group
   integer :: i_user_tallies = -1
   integer :: i_cmfd_tallies = -1
+  integer :: i_depletion_tallies = -1
 
   ! Active tally lists
   type(SetInt) :: active_analog_tallies
@@ -191,6 +193,8 @@ module global
   ! DEPLETION VARIABLES
 
   integer :: n_depletion_steps = 0
+  integer :: n_depletion_tallies
+  type(SetInt) :: depletion_materials
   type(DepletionStep), allocatable :: depletion_steps(:)
 
   ! ============================================================================

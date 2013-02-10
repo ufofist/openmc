@@ -190,6 +190,8 @@ contains
       i_user_tallies = n_tallies
     case ("cmfd")
       i_cmfd_tallies = n_tallies
+    case ("depletion")
+      i_depletion_tallies = n_tallies
     end select
 
     ! Set n_tallies
@@ -202,6 +204,10 @@ contains
     end if
     if (i_cmfd_tallies >= 0) then
       cmfd_tallies => tallies(i_cmfd_tallies+1 : i_cmfd_tallies+n_cmfd_tallies)
+    end if
+    if (i_depletion_tallies >= 0) then
+      depletion_tallies => tallies(i_depletion_tallies + 1 : &
+           i_depletion_tallies + n_depletion_tallies)
     end if
 
   end subroutine add_tallies
