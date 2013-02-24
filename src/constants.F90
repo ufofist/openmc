@@ -8,11 +8,11 @@ module constants
   ! OpenMC major, minor, and release numbers
   integer, parameter :: VERSION_MAJOR   = 0
   integer, parameter :: VERSION_MINOR   = 5
-  integer, parameter :: VERSION_RELEASE = 0
+  integer, parameter :: VERSION_RELEASE = 1
 
   ! Revision numbers for binary files
   integer, parameter :: REVISION_SOURCE     = 1
-  integer, parameter :: REVISION_STATEPOINT = 7
+  integer, parameter :: REVISION_STATEPOINT = 8
 
   ! ============================================================================
   ! ADJUSTABLE PARAMETERS 
@@ -310,11 +310,12 @@ module constants
        OUT_TOP   = 6
 
   ! Global tallY parameters
-  integer, parameter :: N_GLOBAL_TALLIES = 3
+  integer, parameter :: N_GLOBAL_TALLIES = 4
   integer, parameter :: &
        K_COLLISION   = 1, &
-       K_TRACKLENGTH = 2, &
-       LEAKAGE       = 3
+       K_ABSORPTION  = 2, &
+       K_TRACKLENGTH = 3, &
+       LEAKAGE       = 4
 
   ! ============================================================================
   ! EXTERNAL SOURCE PARAMETERS

@@ -1679,6 +1679,9 @@ contains
             end do
 
           case ('surface')
+            message = "Surface filter is not yet supported!"
+            call fatal_error()
+
             ! Set type of filter
             t % filters(j) % type = FILTER_SURFACE
 
@@ -1752,6 +1755,13 @@ contains
                    tally_(i) % filter(j) % bins(k))
             end do
 
+          case default
+            ! Specified tally filter is invalid, raise error
+            message = "Unknown filter type '" // trim(tally_(i) % &
+                 filter(j) % type) // "' on tally " // &
+                 trim(to_str(t % id)) // "."
+            call fatal_error()
+
           end select
 
           ! Set find_filter, e.g. if filter(3) has type FILTER_CELL, then
@@ -1813,7 +1823,7 @@ contains
                 do while (associated(pair_list))
                   if (starts_with(pair_list % key, &
                        tally_(i) % nuclides(j))) then
-                    word = pair_list % key
+                    word = pair_list % key(1:150)
                     exit
                   end if
                   
@@ -2080,7 +2090,7 @@ contains
 
           case default
             ! Assume that user has specified an MT number
-            MT = str_to_int(score_name)
+            MT = int(str_to_int(score_name))
 
             if (MT /= ERROR_INT) then
               ! Specified score was an integer
