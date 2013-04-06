@@ -57,8 +57,11 @@ module constants
        K_BOLTZMANN  = 8.617342e-11,      & ! Boltzmann constant in MeV/K
        INFINITY     = huge(0.0_8),       & ! positive infinity
        ZERO         = 0.0_8,             &
+       HALF         = 0.5_8,             &
        ONE          = 1.0_8,             &
-       TWO          = 2.0_8
+       TWO          = 2.0_8,             &
+       THREE        = 3.0_8
+  complex(8), parameter :: ICMPLX = (ZERO, ONE)
 
   ! ============================================================================
   ! GEOMETRY-RELATED CONSTANTS

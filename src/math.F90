@@ -1,8 +1,10 @@
 module math
 
-  use constants, only: PI, ONE, TWO
+  use constants, only: PI, HALF, ONE, TWO, THREE, ICMPLX
 
   implicit none
+
+  complex(8) :: w_tabulated(-1:60,-1:60)
 
 contains
 
@@ -161,5 +163,88 @@ contains
     end select
   
   end function calc_pn
+
+!===============================================================================
+! W_FUNCTION calculates the Faddeeva function, also known as the complex
+! probability integral, for complex arguments. For |z| < 6, it uses a six-point
+! interpolation scheme based on pre-tabulated data that is accurate to
+! O(10^-3). For |z| > 6, it uses a three-term asymptotic approximation that is
+! accurate to O(10^-6).
+!===============================================================================
+
+  function w_function(z) result(w)
+
+    complex(8), intent(in) :: z
+    complex(8)             :: w
+
+    real(8) :: p           ! interpolation factor on real axis
+    real(8) :: q           ! interpolation factor on imaginary axis
+    real(8) :: pp, qq, pq  ! products of p and q
+    real(8) :: a_l         ! coefficient for left point
+    real(8) :: a_c         ! coefficient for center point
+    real(8) :: a_b         ! coefficient for bottom point
+    real(8) :: a_r         ! coefficient for right point
+    real(8) :: a_t         ! coefficient for top point
+    real(8) :: a, b, c, d  ! asymptotic expansion parameters
+    integer :: l           ! interpolation index for real axis
+    integer :: m           ! interpolation index for imaginary axis
+
+    if (abs(z) < 6.) then
+      ! Use interpolation for |z| < 6. The interpolation scheme uses a bivariate
+      ! six-point quadrature described in Abramowitz and Stegun 25.2.67. This
+      ! interpolation is accurate to O(h^3) = O(10^-3).
+      !      
+      !     l-1  l  l+1
+      ! m+1      +   +
+      !          |
+      ! m    +---+---+
+      !          |
+      ! m-1      +
+
+      ! Determine indices on grid for interpolation and interpolation factors --
+      ! note that in previous implementations it was necessary to add/subtract
+      ! two in places because of the indexing on the tabulated function. Because
+      ! w_tabulated is indexed from -1 to 60, we don't need to do that here
+      p = 10.*abs(real(z))
+      q = 10.*aimag(z)
+      l = int(p)
+      m = int(q)
+      p = p - l
+      q = q - m
+
+      ! Calculate products
+      pp = p*p
+      qq = q*q
+      pq = p*q
+
+      ! Coefficients for interpolation
+      a_b = HALF*(qq - q)       ! bottom
+      a_l = HALF*(pp - p)       ! left
+      a_c = ONE + pq - pp - qq  ! center
+      a_r = HALF*(pp + p) - pq  ! right
+      a_t = HALF*(qq + q) - pq  ! top
+
+      ! Use six-point interpolation to calculate real and imaginary parts
+      w =  a_b * w_tabulated(l,m-1) + a_l * w_tabulated(l-1,m) + &
+           a_c * w_tabulated(l,m)   + a_r * w_tabulated(l+1,m) + &
+           a_t * w_tabulated(l,m+1) + pq  * w_tabulated(l+1,m+1)
+
+      ! Handle arguments with negative real parts
+      if (real(z) < 0) w = conjg(w)
+    else
+      ! Use three-term asymptotic expansion for |z| > 6
+
+      ! These should be pre-calculated
+      b = 1.5_8*(ONE - sqrt(TWO/THREE))
+      d = THREE - b
+      c = ONE/(THREE*sqrt(PI))
+      a = d*c
+      c = b*c
+
+      ! Three-term asymptotic expansion
+      w = ICMPLX * z * (a/(z*z - b) + c/(z*z - d))
+    end if
+
+  end function w_function
 
 end module math
