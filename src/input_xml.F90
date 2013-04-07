@@ -32,7 +32,7 @@ contains
   subroutine read_input_xml()
 
     call read_settings_xml()
-    call read_cross_sections_xml()
+    if ((run_mode /= MODE_PLOTTING)) call read_cross_sections_xml()
     call read_geometry_xml()
     call read_materials_xml()
     call read_tallies_xml()
@@ -86,7 +86,7 @@ contains
     ! settings.xml file. If no file is found there, then we check the
     ! CROSS_SECTIONS environment variable
 
-    if (len_trim(cross_sections_) == 0) then
+    if (len_trim(cross_sections_) == 0 .and. run_mode /= MODE_PLOTTING) then
       ! No cross_sections.xml file specified in settings.xml, check environment
       ! variable
       call get_environment_variable("CROSS_SECTIONS", env_variable)
@@ -527,32 +527,34 @@ contains
 
       if (n_state_points > 0) then
         ! User gave specific batches to write state points
-        allocate(statepoint_batch(n_state_points))
-        statepoint_batch = state_point_(1) % batches
+        do i = 1, n_state_points
+          call statepoint_batch % add(state_point_(1) % batches(i))
+        end do
 
       elseif (state_point_(1) % interval /= 0) then
         ! User gave an interval for writing state points
         n_state_points = n_batches / state_point_(1) % interval
-        allocate(statepoint_batch(n_state_points))
-        statepoint_batch = (/ (state_point_(1) % interval * i, i = 1, &
-             n_state_points) /)
+        do i = 1, n_state_points
+          call statepoint_batch % add(state_point_(1) % interval * i)
+        end do
       else
         ! If neither were specified, write state point at last batch
         n_state_points = 1
-        allocate(statepoint_batch(n_state_points))
-        statepoint_batch(1) = n_batches
+        call statepoint_batch % add(n_batches)
       end if
 
       ! Check if the user has specified to write binary source file
       call lower_case(state_point_(1) % source_separate)
+      call lower_case(state_point_(1) % source_write)
       if (state_point_(1) % source_separate == 'true' .or. &
            state_point_(1) % source_separate == '1') source_separate = .true.
+      if (state_point_(1) % source_write == 'false' .or. &
+           state_point_(1) % source_write == '0') source_write = .false.
     else
       ! If no <state_point> tag was present, by default write state point at
       ! last batch only
       n_state_points = 1
-      allocate(statepoint_batch(n_state_points))
-      statepoint_batch(1) = n_batches
+      call statepoint_batch % add(n_batches)
     end if
 
     ! Check if the user has specified to not reduce tallies at the end of every
@@ -616,6 +618,7 @@ contains
     integer :: coeffs_reqd
     real(8) :: phi, theta, psi
     logical :: file_exists
+    logical :: boundary_exists
     character(MAX_LINE_LEN) :: filename
     character(MAX_WORD_LEN) :: word
     type(Cell),    pointer :: c => null()
@@ -794,6 +797,10 @@ contains
     ! ==========================================================================
     ! READ SURFACES FROM GEOMETRY.XML
 
+    ! This variable is used to check whether at least one boundary condition was
+    ! applied to a surface
+    boundary_exists = .false.
+
     ! Get number of <surface> tags
     n_surfaces = size(surface_)
 
@@ -887,10 +894,10 @@ contains
         s % bc = BC_TRANSMIT
       case ('vacuum')
         s % bc = BC_VACUUM
+        boundary_exists = .true.
       case ('reflective', 'reflect', 'reflecting')
         s % bc = BC_REFLECT
-      case ('periodic')
-        s % bc = BC_PERIODIC
+        boundary_exists = .true.
       case default
         message = "Unknown boundary condition '" // trim(word) // &
              "' specified on surface " // trim(to_str(s % id))
@@ -901,6 +908,13 @@ contains
       call surface_dict % add_key(s % id, i)
 
     end do
+
+    ! Check to make sure a boundary condition was applied to at least one
+    ! surface
+    if (.not. boundary_exists) then
+      message = "No boundary conditions were applied to any surfaces!"
+      call fatal_error()
+    end if
 
     ! ==========================================================================
     ! READ LATTICES FROM GEOMETRY.XML
@@ -1077,6 +1091,12 @@ contains
            material_(i) % deplete == "1") then
         mat % depletable = .true.
         call depletion_materials % add(i)
+      end if
+
+      if (run_mode == MODE_PLOTTING) then
+        ! add to the dictionary and skip xs processing
+        call material_dict % add_key(mat % id, i)
+        cycle
       end if
 
       ! =======================================================================
@@ -2224,13 +2244,11 @@ contains
       else
         pl % not_found % rgb = (/ 255, 255, 255 /)
       end if
-
+      
       ! Copy plot type
       select case (plot_(i) % type)
       case ("slice")
         pl % type = PLOT_TYPE_SLICE
-        !case ("points")
-        !  pl % type = PLOT_TYPE_POINTS
       case default
         message = "Unsupported plot type '" // plot_(i) % type &
              // "' in plot " // trim(to_str(pl % id))
@@ -2315,6 +2333,7 @@ contains
           if (pl % color_by == PLOT_COLOR_CELLS) then
 
             if (cell_dict % has_key(col_id)) then
+              col_id = cell_dict % get_key(col_id)
               pl % colors(col_id) % rgb = plot_(i) % col_spec_(j) % rgb
             else
               message = "Could not find cell " // trim(to_str(col_id)) // &
@@ -2325,6 +2344,7 @@ contains
           else if (pl % color_by == PLOT_COLOR_MATS) then
 
             if (material_dict % has_key(col_id)) then
+              col_id = material_dict % get_key(col_id)
               pl % colors(col_id) % rgb = plot_(i) % col_spec_(j) % rgb
             else
               message = "Could not find material " // trim(to_str(col_id)) // &
@@ -2336,19 +2356,54 @@ contains
         end do
       end if
 
-      ! Alter colors based on mask information
+      ! Deal with masks
       if (associated(plot_(i) % mask_)) then
-        if (size(plot_(i) % mask_) > 1) then
-          message = "Mutliple masks" // &
-               " specified in plot " // trim(to_str(pl % id))
-          call fatal_error()
-        else if (.not. size(plot_(i) % mask_) == 0) then
-          do j=1,size(pl % colors)
-            if (.not. any(j .eq. plot_(i) % mask_(1) % components)) then
-              pl % colors(j) % rgb = plot_(i) % mask_(1) % background
-            end if
-          end do
-        end if
+      
+        select case(size(plot_(i) % mask_))
+          case default
+            message = "Mutliple masks" // &
+                 " specified in plot " // trim(to_str(pl % id))
+            call fatal_error()
+          case (0)
+          case (1)
+          
+            ! First we need to change the user-specified identifiers to indices in
+            ! the cell and material arrays
+            do j=1,size(plot_(i) % mask_(1) % components)
+              col_id = plot_(i) % mask_(1) % components(j)
+            
+              if (pl % color_by == PLOT_COLOR_CELLS) then
+              
+                if (cell_dict % has_key(col_id)) then
+                  plot_(i) % mask_(1) % components(j) = cell_dict % get_key(col_id)
+                else
+                  message = "Could not find cell " // trim(to_str(col_id)) // &
+                       " specified in the mask in plot " // trim(to_str(pl % id))
+                  call fatal_error()
+                end if
+              
+              else if (pl % color_by == PLOT_COLOR_MATS) then
+              
+                if (material_dict % has_key(col_id)) then
+                  plot_(i) % mask_(1) % components(j) = material_dict % get_key(col_id)
+                else
+                  message = "Could not find material " // trim(to_str(col_id)) // &
+                       " specified in the mask in plot " // trim(to_str(pl % id))
+                  call fatal_error()
+                end if
+                
+              end if  
+            end do
+          
+            ! Alter colors based on mask information
+            do j=1,size(pl % colors)
+              if (.not. any(j .eq. plot_(i) % mask_(1) % components)) then
+                pl % colors(j) % rgb = plot_(i) % mask_(1) % background
+              end if
+            end do
+            
+        end select
+        
       end if
 
       ! Add plot to dictionary
@@ -2482,9 +2537,9 @@ contains
 !===============================================================================
 ! EXPAND_NATURAL_ELEMENT converts natural elements specified using an <element>
 ! tag within a material into individual isotopes based on IUPAC Isotopic
-! Compositions of the Elements 1997. In some cases, modifications have been made
-! to work with ENDF/B-VII.1 where evaluations of particular isotopes don't
-! exist.
+! Compositions of the Elements 2009 (doi:10.1351/PAC-REP-10-06-02). In some
+! cases, modifications have been made to work with ENDF/B-VII.1 where
+! evaluations of particular isotopes don't exist.
 !===============================================================================
 
   subroutine expand_natural_element(name, xs, density, list_names, &
@@ -2510,9 +2565,9 @@ contains
 
     case ('he')
       call list_names % append('2003.' // xs)
-      call list_density % append(density * 0.00000137_8)
+      call list_density % append(density * 0.00000134_8)
       call list_names % append('2004.' // xs)
-      call list_density % append(density * 0.99999863_8)
+      call list_density % append(density * 0.99999866_8)
 
     case ('li')
       call list_names % append('3006.' // xs)
@@ -2538,9 +2593,9 @@ contains
 
     case ('n')
       call list_names % append('7014.' // xs)
-      call list_density % append(density * 0.99632_8)
+      call list_density % append(density * 0.99636_8)
       call list_names % append('7015.' // xs)
-      call list_density % append(density * 0.00368_8)
+      call list_density % append(density * 0.00364_8)
 
     case ('o')
       ! O-18 does not exist in ENDF/B-VII.1 or JEFF 3.1.2 so its 0.205% has been
@@ -2580,11 +2635,11 @@ contains
 
     case ('si')
       call list_names % append('14028.' // xs)
-      call list_density % append(density * 0.9222970_8)
+      call list_density % append(density * 0.92223_8)
       call list_names % append('14029.' // xs)
-      call list_density % append(density * 0.0468315_8)
+      call list_density % append(density * 0.04685_8)
       call list_names % append('14030.' // xs)
-      call list_density % append(density * 0.0308715_8)
+      call list_density % append(density * 0.03092_8)
 
     case ('p')
       call list_names % append('15031.' // xs)
@@ -2592,27 +2647,27 @@ contains
 
     case ('s')
       call list_names % append('16032.' // xs)
-      call list_density % append(density * 0.9493_8)
+      call list_density % append(density * 0.9499_8)
       call list_names % append('16033.' // xs)
-      call list_density % append(density * 0.0076_8)
+      call list_density % append(density * 0.0075_8)
       call list_names % append('16034.' // xs)
-      call list_density % append(density * 0.0429_8)
+      call list_density % append(density * 0.0425_8)
       call list_names % append('16036.' // xs)
-      call list_density % append(density * 0.0002_8)
+      call list_density % append(density * 0.0001_8)
 
     case ('cl')
       call list_names % append('17035.' // xs)
-      call list_density % append(density * 0.7578_8)
+      call list_density % append(density * 0.7576_8)
       call list_names % append('17037.' // xs)
-      call list_density % append(density * 0.2422_8)
+      call list_density % append(density * 0.2424_8)
 
     case ('ar')
       call list_names % append('18036.' // xs)
-      call list_density % append(density * 0.003365_8)
+      call list_density % append(density * 0.003336_8)
       call list_names % append('18038.' // xs)
-      call list_density % append(density * 0.000632_8)
+      call list_density % append(density * 0.000629_8)
       call list_names % append('18040.' // xs)
-      call list_density % append(density * 0.996003_8)
+      call list_density % append(density * 0.996035_8)
 
     case ('k')
       call list_names % append('19039.' // xs)
@@ -2691,21 +2746,21 @@ contains
 
     case ('ni')
       call list_names % append('28058.' // xs)
-      call list_density % append(density * 0.680769_8)
+      call list_density % append(density * 0.68077_8)
       call list_names % append('28060.' // xs)
-      call list_density % append(density * 0.262231_8)
+      call list_density % append(density * 0.26223_8)
       call list_names % append('28061.' // xs)
       call list_density % append(density * 0.011399_8)
       call list_names % append('28062.' // xs)
-      call list_density % append(density * 0.036345_8)
+      call list_density % append(density * 0.036346_8)
       call list_names % append('28064.' // xs)
-      call list_density % append(density * 0.009256_8)
+      call list_density % append(density * 0.009255_8)
 
     case ('cu')
       call list_names % append('29063.' // xs)
-      call list_density % append(density * 0.6917_8)
+      call list_density % append(density * 0.6915_8)
       call list_names % append('29065.' // xs)
-      call list_density % append(density * 0.3083_8)
+      call list_density % append(density * 0.3085_8)
 
     case ('zn')
       ! The evaluation of Zinc in ENDF/B-VII.1 is a natural element. The IUPAC
@@ -2729,15 +2784,15 @@ contains
 
     case ('ge')
       call list_names % append('32070.' // xs)
-      call list_density % append(density * 0.2084_8)
+      call list_density % append(density * 0.2057_8)
       call list_names % append('32072.' // xs)
-      call list_density % append(density * 0.2754_8)
+      call list_density % append(density * 0.2745_8)
       call list_names % append('32073.' // xs)
-      call list_density % append(density * 0.0773_8)
+      call list_density % append(density * 0.0775_8)
       call list_names % append('32074.' // xs)
-      call list_density % append(density * 0.3628_8)
+      call list_density % append(density * 0.3650_8)
       call list_names % append('32076.' // xs)
-      call list_density % append(density * 0.0761_8)
+      call list_density % append(density * 0.0773_8)
 
     case ('as')
       call list_names % append('33075.' // xs)
@@ -2765,17 +2820,17 @@ contains
 
     case ('kr')
       call list_names % append('36078.' // xs)
-      call list_density % append(density * 0.0035_8)
+      call list_density % append(density * 0.00355_8)
       call list_names % append('36080.' // xs)
-      call list_density % append(density * 0.0228_8)
+      call list_density % append(density * 0.02286_8)
       call list_names % append('36082.' // xs)
-      call list_density % append(density * 0.1158_8)
+      call list_density % append(density * 0.11593_8)
       call list_names % append('36083.' // xs)
-      call list_density % append(density * 0.1149_8)
+      call list_density % append(density * 0.11500_8)
       call list_names % append('36084.' // xs)
-      call list_density % append(density * 0.5700_8)
+      call list_density % append(density * 0.56987_8)
       call list_names % append('36086.' // xs)
-      call list_density % append(density * 0.1730_8)
+      call list_density % append(density * 0.17279_8)
 
     case ('rb')
       call list_names % append('37085.' // xs)
@@ -2815,19 +2870,19 @@ contains
 
     case ('mo')
       call list_names % append('42092.' // xs)
-      call list_density % append(density * 0.1484_8)
+      call list_density % append(density * 0.1453_8)
       call list_names % append('42094.' // xs)
-      call list_density % append(density * 0.0925_8)
+      call list_density % append(density * 0.0915_8)
       call list_names % append('42095.' // xs)
-      call list_density % append(density * 0.1592_8)
+      call list_density % append(density * 0.1584_8)
       call list_names % append('42096.' // xs)
-      call list_density % append(density * 0.1668_8)
+      call list_density % append(density * 0.1667_8)
       call list_names % append('42097.' // xs)
-      call list_density % append(density * 0.0955_8)
+      call list_density % append(density * 0.0960_8)
       call list_names % append('42098.' // xs)
-      call list_density % append(density * 0.2413_8)
+      call list_density % append(density * 0.2439_8)
       call list_names % append('42100.' // xs)
-      call list_density % append(density * 0.0963_8)
+      call list_density % append(density * 0.0982_8)
 
     case ('ru')
       call list_names % append('44096.' // xs)
@@ -2945,23 +3000,23 @@ contains
 
     case ('xe')
       call list_names % append('54124.' // xs)
-      call list_density % append(density * 0.0009_8)
+      call list_density % append(density * 0.000952_8)
       call list_names % append('54126.' // xs)
-      call list_density % append(density * 0.0009_8)
+      call list_density % append(density * 0.000890_8)
       call list_names % append('54128.' // xs)
-      call list_density % append(density * 0.0192_8)
+      call list_density % append(density * 0.019102_8)
       call list_names % append('54129.' // xs)
-      call list_density % append(density * 0.2644_8)
+      call list_density % append(density * 0.264006_8)
       call list_names % append('54130.' // xs)
-      call list_density % append(density * 0.0408_8)
+      call list_density % append(density * 0.040710_8)
       call list_names % append('54131.' // xs)
-      call list_density % append(density * 0.2118_8)
+      call list_density % append(density * 0.212324_8)
       call list_names % append('54132.' // xs)
-      call list_density % append(density * 0.2689_8)
+      call list_density % append(density * 0.269086_8)
       call list_names % append('54134.' // xs)
-      call list_density % append(density * 0.1044_8)
+      call list_density % append(density * 0.104357_8)
       call list_names % append('54136.' // xs)
-      call list_density % append(density * 0.0887_8)
+      call list_density % append(density * 0.088573_8)
 
     case ('cs')
       call list_names % append('55133.' // xs)
@@ -2985,9 +3040,9 @@ contains
 
     case ('la')
       call list_names % append('57138.' // xs)
-      call list_density % append(density * 0.00090_8)
+      call list_density % append(density * 0.0008881_8)
       call list_names % append('57139.' // xs)
-      call list_density % append(density * 0.99910_8)
+      call list_density % append(density * 0.9991119_8)
 
     case ('ce')
       call list_names % append('58136.' // xs)
@@ -3005,19 +3060,19 @@ contains
 
     case ('nd')
       call list_names % append('60142.' // xs)
-      call list_density % append(density * 0.272_8)
+      call list_density % append(density * 0.27152_8)
       call list_names % append('60143.' // xs)
-      call list_density % append(density * 0.122_8)
+      call list_density % append(density * 0.12174_8)
       call list_names % append('60144.' // xs)
-      call list_density % append(density * 0.238_8)
+      call list_density % append(density * 0.23798_8)
       call list_names % append('60145.' // xs)
-      call list_density % append(density * 0.083_8)
+      call list_density % append(density * 0.08293_8)
       call list_names % append('60146.' // xs)
-      call list_density % append(density * 0.172_8)
+      call list_density % append(density * 0.17189_8)
       call list_names % append('60148.' // xs)
-      call list_density % append(density * 0.057_8)
+      call list_density % append(density * 0.05756_8)
       call list_names % append('60150.' // xs)
-      call list_density % append(density * 0.056_8)
+      call list_density % append(density * 0.05638_8)
 
     case ('sm')
       call list_names % append('62144.' // xs)
@@ -3063,19 +3118,19 @@ contains
 
     case ('dy')
       call list_names % append('66156.' // xs)
-      call list_density % append(density * 0.0006_8)
+      call list_density % append(density * 0.00056_8)
       call list_names % append('66158.' // xs)
-      call list_density % append(density * 0.0010_8)
+      call list_density % append(density * 0.00095_8)
       call list_names % append('66160.' // xs)
-      call list_density % append(density * 0.0234_8)
+      call list_density % append(density * 0.02329_8)
       call list_names % append('66161.' // xs)
-      call list_density % append(density * 0.1891_8)
+      call list_density % append(density * 0.18889_8)
       call list_names % append('66162.' // xs)
-      call list_density % append(density * 0.2551_8)
+      call list_density % append(density * 0.25475_8)
       call list_names % append('66163.' // xs)
-      call list_density % append(density * 0.2490_8)
+      call list_density % append(density * 0.24896_8)
       call list_names % append('66164.' // xs)
-      call list_density % append(density * 0.2818_8)
+      call list_density % append(density * 0.28260_8)
 
     case ('ho')
       call list_names % append('67165.' // xs)
@@ -3083,17 +3138,17 @@ contains
 
     case ('er')
       call list_names % append('68162.' // xs)
-      call list_density % append(density * 0.0014_8)
+      call list_density % append(density * 0.00139_8)
       call list_names % append('68164.' // xs)
-      call list_density % append(density * 0.0161_8)
+      call list_density % append(density * 0.01601_8)
       call list_names % append('68166.' // xs)
-      call list_density % append(density * 0.3361_8)
+      call list_density % append(density * 0.33503_8)
       call list_names % append('68167.' // xs)
-      call list_density % append(density * 0.2293_8)
+      call list_density % append(density * 0.22869_8)
       call list_names % append('68168.' // xs)
-      call list_density % append(density * 0.2678_8)
+      call list_density % append(density * 0.26978_8)
       call list_names % append('68170.' // xs)
-      call list_density % append(density * 0.1493_8)
+      call list_density % append(density * 0.14910_8)
 
     case ('tm')
       call list_names % append('69169.' // xs)
@@ -3101,25 +3156,25 @@ contains
 
     case ('yb')
       call list_names % append('70168.' // xs)
-      call list_density % append(density * 0.0013_8)
+      call list_density % append(density * 0.00123_8)
       call list_names % append('70170.' // xs)
-      call list_density % append(density * 0.0304_8)
+      call list_density % append(density * 0.02982_8)
       call list_names % append('70171.' // xs)
-      call list_density % append(density * 0.1428_8)
+      call list_density % append(density * 0.1409_8)
       call list_names % append('70172.' // xs)
-      call list_density % append(density * 0.2183_8)
+      call list_density % append(density * 0.2168_8)
       call list_names % append('70173.' // xs)
-      call list_density % append(density * 0.1613_8)
+      call list_density % append(density * 0.16103_8)
       call list_names % append('70174.' // xs)
-      call list_density % append(density * 0.3183_8)
+      call list_density % append(density * 0.32026_8)
       call list_names % append('70176.' // xs)
-      call list_density % append(density * 0.1276_8)
+      call list_density % append(density * 0.12996_8)
 
     case ('lu')
       call list_names % append('71175.' // xs)
-      call list_density % append(density * 0.9741_8)
+      call list_density % append(density * 0.97401_8)
       call list_names % append('71176.' // xs)
-      call list_density % append(density * 0.0259_8)
+      call list_density % append(density * 0.02599_8)
 
     case ('hf')
       call list_names % append('72174.' // xs)
@@ -3137,9 +3192,9 @@ contains
 
     case ('ta')
       call list_names % append('73180.' // xs)
-      call list_density % append(density * 0.00012_8)
+      call list_density % append(density * 0.0001201_8)
       call list_names % append('73181.' // xs)
-      call list_density % append(density * 0.99988_8)
+      call list_density % append(density * 0.9998799_8)
 
     case ('w')
       ! ENDF/B-VII.0 does not have W-180 so this may cause problems. However, it
@@ -3185,17 +3240,17 @@ contains
 
     case ('pt')
       call list_names % append('78190.' // xs)
-      call list_density % append(density * 0.00014_8)
+      call list_density % append(density * 0.00012_8)
       call list_names % append('78192.' // xs)
       call list_density % append(density * 0.00782_8)
       call list_names % append('78194.' // xs)
-      call list_density % append(density * 0.32967_8)
+      call list_density % append(density * 0.3286_8)
       call list_names % append('78195.' // xs)
-      call list_density % append(density * 0.33832_8)
+      call list_density % append(density * 0.3378_8)
       call list_names % append('78196.' // xs)
-      call list_density % append(density * 0.25242_8)
+      call list_density % append(density * 0.2521_8)
       call list_names % append('78198.' // xs)
-      call list_density % append(density * 0.07163_8)
+      call list_density % append(density * 0.07356_8)
 
     case ('au')
       call list_names % append('79197.' // xs)
@@ -3219,9 +3274,9 @@ contains
 
     case ('tl')
       call list_names % append('81203.' // xs)
-      call list_density % append(density * 0.29524_8)
+      call list_density % append(density * 0.2952_8)
       call list_names % append('81205.' // xs)
-      call list_density % append(density * 0.70476_8)
+      call list_density % append(density * 0.7048_8)
 
     case ('pb')
       call list_names % append('82204.' // xs)
@@ -3247,11 +3302,11 @@ contains
 
     case ('u')
       call list_names % append('92234.' // xs)
-      call list_density % append(density * 0.000055_8)
+      call list_density % append(density * 0.000054_8)
       call list_names % append('92235.' // xs)
-      call list_density % append(density * 0.007200_8)
+      call list_density % append(density * 0.007204_8)
       call list_names % append('92238.' // xs)
-      call list_density % append(density * 0.992745_8)
+      call list_density % append(density * 0.992742_8)
 
     case default
       message = "Cannot expand element: " // name
