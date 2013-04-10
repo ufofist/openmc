@@ -1,4 +1,4 @@
-module plotter
+module plot
 
   use constants
   use error,           only: fatal_error
@@ -24,7 +24,7 @@ contains
   subroutine run_plot()
 
     integer :: i ! loop index for plots
-    type(Plot), pointer :: pl => null()
+    type(PlotSlice), pointer :: pl => null()
 
     do i = 1, n_plots
       pl => plots(i)
@@ -48,7 +48,7 @@ contains
 
   subroutine create_ppm(pl)
 
-    type(Plot), pointer :: pl
+    type(PlotSlice), pointer :: pl
 
     integer :: in_i
     integer :: out_i
@@ -95,7 +95,7 @@ contains
     allocate(p)
     call initialize_particle()
     p % coord % xyz = xyz
-    p % coord % uvw = (/ 1, 0, 0 /)
+    p % coord % uvw = (/ 0.5, 0.5, 0.5 /)
     p % coord % universe = BASE_UNIVERSE
 
     do y = 1, img % height
@@ -107,34 +107,34 @@ contains
         call find_cell(found_cell)
 
         if (.not. found_cell) then
-           ! If no cell, revert to default color
-           r = pl % not_found % rgb(1)
-           g = pl % not_found % rgb(2)
-           b = pl % not_found % rgb(3)
+          ! If no cell, revert to default color
+          r = pl % not_found % rgb(1)
+          g = pl % not_found % rgb(2)
+          b = pl % not_found % rgb(3)
         else
-           if (pl % color_by == PLOT_COLOR_MATS) then
-              ! Assign color based on material
-              c => cells(p % coord % cell)
-              if (c % material == MATERIAL_VOID) then
-                 ! By default, color void cells white
-                 r = 255
-                 g = 255
-                 b = 255
-              else
-                 r = pl % colors(c % material) % rgb(1)
-                 g = pl % colors(c % material) % rgb(2)
-                 b = pl % colors(c % material) % rgb(3)
-              end if
-           else if (pl % color_by == PLOT_COLOR_CELLS) then
-              ! Assign color based on cell
-              r = pl % colors(p % coord % cell) % rgb(1)
-              g = pl % colors(p % coord % cell) % rgb(2)
-              b = pl % colors(p % coord % cell) % rgb(3)
-           else
-              r = 0
-              g = 0
-              b = 0
-           end if
+          if (pl % color_by == PLOT_COLOR_MATS) then
+            ! Assign color based on material
+            c => cells(p % coord % cell)
+            if (c % material == MATERIAL_VOID) then
+              ! By default, color void cells white
+              r = 255
+              g = 255
+              b = 255
+            else
+              r = pl % colors(c % material) % rgb(1)
+              g = pl % colors(c % material) % rgb(2)
+              b = pl % colors(c % material) % rgb(3)
+            end if
+          else if (pl % color_by == PLOT_COLOR_CELLS) then
+            ! Assign color based on cell
+            r = pl % colors(p % coord % cell) % rgb(1)
+            g = pl % colors(p % coord % cell) % rgb(2)
+            b = pl % colors(p % coord % cell) % rgb(3)
+          else
+            r = 0
+            g = 0
+            b = 0
+          end if
         end if
 
         ! Create a pixel at (x,y) with color (r,g,b)
@@ -163,8 +163,8 @@ contains
 
   subroutine output_ppm(pl, img)
 
-    type(Plot),  pointer    :: pl
-    type(Image), intent(in) :: img
+    type(PlotSlice), pointer :: pl
+    type(Image), intent(in)  :: img
 
     integer :: i ! loop index for height
     integer :: j ! loop index for width
@@ -176,18 +176,18 @@ contains
     write(UNIT_PLOT, '(A2)') 'P6'
     write(UNIT_PLOT, '(I0,'' '',I0)') img%width, img%height
     write(UNIT_PLOT, '(A)') '255'
- 
+
     ! Write color for each pixel
     do j = 1, img % height
-       do i = 1, img % width
-          write(UNIT_PLOT, '(3A1)', advance='no') achar(img%red(i,j)), &
-               achar(img%green(i,j)), achar(img%blue(i,j))
-       end do
+      do i = 1, img % width
+        write(UNIT_PLOT, '(3A1)', advance='no') achar(img%red(i,j)), &
+             achar(img%green(i,j)), achar(img%blue(i,j))
+      end do
     end do
 
     ! Close plot file
     close(UNIT=UNIT_PLOT)
- 
+
   end subroutine output_ppm
 
-end module plotter
+end module plot

@@ -3,6 +3,7 @@
 from sys import argv
 from math import sqrt
 
+import numpy as np
 import scipy.stats
 import matplotlib.pyplot as plt
 
@@ -18,22 +19,33 @@ score = int(argv[3]) if len(argv) > 3 else 1
 # Create StatePoint object
 sp = StatePoint(filename)
 
-# Check if tallies are present
-if not sp._get_int()[0]:
-    raise Exception("No tally data in state point!")
+# Read number of realizations for global tallies
+sp.n_realizations = sp._get_int()[0]
 
-# Calculate t-value for 95% two-sided CI
-n = sp.current_batch - sp.n_inactive
-t_value = scipy.stats.t.ppf(0.975, n - 1)
+# Read global tallies
+n_global_tallies = sp._get_int()[0]
+sp.global_tallies = np.array(sp._get_double(2*n_global_tallies))
+sp.global_tallies.shape = (n_global_tallies, 2)
+
+# Flag indicating if tallies are present
+tallies_present = sp._get_int()[0]
+
+# Check if tallies are present
+if not tallies_present:
+    raise Exception("No tally data in state point!")
 
 # Loop over all tallies
 for i, t in enumerate(sp.tallies):
+    # Calculate t-value for 95% two-sided CI
+    n = t.n_realizations
+    t_value = scipy.stats.t.ppf(0.975, n - 1)
+
     # Create lists for tallies
     mean = []
     uncertainties = []
     nonzero = []
 
-    n_bins = t.n_score_bins * t.n_filter_bins
+    n_bins = t.total_score_bins * t.total_filter_bins
 
     # Loop over filter/score bins
     for j in range(n_bins):

@@ -1,4 +1,5 @@
 program = openmc
+prefix = /usr/local
 
 templates = $(wildcard templates/*.o)
 xml_fort = xml-fortran/xmlparse.o \
@@ -19,14 +20,23 @@ COMPILER = gnu
 DEBUG    = no
 PROFILE  = no
 OPTIMIZE = no
-USE_MPI  = no
-USE_HDF5 = no
+MPI      = no
+HDF5     = no
+PETSC    = no
+
+#===============================================================================
+# External Library Paths
+#===============================================================================
+
+MPI_DIR   = /opt/mpich/3.0.2-$(COMPILER)
+HDF5_DIR  = /opt/hdf5/1.8.10-$(COMPILER)
+PETSC_DIR = /opt/petsc/3.3-p6-$(COMPILER)
 
 #===============================================================================
 # Add git SHA-1 hash
 #===============================================================================
 
-GIT_SHA1 = $(shell git log -1 | head -n 1 | awk '{print $$2}')
+GIT_SHA1 = $(shell git log -1 2>/dev/null | head -n 1 | awk '{print $$2}')
 
 #===============================================================================
 # GNU Fortran compiler options
@@ -40,7 +50,7 @@ ifeq ($(COMPILER),gnu)
   # Debugging
   ifeq ($(DEBUG),yes)
     F90FLAGS += -g -Wall -pedantic -std=f2008 -fbounds-check \
-                -ffpe-trap=invalid,zero,overflow,underflow
+                -ffpe-trap=invalid,overflow,underflow
     LDFLAGS  += -g
   endif
 
@@ -79,7 +89,7 @@ ifeq ($(COMPILER),intel)
 
   # Optimization
   ifeq ($(OPTIMIZE),yes)
-    F90FLAGS += -O3 -ipo
+    F90FLAGS += -O3
   endif
 endif
 
@@ -152,44 +162,63 @@ ifeq ($(COMPILER),cray)
 endif
 
 #===============================================================================
-# Miscellaneous compiler options
+# Setup External Libraries
 #===============================================================================
 
-# Use MPI for parallelism
+# MPI for distributed-memory parallelism
 
-ifeq ($(USE_MPI),yes)
-  MPI_ROOT = /opt/mpich2/1.5b2-$(COMPILER)
-  F90 = $(MPI_ROOT)/bin/mpif90
+ifeq ($(MPI),yes)
+  F90 = $(MPI_DIR)/bin/mpif90
   F90FLAGS += -DMPI
 endif
 
-# Use HDF5 for output
+# HDF5 for I/O
 
-ifeq ($(USE_HDF5),yes)
-  HDF5_ROOT = /opt/hdf5/1.8.9-$(COMPILER)
-  F90FLAGS += -DHDF5 -I${HDF5_ROOT}/include
-  LDFLAGS += -L${HDF5_ROOT}/lib ${HDF5_ROOT}/lib/libhdf5hl_fortran.a \
-             ${HDF5_ROOT}/lib/libhdf5_hl.a ${HDF5_ROOT}/lib/libhdf5_fortran.a \
-             ${HDF5_ROOT}/lib/libhdf5.a -lz -lrt -lm -Wl,-rpath -Wl,${HDF5_ROOT}/lib
+ifeq ($(HDF5),yes)
+  F90FLAGS += -DHDF5 -I$(HDF5_DIR)/include
+  LDFLAGS += -L$(HDF5_DIR)/lib $(HDF5_DIR)/lib/libhdf5hl_fortran.a \
+             $(HDF5_DIR)/lib/libhdf5_hl.a $(HDF5_DIR)/lib/libhdf5_fortran.a \
+             $(HDF5_DIR)/lib/libhdf5.a -lz -lrt -lm -Wl,-rpath -Wl,$(HDF5_DIR)/lib
 endif
 
+# PETSC for CMFD functionality
+
+ifeq ($(PETSC),yes)
+  # Check to make sure MPI is set
+  ifneq ($(MPI),yes)
+    $(error MPI must be enabled to compile with PETSC!)
+  endif
+
+  # Set up PETSc environment
+  include $(PETSC_DIR)/conf/petscvariables
+  F90FLAGS += -I$(PETSC_DIR)/include -DPETSC
+  LDFLAGS += $(PETSC_LIB)
+endif
 
 #===============================================================================
-# Options for IBM Blue Gene/P ANL supercomputer
+# Machine-specific setup
 #===============================================================================
+
+# IBM Blue Gene/P ANL supercomputer
 
 ifeq ($(MACHINE),bluegene)
   F90 = /bgsys/drivers/ppcfloor/comm/xl/bin/mpixlf2003
   F90FLAGS = -WF,-DNO_F2008,-DMPI -O3
+  LDFLAGS = -lmpich.cnkf90
 endif
 
-#===============================================================================
-# Options for Cray XK6 ORNL Titan supercomputer
-#===============================================================================
+# Cray XK6 ORNL Titan supercomputer
 
 ifeq ($(MACHINE),crayxk6)
   F90 = ftn
   F90FLAGS += -DMPI
+endif
+
+# IBM Blue Gene/Q ANL supercomputer
+
+ifeq ($(MACHINE),bluegeneq)
+  F90 = mpixlf2003
+  F90FLAGS = -WF,-DNO_F2008,-DMPI -O5
 endif
 
 #===============================================================================
@@ -201,7 +230,21 @@ xml-fortran:
 	cd xml-fortran; make MACHINE=$(MACHINE) F90=$(F90) F90FLAGS="$(F90FLAGS)"
 	cd templates; make F90=$(F90) F90FLAGS="$(F90FLAGS)"
 $(program): $(objects)
-	$(F90) $(objects) $(templates) $(xml_fort) -o $@ $(LDFLAGS)
+	$(F90) $(objects) $(templates) $(xml_fort) $(LDFLAGS) -o $@
+install:
+	@install -D $(program) $(DESTDIR)$(prefix)/bin/$(program)
+	@install -D utils/statepoint_cmp.py $(DESTDIR)$(prefix)/bin/statepoint_cmp
+	@install -D utils/statepoint_histogram.py $(DESTDIR)$(prefix)/bin/statepoint_histogram
+	@install -D utils/statepoint_meshplot.py $(DESTDIR)$(prefix)/bin/statepoint_meshplot
+	@install -D ../man/man1/openmc.1 $(DESTDIR)$(prefix)/share/man/man1/openmc.1
+	@install -D ../LICENSE $(DESTDIR)$(prefix)/share/doc/$(program)/copyright
+uninstall:
+	@rm $(DESTDIR)$(prefix)/bin/$(program)
+	@rm $(DESTDIR)$(prefix)/bin/statepoint_cmp
+	@rm $(DESTDIR)$(prefix)/bin/statepoint_histogram
+	@rm $(DESTDIR)$(prefix)/bin/statepoint_meshplot
+	@rm $(DESTDIR)$(prefix)/share/man/man1/openmc.1
+	@rm $(DESTDIR)$(prefix)/share/doc/$(program)/copyright
 distclean: clean
 	cd xml-fortran; make clean
 	cd templates; make clean
@@ -215,7 +258,7 @@ neat:
 #===============================================================================
 
 .SUFFIXES: .F90 .o
-.PHONY: all xml-fortran clean neat distclean 
+.PHONY: all xml-fortran install uninstall clean neat distclean 
 
 %.o: %.F90
 	$(F90) $(F90FLAGS) -DGIT_SHA1="\"$(GIT_SHA1)\"" -Ixml-fortran -Itemplates -c $<

@@ -1,17 +1,18 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0"?>
 <settings>
 
-  <!-- Parameters for criticality calculation -->
-  <criticality>
+  <!-- Parameters for k-eigenvalue calculation -->
+  <eigenvalue>
     <batches>15</batches>
     <inactive>5</inactive>
     <particles>10000</particles>
-  </criticality>
+  </eigenvalue>
 
   <!-- Starting source -->
   <source>
-    <type>box</type>
-    <coeffs>-4 -4 -4  4  4  4</coeffs>
+    <space type="box">
+      <parameters>-4 -4 -4  4  4  4</parameters>
+    </space>
   </source>
 
 </settings>

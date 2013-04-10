@@ -3,9 +3,7 @@ module initialize
   use ace,              only: read_xs
   use bank_header,      only: Bank
   use constants
-  use datatypes,        only: dict_create, dict_get_key, dict_has_key,         &
-                              dict_keys
-  use datatypes_header, only: ListKeyValueII, DictionaryII
+  use dict_header,      only: DictIntInt, ElemKeyValueII
   use energy_grid,      only: unionized_grid
   use error,            only: fatal_error
   use geometry,         only: neighbor_lists
@@ -19,16 +17,16 @@ module initialize
   use source,           only: initialize_source
   use state_point,      only: load_state_point
   use string,           only: to_str, str_to_int, starts_with, ends_with
-  use tally,            only: create_tally_map
-  use tally_header,     only: TallyObject, TallyScore
-  use timing,           only: timer_start, timer_stop
+  use tally_header,     only: TallyObject
+  use tally_initialize, only: configure_tallies
 
 #ifdef MPI
   use mpi
 #endif
 
 #ifdef HDF5
-  use hdf5_interface,   only: hdf5_initialize, hdf5_write_summary
+  use hdf5_interface,   only: hdf5_initialize, hdf5_write_summary, &
+                              hdf5_load_state_point
 #endif
 
   implicit none
@@ -45,8 +43,8 @@ contains
   subroutine initialize_run()
 
     ! Start total and initialization timer
-    call timer_start(time_total)
-    call timer_start(time_initialize)
+    call time_total % start()
+    call time_initialize % start()
 
 #ifdef MPI
     ! Setup MPI
@@ -62,13 +60,10 @@ contains
     call read_command_line()
 
     if (master) then
-       ! Display title and initialization header
-       call title()
-       call header("INITIALIZATION", level=1)
+      ! Display title and initialization header
+      call title()
+      call header("INITIALIZATION", level=1)
     end if
-
-    ! set up dictionaries
-    call create_dictionaries()
 
     ! Read XML input files
     call read_input_xml()
@@ -94,63 +89,67 @@ contains
     call neighbor_lists()
 
     if (run_mode /= MODE_PLOTTING) then
-       ! With the AWRs from the xs_listings, change all material specifications
-       ! so that they contain atom percents summing to 1
-       call normalize_ao()
+      ! With the AWRs from the xs_listings, change all material specifications
+      ! so that they contain atom percents summing to 1
+      call normalize_ao()
 
-       ! Create tally map
-       call create_tally_map()
+      ! Allocate and setup tally stride, matching_bins, and tally maps
+      call configure_tallies()
 
-       ! Set up tally servers
-       call initialize_servers()
+      ! Set up tally servers
+      call initialize_servers()
 
-       ! Read ACE-format cross sections
-       call timer_start(time_read_xs)
-       call read_xs()
-       call timer_stop(time_read_xs)
+      ! Read ACE-format cross sections
+      call time_read_xs % start()
+      call read_xs()
+      call time_read_xs % stop()
 
-       ! Construct unionized energy grid from cross-sections
-       if (grid_method == GRID_UNION) then
-          call timer_start(time_unionize)
-          call unionized_grid()
-          call timer_stop(time_unionize)
-       end if
+      ! Construct unionized energy grid from cross-sections
+      if (grid_method == GRID_UNION) then
+        call time_unionize % start()
+        call unionized_grid()
+        call time_unionize % stop()
+      end if
 
-       ! Determine how much work each processor should do
-       call calculate_work()
+      ! Determine how much work each processor should do
+      call calculate_work()
 
-       ! Allocate banks and create source particles -- for a fixed source
-       ! calculation, the external source distribution is sampled during the
-       ! run, not at initialization
-       if (run_mode == MODE_CRITICALITY) then
-          call allocate_banks()
-          if (.not. restart_run) call initialize_source()
-       end if
+      ! Allocate banks and create source particles -- for a fixed source
+      ! calculation, the external source distribution is sampled during the
+      ! run, not at initialization
+      if (run_mode == MODE_EIGENVALUE) then
+        call allocate_banks()
+        if (.not. restart_run) call initialize_source()
+      end if
 
-       ! If this is a restart run, load the state point data and binary source
-       ! file
-       if (restart_run) call load_state_point()
+      ! If this is a restart run, load the state point data and binary source
+      ! file
+#ifdef HDF5
+      if (restart_run) call hdf5_load_state_point()
+#else
+      if (restart_run) call load_state_point()
+#endif
     end if
 
     if (master) then
-       if (run_mode == MODE_PLOTTING) then
-          ! Display plotting information
-          call print_plot()
-       else
-          ! Write summary information
+      if (run_mode == MODE_PLOTTING) then
+        ! Display plotting information
+        call print_plot()
+      else
+        ! Write summary information
 #ifdef HDF5
-          if (output_summary) call hdf5_write_summary()
+        if (output_summary) call hdf5_write_summary()
 #else
-          if (output_summary) call write_summary()
+        if (output_summary) call write_summary()
 #endif
 
-          ! Write cross section information
-          if (output_xs) call write_xs_summary()
-       end if
+        ! Write cross section information
+        if (output_xs) call write_xs_summary()
+      end if
     end if
 
     ! Stop initialization timer
-    call timer_stop(time_initialize)
+    call time_initialize % stop()
 
   end subroutine initialize_run
 
@@ -167,14 +166,14 @@ contains
     integer                   :: bank_types(4)   ! Datatypes
     integer(MPI_ADDRESS_KIND) :: bank_disp(4)    ! Displacements
     integer                   :: temp_type       ! temporary derived type
-    integer                   :: score_blocks(1) ! Count for each datatype
-    integer                   :: score_types(1)  ! Datatypes
-    integer(MPI_ADDRESS_KIND) :: score_disp(1)   ! Displacements
-    integer(MPI_ADDRESS_KIND) :: score_base_disp ! Base displacement
-    integer(MPI_ADDRESS_KIND) :: lower_bound     ! Lower bound for TallyScore
-    integer(MPI_ADDRESS_KIND) :: extent          ! Extent for TallyScore
+    integer                   :: result_blocks(1) ! Count for each datatype
+    integer                   :: result_types(1)  ! Datatypes
+    integer(MPI_ADDRESS_KIND) :: result_disp(1)   ! Displacements
+    integer(MPI_ADDRESS_KIND) :: result_base_disp ! Base displacement
+    integer(MPI_ADDRESS_KIND) :: lower_bound     ! Lower bound for TallyResult
+    integer(MPI_ADDRESS_KIND) :: extent          ! Extent for TallyResult
     type(Bank)       :: b
-    type(TallyScore) :: ts
+    type(TallyResult) :: tr
 
     ! Indicate that MPI is turned on
     mpi_enabled = .true.
@@ -188,9 +187,9 @@ contains
 
     ! Determine master
     if (rank == 0) then
-       master = .true.
+      master = .true.
     else
-       master = .false.
+      master = .false.
     end if
 
     ! ==========================================================================
@@ -204,7 +203,7 @@ contains
 
     ! Adjust displacements 
     bank_disp = bank_disp - bank_disp(1)
-    
+
     ! Define MPI_BANK for fission sites
     bank_blocks = (/ 1, 3, 3, 1 /)
     bank_types = (/ MPI_REAL8, MPI_REAL8, MPI_REAL8, MPI_REAL8 /)
@@ -213,29 +212,29 @@ contains
     call MPI_TYPE_COMMIT(MPI_BANK, mpi_err)
 
     ! ==========================================================================
-    ! CREATE MPI_TALLYSCORE TYPE
+    ! CREATE MPI_TALLYRESULT TYPE
 
     ! Determine displacements for MPI_BANK type
-    call MPI_GET_ADDRESS(ts % n_events, score_base_disp, mpi_err)
-    call MPI_GET_ADDRESS(ts % sum, score_disp(1), mpi_err)
+    call MPI_GET_ADDRESS(tr % value, result_base_disp, mpi_err)
+    call MPI_GET_ADDRESS(tr % sum, result_disp(1), mpi_err)
 
     ! Adjust displacements
-    score_disp = score_disp - score_base_disp
+    result_disp = result_disp - result_base_disp
 
-    ! Define temporary type for tallyscore
-    score_blocks = (/ 2 /)
-    score_types = (/ MPI_REAL8 /)
-    call MPI_TYPE_CREATE_STRUCT(1, score_blocks, score_disp, score_types, &
+    ! Define temporary type for TallyResult
+    result_blocks = (/ 2 /)
+    result_types = (/ MPI_REAL8 /)
+    call MPI_TYPE_CREATE_STRUCT(1, result_blocks, result_disp, result_types, &
          temp_type, mpi_err)
 
     ! Adjust lower-bound and extent of type for tally score
     lower_bound = 0
-    extent      = score_disp(1) + 16
+    extent      = result_disp(1) + 16
     call MPI_TYPE_CREATE_RESIZED(temp_type, lower_bound, extent, &
-         MPI_TALLYSCORE, mpi_err)
+         MPI_TALLYRESULT, mpi_err)
 
     ! Commit derived type for tally scores
-    call MPI_TYPE_COMMIT(MPI_TALLYSCORE, mpi_err)
+    call MPI_TYPE_COMMIT(MPI_TALLYRESULT, mpi_err)
 
   end subroutine initialize_mpi
 #endif
@@ -251,7 +250,7 @@ contains
     integer :: last_flag ! index of last flag
     character(MAX_FILE_LEN) :: pwd      ! present working directory
     character(MAX_WORD_LEN), allocatable :: argv(:) ! command line arguments
-    
+
     ! Get working directory
     call GET_ENVIRONMENT_VARIABLE("PWD", pwd)
 
@@ -261,78 +260,78 @@ contains
     ! Allocate and retrieve command arguments
     allocate(argv(argc))
     do i = 1, argc
-       call GET_COMMAND_ARGUMENT(i, argv(i))
+      call GET_COMMAND_ARGUMENT(i, argv(i))
     end do
 
     ! Process command arguments
     last_flag = 0
     i = 1
     do while (i <= argc)
-       ! Check for flags
-       if (starts_with(argv(i), "-")) then
-          select case (argv(i))
-          case ('-p', '-plot', '--plot')
-             run_mode = MODE_PLOTTING
-          case ('-n', '-n_particles', '--n_particles')
-             ! Read number of particles per cycle
-             i = i + 1
-             n_particles = str_to_int(argv(i))
+      ! Check for flags
+      if (starts_with(argv(i), "-")) then
+        select case (argv(i))
+        case ('-p', '-plot', '--plot')
+          run_mode = MODE_PLOTTING
+        case ('-n', '-n_particles', '--n_particles')
+          ! Read number of particles per cycle
+          i = i + 1
+          n_particles = str_to_int(argv(i))
 
-             ! Check that number specified was valid
-             if (n_particles == ERROR_INT) then
-                message = "Must specify integer after " // trim(argv(i-1)) // &
-                     " command-line flag."
-                call fatal_error()
-             end if
-          case ('-r', '-restart', '--restart')
-             ! Read path for state point
-             i = i + 1
-             path_state_point = argv(i)
-             restart_run = .true.
+          ! Check that number specified was valid
+          if (n_particles == ERROR_INT) then
+            message = "Must specify integer after " // trim(argv(i-1)) // &
+                 " command-line flag."
+            call fatal_error()
+          end if
+        case ('-r', '-restart', '--restart')
+          ! Read path for state point
+          i = i + 1
+          path_state_point = argv(i)
+          restart_run = .true.
 
-          case ('-t', '-tallies', '--tallies')
-             run_mode = MODE_TALLIES
+        case ('-t', '-tallies', '--tallies')
+          run_mode = MODE_TALLIES
 
-             ! Read path for state point
-             i = i + 1
-             path_state_point = argv(i)
-             restart_run = .true.
+          ! Read path for state point
+          i = i + 1
+          path_state_point = argv(i)
+          restart_run = .true.
 
-          case ('-?', '-help', '--help')
-             call print_usage()
-             stop
-          case ('-v', '-version', '--version')
-             call print_version()
-             stop
-          case ('-eps_tol', '-ksp_gmres_restart')
-             ! Handle options that would be based to PETSC
-             i = i + 1
-          case default
-             message = "Unknown command line option: " // argv(i)
-             call fatal_error()
-          end select
+        case ('-?', '-help', '--help')
+          call print_usage()
+          stop
+        case ('-v', '-version', '--version')
+          call print_version()
+          stop
+        case ('-eps_tol', '-ksp_gmres_restart')
+          ! Handle options that would be based to PETSC
+          i = i + 1
+        case default
+          message = "Unknown command line option: " // argv(i)
+          call fatal_error()
+        end select
 
-          last_flag = i
-       end if
+        last_flag = i
+      end if
 
-       ! Increment counter
-       i = i + 1
+      ! Increment counter
+      i = i + 1
     end do
 
     ! Determine directory where XML input files are
     if (argc > 0 .and. last_flag < argc) then
-       path_input = argv(last_flag + 1)
-       ! Need to add working directory if the given path is a relative path
-       if (.not. starts_with(path_input, "/")) then
-          path_input = trim(pwd) // "/" // trim(path_input)
-       end if
+      path_input = argv(last_flag + 1)
+      ! Need to add working directory if the given path is a relative path
+      if (.not. starts_with(path_input, "/")) then
+        path_input = trim(pwd) // "/" // trim(path_input)
+      end if
     else
-       path_input = pwd
+      path_input = pwd
     end if
 
     ! Add slash at end of directory if it isn't there
     if (.not. ends_with(path_input, "/")) then
-       path_input = trim(path_input) // "/"
+      path_input = trim(path_input) // "/"
     end if
 
     ! Free memory from argv
@@ -341,31 +340,6 @@ contains
     ! TODO: Check that directory exists
 
   end subroutine read_command_line
-
-!===============================================================================
-! CREATE_DICTIONARIES initializes the various dictionary variables. It would be
-! nice to avoid this and just have a check at the beginning of
-! dictionary_add_key.
-!===============================================================================
-
-  subroutine create_dictionaries()
-
-    ! Create all global dictionaries
-    call dict_create(cell_dict)
-    call dict_create(universe_dict)
-    call dict_create(lattice_dict)
-    call dict_create(surface_dict)
-    call dict_create(material_dict)
-    call dict_create(mesh_dict)
-    call dict_create(tally_dict)
-    call dict_create(xs_listing_dict)
-    call dict_create(nuclide_dict)
-    call dict_create(sab_dict)
-
-    ! Create special dictionary used in input_xml
-    call dict_create(cells_in_univ_dict)
-    
-  end subroutine create_dictionaries
 
 !===============================================================================
 ! PREPARE_UNIVERSES allocates the universes array and determines the cells array
@@ -379,7 +353,7 @@ contains
     integer              :: n_cells_in_univ       ! number of cells in a universe
     integer, allocatable :: index_cell_in_univ(:) ! the index in the univ%cells
                                                   ! array for each universe
-    type(ListKeyValueII), pointer :: key_list => null()
+    type(ElemKeyValueII), pointer :: pair_list => null()
     type(Universe),       pointer :: univ => null()
     type(Cell),           pointer :: c => null()
 
@@ -390,25 +364,25 @@ contains
     ! pairs are the id of the universe and the index in the array. In
     ! cells_in_univ_dict, it's the id of the universe and the number of cells.
 
-    key_list => dict_keys(universe_dict)
-    do while (associated(key_list))
-       ! find index of universe in universes array
-       i_univ = key_list % data % value
-       univ => universes(i_univ)
-       univ % id = key_list % data % key
+    pair_list => universe_dict % keys()
+    do while (associated(pair_list))
+      ! find index of universe in universes array
+      i_univ = pair_list % value
+      univ => universes(i_univ)
+      univ % id = pair_list % key
 
-       ! check for lowest level universe
-       if (univ % id == 0) BASE_UNIVERSE = i_univ
-       
-       ! find cell count for this universe
-       n_cells_in_univ = dict_get_key(cells_in_univ_dict, univ % id)
+      ! check for lowest level universe
+      if (univ % id == 0) BASE_UNIVERSE = i_univ
 
-       ! allocate cell list for universe
-       allocate(univ % cells(n_cells_in_univ))
-       univ % n_cells = n_cells_in_univ
-       
-       ! move to next universe
-       key_list => key_list % next
+      ! find cell count for this universe
+      n_cells_in_univ = cells_in_univ_dict % get_key(univ % id)
+
+      ! allocate cell list for universe
+      allocate(univ % cells(n_cells_in_univ))
+      univ % n_cells = n_cells_in_univ
+
+      ! move to next universe
+      pair_list => pair_list % next
     end do
 
     ! Also allocate a list for keeping track of where cells have been assigned
@@ -418,18 +392,18 @@ contains
     index_cell_in_univ = 0
 
     do i = 1, n_cells
-       c => cells(i)
+      c => cells(i)
 
-       ! get pointer to corresponding universe
-       i_univ = dict_get_key(universe_dict, c % universe)
-       univ => universes(i_univ)
+      ! get pointer to corresponding universe
+      i_univ = universe_dict % get_key(c % universe)
+      univ => universes(i_univ)
 
-       ! increment the index for the cells array within the Universe object and
-       ! then store the index of the Cell object in that array
-       index_cell_in_univ(i_univ) = index_cell_in_univ(i_univ) + 1
-       univ % cells(index_cell_in_univ(i_univ)) = i
+      ! increment the index for the cells array within the Universe object and
+      ! then store the index of the Cell object in that array
+      index_cell_in_univ(i_univ) = index_cell_in_univ(i_univ) + 1
+      univ % cells(index_cell_in_univ(i_univ)) = i
     end do
-
+    
   end subroutine prepare_universes
 
 !===============================================================================
@@ -442,193 +416,183 @@ contains
 
   subroutine adjust_indices()
 
-    integer :: i       ! index for various purposes
-    integer :: j       ! index for various purposes
-    integer :: k       ! loop index for lattices
-    integer :: i_array ! index in surfaces/materials array 
-    integer :: id      ! user-specified id
+    integer :: i             ! index for various purposes
+    integer :: j             ! index for various purposes
+    integer :: k             ! loop index for lattices
+    integer :: m             ! loop index for lattices
+    integer :: n_x, n_y, n_z ! size of lattice
+    integer :: i_array       ! index in surfaces/materials array 
+    integer :: id            ! user-specified id
     type(Cell),        pointer :: c => null()
-    type(Lattice),     pointer :: l => null()
+    type(Lattice),     pointer :: lat => null()
     type(TallyObject), pointer :: t => null()
-    
+
     do i = 1, n_cells
-       ! =======================================================================
-       ! ADJUST SURFACE LIST FOR EACH CELL
+      ! =======================================================================
+      ! ADJUST SURFACE LIST FOR EACH CELL
 
-       c => cells(i)
-       do j = 1, c % n_surfaces
-          id = c % surfaces(j)
-          if (id < OP_DIFFERENCE) then
-             if (dict_has_key(surface_dict, abs(id))) then
-                i_array = dict_get_key(surface_dict, abs(id))
-                c % surfaces(j) = sign(i_array, id)
-             else
-                message = "Could not find surface " // trim(to_str(abs(id))) // &
-                     " specified on cell " // trim(to_str(c % id))
-                call fatal_error()
-             end if
+      c => cells(i)
+      do j = 1, c % n_surfaces
+        id = c % surfaces(j)
+        if (id < OP_DIFFERENCE) then
+          if (surface_dict % has_key(abs(id))) then
+            i_array = surface_dict % get_key(abs(id))
+            c % surfaces(j) = sign(i_array, id)
+          else
+            message = "Could not find surface " // trim(to_str(abs(id))) // &
+                 " specified on cell " // trim(to_str(c % id))
+            call fatal_error()
           end if
-       end do
+        end if
+      end do
 
-       ! =======================================================================
-       ! ADJUST UNIVERSE INDEX FOR EACH CELL
+      ! =======================================================================
+      ! ADJUST UNIVERSE INDEX FOR EACH CELL
 
-       id = c % universe
-       if (dict_has_key(universe_dict, id)) then
-          c % universe = dict_get_key(universe_dict, id)
-       else
-          message = "Could not find universe " // trim(to_str(id)) // &
+      id = c % universe
+      if (universe_dict % has_key(id)) then
+        c % universe = universe_dict % get_key(id)
+      else
+        message = "Could not find universe " // trim(to_str(id)) // &
+             " specified on cell " // trim(to_str(c % id))
+        call fatal_error()
+      end if
+
+      ! =======================================================================
+      ! ADJUST MATERIAL/FILL POINTERS FOR EACH CELL
+
+      id = c % material
+      if (id == MATERIAL_VOID) then
+        c % type = CELL_NORMAL
+      elseif (id /= 0) then
+        if (material_dict % has_key(id)) then
+          c % type = CELL_NORMAL
+          c % material = material_dict % get_key(id)
+        else
+          message = "Could not find material " // trim(to_str(id)) // &
                " specified on cell " // trim(to_str(c % id))
           call fatal_error()
-       end if
-
-       ! =======================================================================
-       ! ADJUST MATERIAL/FILL POINTERS FOR EACH CELL
-
-       id = c % material
-       if (id == MATERIAL_VOID) then
-          c % type = CELL_NORMAL
-       elseif (id /= 0) then
-          if (dict_has_key(material_dict, id)) then
-             c % type = CELL_NORMAL
-             c % material = dict_get_key(material_dict, id)
-          else
-             message = "Could not find material " // trim(to_str(id)) // &
-                   " specified on cell " // trim(to_str(c % id))
-             call fatal_error()
-          end if
-       else
-          id = c % fill
-          if (dict_has_key(universe_dict, id)) then
-             c % type = CELL_FILL
-             c % fill = dict_get_key(universe_dict, id)
-          elseif (dict_has_key(lattice_dict, id)) then
-             c % type = CELL_LATTICE
-             c % fill = dict_get_key(lattice_dict, id)
-          else
-             message = "Specified fill " // trim(to_str(id)) // " on cell " // &
-                  trim(to_str(c % id)) // " is neither a universe nor a lattice."
-             call fatal_error()
-          end if
-       end if
+        end if
+      else
+        id = c % fill
+        if (universe_dict % has_key(id)) then
+          c % type = CELL_FILL
+          c % fill = universe_dict % get_key(id)
+        elseif (lattice_dict % has_key(id)) then
+          c % type = CELL_LATTICE
+          c % fill = lattice_dict % get_key(id)
+        else
+          message = "Specified fill " // trim(to_str(id)) // " on cell " // &
+               trim(to_str(c % id)) // " is neither a universe nor a lattice."
+          call fatal_error()
+        end if
+      end if
     end do
 
     ! ==========================================================================
     ! ADJUST UNIVERSE INDICES FOR EACH LATTICE
 
     do i = 1, n_lattices
-       l => lattices(i)
-       do j = 1, l % n_x
-          do k = 1, l % n_y
-             id = l % element(j,k)
-             if (dict_has_key(universe_dict, id)) then
-                l % element(j,k) = dict_get_key(universe_dict, id)
-             else
-                message = "Invalid universe number " // trim(to_str(id)) &
-                     // " specified on lattice " // trim(to_str(l % id))
-                call fatal_error()
-             end if
+      lat => lattices(i)
+      n_x = lat % dimension(1)
+      n_y = lat % dimension(2)
+      if (lat % n_dimension == 3) then
+        n_z = lat % dimension(3)
+      else
+        n_z = 1
+      end if
+
+      do m = 1, n_z
+        do k = 1, n_y
+          do j = 1, n_x
+            id = lat % universes(j,k,m)
+            if (universe_dict % has_key(id)) then
+              lat % universes(j,k,m) = universe_dict % get_key(id)
+            else
+              message = "Invalid universe number " // trim(to_str(id)) &
+                   // " specified on lattice " // trim(to_str(lat % id))
+              call fatal_error()
+            end if
           end do
-       end do
+        end do
+      end do
+
     end do
 
-    do i = 1, n_tallies
-       t => tallies(i)
+    TALLY_LOOP: do i = 1, n_tallies
+      t => tallies(i)
 
-       ! =======================================================================
-       ! ADJUST CELL INDICES FOR EACH TALLY
+      ! =======================================================================
+      ! ADJUST INDICES FOR EACH TALLY FILTER
 
-       if (t % n_filter_bins(FILTER_CELL) > 0) then
-          do j = 1, t % n_filter_bins(FILTER_CELL)
-             id = t % cell_bins(j)
-             if (dict_has_key(cell_dict, id)) then
-                t % cell_bins(j) = dict_get_key(cell_dict, id)
-             else
-                message = "Could not find cell " // trim(to_str(id)) // &
-                     " specified on tally " // trim(to_str(t % id))
-                call fatal_error()
-             end if
+      FILTER_LOOP: do j = 1, t % n_filters
+
+        select case (t % filters(j) % type)
+        case (FILTER_CELL, FILTER_CELLBORN)
+
+          do k = 1, t % filters(j) % n_bins
+            id = t % filters(j) % int_bins(k)
+            if (cell_dict % has_key(id)) then
+              t % filters(j) % int_bins(k) = cell_dict % get_key(id)
+            else
+              message = "Could not find cell " // trim(to_str(id)) // &
+                   " specified on tally " // trim(to_str(t % id))
+              call fatal_error()
+            end if
           end do
-       end if
 
-       ! =======================================================================
-       ! ADJUST SURFACE INDICES FOR EACH TALLY
+        case (FILTER_SURFACE)
 
-       if (t % n_filter_bins(FILTER_SURFACE) > 0) then
-          do j = 1, t % n_filter_bins(FILTER_SURFACE)
-             id = t % surface_bins(j)
-             if (dict_has_key(surface_dict, id)) then
-                t % surface_bins(j) = dict_get_key(surface_dict, id)
-             else
-                message = "Could not find surface " // trim(to_str(id)) // &
-                     " specified on tally " // trim(to_str(t % id))
-                call fatal_error()
-             end if
+          ! Check if this is a surface filter only for surface currents
+          if (any(t % score_bins == SCORE_CURRENT)) cycle FILTER_LOOP
+
+          do k = 1, t % filters(j) % n_bins
+            id = t % filters(j) % int_bins(k)
+            if (surface_dict % has_key(id)) then
+              t % filters(j) % int_bins(k) = surface_dict % get_key(id)
+            else
+              message = "Could not find surface " // trim(to_str(id)) // &
+                   " specified on tally " // trim(to_str(t % id))
+              call fatal_error()
+            end if
           end do
-       end if
 
-       ! =======================================================================
-       ! ADJUST UNIVERSE INDICES FOR EACH TALLY
+        case (FILTER_UNIVERSE)
 
-       if (t % n_filter_bins(FILTER_UNIVERSE) > 0) then
-          do j = 1, t % n_filter_bins(FILTER_UNIVERSE)
-             id = t % universe_bins(j)
-             if (dict_has_key(universe_dict, id)) then
-                t % universe_bins(j) = dict_get_key(universe_dict, id)
-             else
-                message = "Could not find universe " // trim(to_str(id)) // &
-                     " specified on tally " // trim(to_str(t % id))
-                call fatal_error()
-             end if
+          do k = 1, t % filters(j) % n_bins
+            id = t % filters(j) % int_bins(k)
+            if (universe_dict % has_key(id)) then
+              t % filters(j) % int_bins(k) = universe_dict % get_key(id)
+            else
+              message = "Could not find universe " // trim(to_str(id)) // &
+                   " specified on tally " // trim(to_str(t % id))
+              call fatal_error()
+            end if
           end do
-       end if
 
-       ! =======================================================================
-       ! ADJUST MATERIAL INDICES FOR EACH TALLY
+        case (FILTER_MATERIAL)
 
-       if (t % n_filter_bins(FILTER_MATERIAL) > 0) then
-          do j = 1, t % n_filter_bins(FILTER_MATERIAL)
-             id = t % material_bins(j)
-             if (dict_has_key(material_dict, id)) then
-                t % material_bins(j) = dict_get_key(material_dict, id)
-             else
-                message = "Could not find material " // trim(to_str(id)) // &
-                     " specified on tally " // trim(to_str(t % id))
-                call fatal_error()
-             end if
+          do k = 1, t % filters(j) % n_bins
+            id = t % filters(j) % int_bins(k)
+            if (material_dict % has_key(id)) then
+              t % filters(j) % int_bins(k) = material_dict % get_key(id)
+            else
+              message = "Could not find material " // trim(to_str(id)) // &
+                   " specified on tally " // trim(to_str(t % id))
+              call fatal_error()
+            end if
           end do
-       end if
 
-       ! =======================================================================
-       ! ADJUST CELLBORN INDICES FOR EACH TALLY
+        case (FILTER_MESH)
 
-       if (t % n_filter_bins(FILTER_CELLBORN) > 0) then
-          do j = 1, t % n_filter_bins(FILTER_CELLBORN)
-             id = t % cellborn_bins(j)
-             if (dict_has_key(cell_dict, id)) then
-                t % cellborn_bins(j) = dict_get_key(cell_dict, id)
-             else
-                message = "Could not find material " // trim(to_str(id)) // &
-                     " specified on tally " // trim(to_str(t % id))
-                call fatal_error()
-             end if
-          end do
-       end if
+          ! The mesh filter already has been set to the index in meshes rather
+          ! than the user-specified id, so it doesn't need to be changed.
 
-       ! =======================================================================
-       ! ADJUST MESH INDICES FOR EACH TALLY
+        end select
 
-       if (t % n_filter_bins(FILTER_MESH) > 0) then
-          id = t % mesh
-          if (dict_has_key(mesh_dict, id)) then
-             t % mesh = dict_get_key(mesh_dict, id)
-          else
-             message = "Could not find mesh " // trim(to_str(id)) // &
-                  " specified on tally " // trim(to_str(t % id))
-             call fatal_error()
-          end if
-       end if
-    end do
+      end do FILTER_LOOP
+
+    end do TALLY_LOOP
 
   end subroutine adjust_indices
 
@@ -647,52 +611,52 @@ contains
     logical        :: percent_in_atom ! nuclides specified in atom percent?
     logical        :: density_in_atom ! density specified in atom/b-cm?
     type(Material), pointer :: mat => null()
-    
+
     ! first find the index in the xs_listings array for each nuclide in each
     ! material
     do i = 1, n_materials
-       mat => materials(i)
+      mat => materials(i)
 
-       percent_in_atom = (mat % atom_density(1) > ZERO)
-       density_in_atom = (mat % density > ZERO)
+      percent_in_atom = (mat % atom_density(1) > ZERO)
+      density_in_atom = (mat % density > ZERO)
 
-       sum_percent = ZERO
-       do j = 1, mat % n_nuclides
-          ! determine atomic weight ratio
-          index_list = dict_get_key(xs_listing_dict, mat % names(j))
+      sum_percent = ZERO
+      do j = 1, mat % n_nuclides
+        ! determine atomic weight ratio
+        index_list = xs_listing_dict % get_key(mat % names(j))
+        awr = xs_listings(index_list) % awr
+
+        ! if given weight percent, convert all values so that they are divided
+        ! by awr. thus, when a sum is done over the values, it's actually
+        ! sum(w/awr)
+        if (.not. percent_in_atom) then
+          mat % atom_density(j) = -mat % atom_density(j) / awr
+        end if
+      end do
+
+      ! determine normalized atom percents. if given atom percents, this is
+      ! straightforward. if given weight percents, the value is w/awr and is
+      ! divided by sum(w/awr)
+      sum_percent = sum(mat % atom_density)
+      mat % atom_density = mat % atom_density / sum_percent
+
+      ! Change density in g/cm^3 to atom/b-cm. Since all values are now in atom
+      ! percent, the sum needs to be re-evaluated as 1/sum(x*awr)
+      if (.not. density_in_atom) then
+        sum_percent = ZERO
+        do j = 1, mat % n_nuclides
+          index_list = xs_listing_dict % get_key(mat % names(j))
           awr = xs_listings(index_list) % awr
+          x = mat % atom_density(j)
+          sum_percent = sum_percent + x*awr
+        end do
+        sum_percent = ONE / sum_percent
+        mat % density = -mat % density * N_AVOGADRO & 
+             / MASS_NEUTRON * sum_percent
+      end if
 
-          ! if given weight percent, convert all values so that they are divided
-          ! by awr. thus, when a sum is done over the values, it's actually
-          ! sum(w/awr)
-          if (.not. percent_in_atom) then
-             mat % atom_density(j) = -mat % atom_density(j) / awr
-          end if
-       end do
-
-       ! determine normalized atom percents. if given atom percents, this is
-       ! straightforward. if given weight percents, the value is w/awr and is
-       ! divided by sum(w/awr)
-       sum_percent = sum(mat % atom_density)
-       mat % atom_density = mat % atom_density / sum_percent
-
-       ! Change density in g/cm^3 to atom/b-cm. Since all values are now in atom
-       ! percent, the sum needs to be re-evaluated as 1/sum(x*awr)
-       if (.not. density_in_atom) then
-          sum_percent = ZERO
-          do j = 1, mat % n_nuclides
-             index_list = dict_get_key(xs_listing_dict, mat % names(j))
-             awr = xs_listings(index_list) % awr
-             x = mat % atom_density(j)
-             sum_percent = sum_percent + x*awr
-          end do
-          sum_percent = ONE / sum_percent
-          mat % density = -mat % density * N_AVOGADRO & 
-               / MASS_NEUTRON * sum_percent
-       end if
-
-       ! Calculate nuclide atom densities
-       mat % atom_density = mat % density * mat % atom_density
+      ! Calculate nuclide atom densities
+      mat % atom_density = mat % density * mat % atom_density
     end do
 
   end subroutine normalize_ao
@@ -721,8 +685,10 @@ contains
     n_scores = 0
     do i = 1, n_tallies
        server_global_index(i) = n_scores + 1
-       n_scores = n_scores + tallies(i) % n_total_bins * &
-            tallies(i) % n_score_bins * tallies(i) % n_nuclide_bins
+       n_scores = n_scores + tallies(i) % total_filter_bins * &
+            tallies(i) % total_score_bins
+       max_server_send = max(max_server_send, tallies(i) % &
+            total_score_bins + n_servers)
     end do
 
     ! Determine support ratio
@@ -755,14 +721,14 @@ contains
                scores_per_server)
        end if
 
-       ! allocate TallyScore objects for each server
+       ! allocate TallyResult objects for each server
        allocate(server_scores(n_server_scores))
     end if
 
   end subroutine initialize_servers
 
 !===============================================================================
-! CALCULATE_WORK
+! CALCULATE_WORK determines how many particles each processor should simulate
 !===============================================================================
 
   subroutine calculate_work()
@@ -792,8 +758,8 @@ contains
 
     ! Check for allocation errors 
     if (alloc_err /= 0) then
-       message = "Failed to allocate source bank."
-       call fatal_error()
+      message = "Failed to allocate source bank."
+      call fatal_error()
     end if
 
     ! Allocate fission bank
@@ -801,8 +767,8 @@ contains
 
     ! Check for allocation errors 
     if (alloc_err /= 0) then
-       message = "Failed to allocate fission bank."
-       call fatal_error()
+      message = "Failed to allocate fission bank."
+      call fatal_error()
     end if
 
   end subroutine allocate_banks

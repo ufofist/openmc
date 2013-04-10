@@ -37,16 +37,19 @@ Overview of Files
 -----------------
 
 To assemble a complete model for OpenMC, one needs to create separate XML files
-for the geometry, materials, and settings. Additionally, there are two optional
+for the geometry, materials, and settings. Additionally, there are three optional
 input files. The first is a tallies XML file that specifies physical quantities
 to be tallied. The second is a plots XML file that specifies regions of geometry
-which should be plotted. OpenMC expects that these files are called:
+which should be plotted. The third is a CMFD XML file that specifies coarse mesh
+acceleration geometry and execution parameters. OpenMC expects that these 
+files are called:
 
 * ``geometry.xml``
 * ``materials.xml``
 * ``settings.xml``
 * ``tallies.xml``
 * ``plots.xml``
+* ``cmfd.xml``
 
 --------------------------------------
 Settings Specification -- settings.xml
@@ -59,43 +62,12 @@ settings.xml file.
 ----------------------------------
 
 The ``<confidence_intervals>`` element has no attributes and has an accepted
-value of "on" or "off". If set to "on", uncertainties on tally results will be
-reported as the half-width of the 95% two-sided confidence interval. If set to
-"off", uncertainties on tally results will be reported as the sample standard
-deviation.
+value of "true" or "false". If set to "true", uncertainties on tally results
+will be reported as the half-width of the 95% two-sided confidence interval. If
+set to "false", uncertainties on tally results will be reported as the sample
+standard deviation.
 
-  *Default*: off
-
-``<criticality>`` Element
--------------------------
-
-The ``<criticality>`` element indicates that a criticality calculation should be
-performed. It has the following attributes/sub-elements:
-
-  :batches: 
-    The total number of batches, where each batch corresponds to multiple
-    fission source iterations. Batching is done to eliminate correlation between
-    realizations of random variables.
-
-    *Default*: None
-
-  :generations_per_batch:
-    The number of total fission source iterations per batch.
-
-    *Default*: 1
-
-  :inactive:
-    The number of inactive batches. In general, the starting cycles in a
-    criticality calculation can not be used to contribute to tallies since the
-    fission source distribution and eigenvalue are generally not converged
-    immediately.
-
-    *Default*: None
-
-  :particles:
-    The number of neutrons to simulate per fission source iteration.
-
-    *Default*: None
+  *Default*: false
 
 .. _cross_sections:
 
@@ -126,6 +98,37 @@ default. This element has the following attributes/sub-elements:
     roulette.
 
     *Default*: 1.0
+
+``<eigenvalue>`` Element
+------------------------
+
+The ``<eigenvalue>`` element indicates that a :math:`k`-eigenvalue calculation
+should be performed. It has the following attributes/sub-elements:
+
+  :batches: 
+    The total number of batches, where each batch corresponds to multiple
+    fission source iterations. Batching is done to eliminate correlation between
+    realizations of random variables.
+
+    *Default*: None
+
+  :generations_per_batch:
+    The number of total fission source iterations per batch.
+
+    *Default*: 1
+
+  :inactive:
+    The number of inactive batches. In general, the starting cycles in a
+    criticality calculation can not be used to contribute to tallies since the
+    fission source distribution and eigenvalue are generally not converged
+    immediately.
+
+    *Default*: None
+
+  :particles:
+    The number of neutrons to simulate per fission source iteration.
+
+    *Default*: None
 
 ``<energy_grid>`` Element
 -------------------------
@@ -182,14 +185,14 @@ performed. It has the following attributes/sub-elements:
 ``<no_reduce>`` Element
 -----------------------
 
-The ``<no_reduce>`` element has no attributes and has an accepted value of "on"
-or "off". If set to "on", all user-defined tallies and global tallies will not
-be reduced across processors in a parallel calculation. This means that the
-accumulate score in one batch on a single processor is considered as an
+The ``<no_reduce>`` element has no attributes and has an accepted value of
+"true" or "false". If set to "true", all user-defined tallies and global tallies
+will not be reduced across processors in a parallel calculation. This means that
+the accumulate score in one batch on a single processor is considered as an
 independent realization for the tally random variable. For a problem with large
 tally data, this option can significantly improve the parallel efficiency.
 
-  *Default*: off
+  *Default*: false
 
 ``<output>`` Element
 --------------------
@@ -214,9 +217,18 @@ sections summary file to be written, this element should be given as:
 
 The ``<ptables>`` element determines whether probability tables should be used
 in the unresolved resonance range if available. This element has no attributes
-or sub-elements and can be set to either "off" or "on".
+or sub-elements and can be set to either "false" or "true".
 
-  *Default*: on
+  *Default*: true
+
+``<run_cmfd>`` Element
+----------------------
+
+The ``<run_cmfd>`` element indicates whether or not CMFD acceleration should be
+turned on or off. This element has no attributes or sub-elements and can be set
+to either "false" or "true".
+
+  *Defualt*: false
 
 ``<seed>`` Element
 ------------------
@@ -337,20 +349,26 @@ attributes/sub-elements:
     *Default*: None
 
   :source_separate:
-    If this element is set to "on", a separate binary source file will be
+    If this element is set to "true", a separate binary source file will be
     written. Otherwise, the source sites will be written in the state point
     directly.
 
-    *Default*: "off"
+    *Default*: false
+
+  :source_write: If this element is set to "false", source sites are not written
+    to the state point file. This can substantially reduce the size of state
+    points if large numbers of particles per batch are used.
+
+    *Default*: true
 
 ``<survival_biasing>`` Element
 ------------------------------
 
 The ``<survival_biasing>`` element has no attributes and has an accepted value
-of "on" or "off". If set to "on", this option will enable the use of survival
-biasing, otherwise known as implicit capture or absorption.
+of "true" or "false". If set to "true", this option will enable the use of
+survival biasing, otherwise known as implicit capture or absorption.
 
-  *Default*: off
+  *Default*: false
 
 .. _trace:
 
@@ -454,6 +472,8 @@ could be written as:
 
     </geometry>
 
+.. _surface_element:
+
 ``<surface>`` Element
 ---------------------
 
@@ -518,6 +538,21 @@ The following quadratic surfaces can be modeled:
   :sphere:
     A sphere of the form :math:`(x - x_0)^2 + (y - y_0)^2 + (z - z_0)^2 =
     R^2`. The coefficients specified are ":math:`x_0 \: y_0 \: z_0 \: R`".
+
+  :x-cone:
+    A cone parallel to the x-axis of the form :math:`(y - y_0)^2 + (z - z_0)^2 =
+    R^2 (x - x_0)^2`. The coefficients specified are ":math:`x_0 \: y_0 \: z_0
+    \: R^2`".
+
+  :y-cone:
+    A cone parallel to the y-axis of the form :math:`(x - x_0)^2 + (z - z_0)^2 =
+    R^2 (y - y_0)^2`. The coefficients specified are ":math:`x_0 \: y_0 \: z_0
+    \: R^2`".
+
+  :z-cone:
+    A cone parallel to the x-axis of the form :math:`(x - x_0)^2 + (y - y_0)^2 =
+    R^2 (z - z_0)^2`. The coefficients specified are ":math:`x_0 \: y_0 \: z_0
+    \: R^2`".
 
 ``<cell>`` Element
 ------------------
@@ -662,6 +697,26 @@ Each ``material`` element can have the following attributes or sub-elements:
 
     *Default*: None
 
+  :element:
+
+    Specifies that a natural element is present in the material. The natural
+    element is split up into individual isotopes based on IUPAC Isotopic
+    Compositions of the Elements 1997. This element has attributes/sub-elements
+    called ``name``, ``xs``, and ``ao``. The ``name`` attribute is the atomic
+    symbol of the element while the ``xs`` attribute is the cross-section
+    identifier. Finally, the ``ao`` attribute specifies the atom percent of the
+    element within the material, respectively. One example would be as follows:
+
+    .. code-block:: xml
+
+        <element name="Al" ao="8.7115e-03" />
+        <element name="Mg" ao="1.5498e-04" />
+        <element name="Mn" ao="2.7426e-05" />
+        <element name="Cu" ao="1.6993e-04" />
+
+    *Default*: None
+
+
   :sab:
     Associates an S(a,b) table with the material. This element has
     attributes/sub-elements called ``name`` and ``xs``. The ``name`` attribute
@@ -732,8 +787,8 @@ The ``<tally>`` element accepts the following sub-elements:
     *Default*: total
 
   :scores:
-    The desired responses to be accumulated. See below for full details on what
-    responses can be tallied.
+    The desired responses to be accumulated. See below for full details on the
+    responses which be tallied.
 
 The following filters can be specified for a tally:
 
@@ -778,22 +833,26 @@ The following responses can be tallied.
     Total reaction rate
 
   :scatter:
-    Total scattering rate
+    Total scattering rate. Can also be identified with the ``scatter-0``
+    response type.
 
   :nu-scatter:
     Total production of neutrons due to scattering. This accounts for
     multiplicity from (n,2n), (n,3n), and (n,4n) reactions and should be
     slightly higher than the scattering rate.
 
-  :scatter-1:
-    First scattering moment
-
-  :scatter-2:
-    Second scattering moment
-
-  :scatter-3:
-    Third scattering moment
-
+  :scatter-N:
+    Tally the N\ :sup:`th` \ scattering moment, where N is the Legendre expansion order.
+    N must be between 0 and 10. As an example, tallying the 2\ :sup:`nd` \ scattering 
+    moment would be specified as ``<scores> scatter-2 </scores>``.
+  
+  :scatter-PN:
+    Tally all of the scattering moments from order 0 to N, where N is 
+    the Legendre expansion order.  That is, ``scatter-P1`` is equivalent
+    to requesting tallies of ``scatter-0`` and ``scatter-1``.  
+    N must be between 0 and 10. As an example, tallying up to the 2\ :sup:`nd` \
+    scattering moment would be specified as ``<scores> scatter-P2 </scores>``.
+    
   :absorption:
     Total absorption rate. This accounts for all reactions which do not produce
     secondary neutrons.
@@ -803,6 +862,17 @@ The following responses can be tallied.
 
   :nu-fission:
     Total production of neutrons due to fission
+    
+  :kappa-fission:
+    The recoverable energy production rate due to fission. The recoverable
+    energy is defined as the fission product kinetic energy, prompt and delayed neutron
+    kinetic energies, prompt and delayed :math:`\gamma`-ray total energies,
+    and the total energy released by the delayed :math:`\beta` particles. The 
+    neutrino energy does not contribute to this response. The prompt and delayed 
+    :math:`\gamma`-rays are assumed to deposit their energy locally.
+
+  :events:
+    Number of scoring events
 
 ``<mesh>`` Element
 ------------------
@@ -832,12 +902,12 @@ In cases where the user needs to specify many different tallies each of which
 are spatially separate, this tag can be used to cut down on some of the tally
 overhead. The effect of assuming all tallies are spatially separate is that once
 one tally is scored to, the same event is assumed not to score to any other
-tallies. This element should be followed by "yes" or "no"
+tallies. This element should be followed by "true" or "false"
 
   .. warning:: If used incorrectly, the assumption that all tallies are spatially
     separate can lead to incorrect results.
 
-  *Default*: no
+  *Default*: false
 
 --------------------------------------------
 Geometry Plotting Specification -- plots.xml
@@ -938,6 +1008,13 @@ sub-elements:
       Specifies the custom color for the cell or material.  Should be 3 integers separated
       by spaces.
 
+    As an example, if your plot is colored by material and you want material 23
+    to be blue, the corresponding ``col_spec`` element would look like:
+
+    .. code-block:: xml
+
+        <col_spec id="23" rgb="0 0 255" />
+
     *Default*: None
 
   :mask:
@@ -955,3 +1032,184 @@ sub-elements:
       materials to plot.  This overrides any ``col_spec`` color specifications.
 
     *Default*: None
+
+------------------------------
+CMFD Specification -- cmfd.xml
+------------------------------
+    
+Coarse mesh finite difference acceleration method has been implemented in OpenMC.
+Currently, it allows users to accelerate fission source convergence during 
+inactive neutron batches. To run CMFD, the ``<run_cmfd>`` element in 
+``settings.xml`` should be set to "true".
+
+``<active_flush>`` Element
+--------------------------
+
+The ``<active_flush>`` element controls the batch where CMFD tallies should be
+reset. CMFD tallies should be reset before active batches so they are accumulated 
+without bias.
+
+  *Default*: 0 
+
+``<begin>`` Element
+-------------------
+
+The ``<begin>`` element controls what batch CMFD calculations should begin.
+
+  *Default*: 1
+
+``<feedback>`` Element
+----------------------
+
+The ``<feedback>`` element controls whether or not the CMFD diffusion result is
+used to adjust the weight of fission source neutrons on the next OpenMC batch.
+It can be turned on with "true" and off with "false".
+
+  *Default*: false
+
+``<inactive>`` Element
+----------------------
+
+The ``<inactive>`` element controls if cmfd tallies should be accumulated 
+during inactive batches. For some applications, CMFD tallies may not be 
+needed until the start of active batches. This option can be turned on 
+with "true" and off with "false"
+
+  *Default*: true
+
+``<keff_tol>`` Element
+----------------------
+
+The ``<keff_tol>`` element specifies acceptance criteria of a CMFD eigenvalue.
+If the CMFD eigenvalue and OpenMC batch eigenvalue are within this tolerance, 
+CMFD is allowed to modify source neutron weights. 
+
+  *Default*: 0.005
+
+``<ksp_monitor>`` Element
+-------------------------
+
+The ``<ksp_monitor>`` element is used to view the convergence of linear GMRES 
+iterations in PETSc. This option can be turned on with "true" and turned off 
+with "false".
+
+
+  *Default*: false 
+
+``<mesh>`` Element
+------------------
+
+If a structured mesh is desired as a filter for a tally, it must be specified in
+a separate element with the tag name ``<mesh>``. This element has the following
+attributes/sub-elements:
+
+  :type:
+    The type of structured mesh. Only "rectangular" is currently supported.
+
+  :lower_left:
+    The lower-left corner of the structured mesh. If only two coordinate are
+    given, it is assumed that the mesh is an x-y mesh.
+
+  :upper_right:
+    The upper-right corner of the structrued mesh. If only two coordinate are 
+    given, it is assumed that the mesh is an x-y mesh.
+
+  :dimension:
+    The number of mesh cells in each direction.
+
+  :width:
+    The width of mesh cells in each direction.
+
+  :energy:
+    Energy bins [in MeV], listed in ascending order (e.g. 0.0 0.625e-7 20.0)
+    for CMFD tallies and acceleration. If no energy bins are listed, OpenMC 
+    automatically assumes a one energy group calculation over the entire 
+    energy range.
+
+  :albedo:
+    Surface ratio of incoming to outgoing partial currents on global boundary
+    conditions. They are listed in the following order: -x +x -y +y -z +z.
+
+    *Default*: 1.0 1.0 1.0 1.0 1.0 1.0
+
+  :map:
+    An optional acceleration map can be specified to overlay on the coarse 
+    mesh spatial grid. If this option is used a ``1`` is used for a 
+    non-accelerated region and a ``2`` is used for an accelerated region.
+    For a simple 4x4 coarse mesh with a 2x2 fuel lattice surrounded by 
+    reflector, the map is:
+
+      ``1 1 1 1``
+
+      ``1 2 2 1``
+
+      ``1 2 2 1``
+
+      ``1 1 1 1``
+
+    Therefore a 2x2 system of equations is solved rather than a 4x4. This 
+    is extremely important to use in reflectors as neutrons will not 
+    contribute to any tallies far away from fission source neutron regions.
+    A ``2`` must be used to identify any fission source region.
+
+    .. note:: Only two of the following three sub-elements are needed: 
+              ``lower_left``, ``upper_right`` and ``width``. Any combination 
+              of two of these will yield the third.
+
+``<norm>`` Element
+------------------
+
+The ``<norm>`` element is used to normalize the CMFD fission source distribution 
+to a particular value. For example, if a fission source is calculated for a 
+17 x 17 lattice of pins, the fission source may be normalized to the number of 
+fission source regions, in this case 289. This is useful when visualizing this 
+distribution as the average peaking factor will be unity. This parameter will 
+not impact the calculation. 
+
+  *Default*: 1.0
+
+``<n_procs_cmfd>`` Element
+--------------------------
+
+The ``<n_procs_cmfd>`` element is used to set the number of processors used 
+for CMFD calculation. It should be less than or equal to the number of 
+processors used during OpenMC. 
+
+  *Default*: 1
+
+``<power_monitor>`` Element
+---------------------------
+
+The ``<power_monitor>`` element is used to view the convergence of power iteration. 
+This option can be turned on with "true" and turned off with "false".
+
+
+  *Default*: false
+
+``<write_balance>`` Element
+---------------------------
+
+The ``<write_balance>`` element is used to view the balance of OpenMC tally
+residuals for every coarse mesh region and energy group. This option can be 
+turned on with "true" and off with "false". 
+
+
+  *Default*: false
+
+``<write_hdf5>`` Element
+------------------------
+
+The ``<write_hdf5>`` element can be turned on with "true" to get an 
+HDF5 output file of CMFD results. 
+
+  *Default*: false
+
+``<write_matrices>`` Element
+----------------------------
+
+The ``<write_matrices>`` element is used to view the PETSc sparse matrices
+created when solving CMFD equations. These binary output files can be imported
+into MATLAB using PETSc-MATLAB utilities. This option can be
+turned on with "true" and off with "false".
+
+  *Default*: false

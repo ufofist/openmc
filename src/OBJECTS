@@ -2,11 +2,22 @@ objects = \
 ace.o \
 ace_header.o \
 bank_header.o \
+cmfd_data.o \
+cmfd_execute.o \
+cmfd_header.o \
+cmfd_input.o \
+cmfd_jacobian_operator.o \
+cmfd_loss_operator.o \
+cmfd_message_passing.o \
+cmfd_output.o \
+cmfd_power_solver.o \
+cmfd_prod_operator.o \
+cmfd_snes_solver.o \
+constants.o \
 cross_section.o \
-criticality.o \
-datatypes.o \
-datatypes_header.o \
+dict_header.o \
 doppler.o \
+eigenvalue.o \
 endf.o \
 endf_header.o \
 energy_grid.o \
@@ -19,9 +30,9 @@ geometry_header.o \
 global.o \
 hdf5_interface.o \
 initialize.o \
-intercycle.o \
 interpolation.o \
 input_xml.o \
+list_header.o \
 main.o \
 material_header.o \
 math.o \
@@ -35,10 +46,12 @@ plot_header.o \
 ppmlib.o \
 random_lcg.o \
 search.o \
+set_header.o \
 source.o \
 source_header.o \
 state_point.o \
 string.o \
 tally.o \
 tally_header.o \
-timing.o
+tally_initialize.o \
+timer_header.o
