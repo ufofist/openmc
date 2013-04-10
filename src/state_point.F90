@@ -1125,8 +1125,6 @@ contains
     integer :: size_offset_kind        ! size of MPI_OFFSET_KIND (bytes)
     integer(MPI_OFFSET_KIND) :: offset ! offset in memory (0=beginning of file)
 
-    print *, rank, compute_rank, 'writing state point'
-
     ! Set current batch to last batch
     current_batch = n_batches
 
@@ -1145,6 +1143,16 @@ contains
 
        ! Write header information
        call write_state_point_header(fh)
+
+       ! Write number of realizations
+       call MPI_FILE_WRITE(fh, n_realizations, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Write global tallies
+       call MPI_FILE_WRITE(fh, N_GLOBAL_TALLIES, 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_WRITE(fh, global_tallies, N_GLOBAL_TALLIES, &
+            MPI_TALLYRESULT, MPI_STATUS_IGNORE, mpi_err)
 
        ! Write tallies present flag
        temp = 1

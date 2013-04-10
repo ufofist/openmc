@@ -57,8 +57,10 @@ module constants
        K_BOLTZMANN  = 8.617342e-11,      & ! Boltzmann constant in MeV/K
        INFINITY     = huge(0.0_8),       & ! positive infinity
        ZERO         = 0.0_8,             &
+       HALF         = 0.5_8,             &
        ONE          = 1.0_8,             &
-       TWO          = 2.0_8
+       TWO          = 2.0_8,             &
+       THREE        = 3.0_8
 
   ! ============================================================================
   ! GEOMETRY-RELATED CONSTANTS
@@ -305,8 +307,9 @@ module constants
 
   ! Tally server signals
   real(8), parameter :: &
-       SERVER_END_BATCH = -ONE, &
-       SERVER_END_RUN   = -TWO
+       SERVER_END_BATCH   = -ONE, &
+       SERVER_END_RUN     = -TWO, &
+       SERVER_STATE_POINT = -THREE
 
   ! ============================================================================
   ! EXTERNAL SOURCE PARAMETERS

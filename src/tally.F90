@@ -12,6 +12,7 @@ module tally
   use output,           only: header
   use particle_header,  only: LocalCoord
   use search,           only: binary_search
+  use state_point,      only: server_create_state_point
   use string,           only: to_str
   use tally_header,     only: TallyResult, TallyMapItem, TallyMapElement
 
@@ -2143,8 +2144,8 @@ contains
 
     ! Check that global_index is within the total number of scores
     if (global_index < 1 .or. global_index > n_scores) then
-       message = "Global tally index out of bounds."
-       call fatal_error()
+      message = "Global tally index out of bounds."
+      call fatal_error()
     end if
 
     ! Determine rank of server to send data to
@@ -2156,26 +2157,26 @@ contains
     j = 0
 
     do while (i < n)
-       ! Add global_index to send buffer
-       buffer(j+1) = real(global_index,8)
-       j = j + 1
+      ! Add global_index to send buffer
+      buffer(j+1) = real(global_index,8)
+      j = j + 1
 
-       ! Determine number of scores to send
-       n_send = min((server_rank/support_ratio + 1)*scores_per_server + 1, &
-            finish) - global_index
+      ! Determine number of scores to send
+      n_send = min((server_rank/support_ratio + 1)*scores_per_server + 1, &
+           finish) - global_index
 
-       ! Add score values to send buffer
-       buffer(j+1:j+n_send) = scores(i+1:i+n_send)
+      ! Add score values to send buffer
+      buffer(j+1:j+n_send) = scores(i+1:i+n_send)
 
 !!$       call MPI_ISEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
 !!$            MPI_COMM_WORLD, request, mpi_err)
-       call MPI_SEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
-            MPI_COMM_WORLD, request, mpi_err)
+      call MPI_SEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+           MPI_COMM_WORLD, request, mpi_err)
 
-       i = i + n_send
-       j = j + n_send
-       global_index = global_index + n_send
-       server_rank = server_rank + support_ratio
+      i = i + n_send
+      j = j + n_send
+      global_index = global_index + n_send
+      server_rank = server_rank + support_ratio
     end do
 
   end subroutine send_to_server
@@ -2191,21 +2192,16 @@ contains
     real(8) :: server_signal(2)
 
     ! Tell the server whether this is the end of a batch or the entire run
-    if (current_batch == n_batches) then
-       server_signal(1) = SERVER_END_RUN
-    else
-       server_signal(1) = SERVER_END_BATCH
-    end if
+    server_signal(1) = SERVER_END_BATCH
 
     ! Server needs the total weight to accumulate tallies
     server_signal(2) = total_weight
 
     ! Send the signal to each server
     do i = 1, n_servers
-       server_rank = i * support_ratio - 1
-       print *, 'send server signal to', server_rank
-       call MPI_SEND(server_signal, 2, MPI_REAL8, server_rank, 0, &
-            MPI_COMM_WORLD, mpi_err)
+      server_rank = i * support_ratio - 1
+      call MPI_SEND(server_signal, 2, MPI_REAL8, server_rank, 0, &
+           MPI_COMM_WORLD, mpi_err)
     end do
 
   end subroutine send_server_signal
@@ -2224,43 +2220,59 @@ contains
     real(8) :: score_data(max_server_send)
 
     do
-       ! Receive data from any compute processor
-       call MPI_RECV(score_data, max_server_send, MPI_REAL8, MPI_ANY_SOURCE, &
-            MPI_ANY_TAG, MPI_COMM_WORLD, status, mpi_err)
+      ! Receive data from any compute processor
+      call MPI_RECV(score_data, max_server_send, MPI_REAL8, MPI_ANY_SOURCE, &
+           MPI_ANY_TAG, MPI_COMM_WORLD, status, mpi_err)
 
-       ! Determine how much data was sent
-       call MPI_GET_COUNT(status, MPI_REAL8, n, mpi_err)
+      ! Determine how much data was sent
+      call MPI_GET_COUNT(status, MPI_REAL8, n, mpi_err)
 
-       ! Check for end of batch
-       if (score_data(1) == SERVER_END_BATCH) then
-         print *, rank, 'server end batch'
-          n_realizations = n_realizations + 1
-          total_weight = score_data(2)
-          call accumulate_result(server_scores)
-          cycle
-       elseif (score_data(1) == SERVER_END_RUN) then
-          n_realizations = n_realizations + 1
-          total_weight = score_data(2)
-          call accumulate_result(server_scores)
-          exit
-       end if
+      ! Check for end of batch
+      if (score_data(1) == SERVER_END_BATCH) then
+        n_realizations = n_realizations + 1
+        total_weight = score_data(2)
+        call accumulate_result(server_scores)
+        cycle
+      elseif (score_data(1) == SERVER_END_RUN) then
+        n_realizations = n_realizations + 1
+        total_weight = score_data(2)
+        call accumulate_result(server_scores)
+        exit
+      elseif (score_data(1) == SERVER_STATE_POINT) then
+        ! Since the first server also needs to write global tallies to the state
+        ! point, it first needs to receive some data from a compute process
+        if (compute_rank == 0) then
+          ! Get k_batch and entropy from master processor
+          call MPI_RECV(k_batch, n_batches, MPI_REAL8, 0, &
+               0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+          call MPI_RECV(entropy, n_batches, MPI_REAL8, 0, &
+               0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+          call MPI_RECV(global_tallies, N_GLOBAL_TALLIES, &
+               MPI_TALLYRESULT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, &
+               mpi_err)
+        end if
 
-       ! Determine starting global index
-       global_index = nint(score_data(1))
+        ! create state point
+        call server_create_state_point()
+        cycle
+      end if
 
-       ! Determine local index
-       local_index = global_index - int((global_index - 1)/scores_per_server) &
-            * scores_per_server
+      ! Determine starting global index
+      global_index = nint(score_data(1))
 
-       ! Check for local index out of bounds
-       if (local_index < 1 .or. local_index > scores_per_server) then
-          message = "Local index on tally server out of bounds."
-          call fatal_error()
-       end if
+      ! Determine local index
+      local_index = global_index - int((global_index - 1)/scores_per_server) &
+           * scores_per_server
 
-       ! Add scores to tallies
-       server_scores(local_index:local_index+n-2) % value = &
-            server_scores(local_index:local_index+n-2) % value + score_data(2:n)
+      ! Check for local index out of bounds
+      if (local_index < 1 .or. local_index > scores_per_server) then
+        message = "Local index on tally server out of bounds."
+        call fatal_error()
+      end if
+
+      ! Add scores to tallies
+      server_scores(local_index:local_index+n-2) % value = &
+           server_scores(local_index:local_index+n-2) % value + score_data(2:n)
     end do
 
   end subroutine server_listen

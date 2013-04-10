@@ -169,6 +169,10 @@ contains
 
   subroutine finalize_batch()
 
+    integer :: i
+    integer :: server_rank
+    real(8) :: server_signal
+
     ! Collect tallies
     call time_tallies % start()
     call synchronize_tallies()
@@ -189,31 +193,23 @@ contains
       if (master) call calculate_combined_keff()
 
       if (use_servers) then
-        if (server) then
-          if (compute_rank == 0) then
-            ! Get k_batch and entropy from master processor
-            call MPI_RECV(k_batch, n_batches, MPI_REAL8, 0, &
-                 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
-            call MPI_RECV(entropy, n_batches, MPI_REAL8, 0, &
-                 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
-            call MPI_RECV(global_tallies, N_GLOBAL_TALLIES, &
-                 MPI_TALLYRESULT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, &
-                 mpi_err)
-          end if
+        if (master) then
+          ! Send each server a message telling it to write a state point
+          server_signal = SERVER_STATE_POINT
+          do i = 1, n_servers
+            server_rank = i*support_ratio - 1
+            call MPI_SEND(server_signal, 1, MPI_REAL8, server_rank, 0, &
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+          end do
 
-          ! Write state point
-          call server_create_state_point()
-        elseif (master) then
           ! Send k_batch, entropy, and global tallies to first server
           call MPI_SEND(k_batch, n_batches, MPI_REAL8, support_ratio - 1, &
                0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
           call MPI_SEND(entropy, n_batches, MPI_REAL8, support_ratio - 1, &
                0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
           call MPI_SEND(global_tallies, N_GLOBAL_TALLIES, MPI_TALLYRESULT, &
-               support_ratio - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, &
-               mpi_err)
+               support_ratio - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
         end if
-
       else
         ! Create state point file
 #ifdef HDF5
@@ -228,6 +224,17 @@ contains
       ! Make sure combined estimate of k-effective is calculated at the last
       ! batch in case no state point is written
       call calculate_combined_keff()
+
+      ! If we've reached the end of the run, indicate to the servers that they
+      ! can shut down
+      if (use_servers) then
+        server_signal = SERVER_END_RUN
+        do i = 1, n_servers
+          server_rank = i*support_ratio - 1
+          call MPI_SEND(server_signal, 1, MPI_REAL8, server_rank, 0, &
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE, mpi_err)
+        end do
+      end if
     end if
 
   end subroutine finalize_batch
