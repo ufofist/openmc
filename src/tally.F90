@@ -2234,9 +2234,6 @@ contains
         call accumulate_result(server_scores)
         cycle
       elseif (score_data(1) == SERVER_END_RUN) then
-        n_realizations = n_realizations + 1
-        total_weight = score_data(2)
-        call accumulate_result(server_scores)
         exit
       elseif (score_data(1) == SERVER_STATE_POINT) then
         ! Since the first server also needs to write global tallies to the state
