@@ -29,7 +29,7 @@ contains
     ! Start finalization timer
     call time_finalize % start()
 
-    if (run_mode /= MODE_PLOTTING) then
+    if (run_mode /= MODE_PLOTTING .and. run_mode /= MODE_PARTICLE) then
       ! Calculate statistics for tallies and write to tallies.out
       if (use_servers) then
         call statistics_result(global_tallies, n_realizations)
@@ -50,7 +50,8 @@ contains
     call time_finalize % stop()
     call time_total % stop()
     if (master .and. (run_mode /= MODE_PLOTTING .and. &
-         run_mode /= MODE_TALLIES)) then
+         run_mode /= MODE_TALLIES .and. &
+         run_mode /= MODE_PARTICLE)) then
       call print_runtime()
       call print_results()
     end if
