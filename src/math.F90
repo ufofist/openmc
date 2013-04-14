@@ -1,8 +1,18 @@
 module math
 
   use constants, only: PI, HALF, ONE, TWO, THREE, ICMPLX
+  use ISO_C_BINDING
 
   implicit none
+
+  ! This interface is used to link to the w_of_z function from libcerf
+  interface
+    function w_of_z(z) bind(C)
+      use ISO_C_BINDING
+      complex(C_DOUBLE_COMPLEX), value :: z
+      complex(C_DOUBLE_COMPLEX) :: w_of_z
+    end function w_of_z
+  end interface
 
   complex(8) :: w_tabulated(-1:60,-1:60)
 
@@ -188,6 +198,14 @@ contains
     real(8) :: a, b, c, d  ! asymptotic expansion parameters
     integer :: l           ! interpolation index for real axis
     integer :: m           ! interpolation index for imaginary axis
+    logical, save :: first_entry = .true. ! first time entering function? 
+
+    ! Check if this is the first time this function has been called. If so,
+    ! pre-compute the w function on a 62x62 grid to be used for interpolation
+    if (first_entry) then
+      call initialize_w_tabulated()
+      first_entry = .false.
+    end if
 
     if (abs(z) < 6.) then
       ! Use interpolation for |z| < 6. The interpolation scheme uses a bivariate
@@ -246,5 +264,31 @@ contains
     end if
 
   end function w_function
+
+!===============================================================================
+! INITIALIZE_W_TABULATED calculates the Faddeeva function on a 62 x 62 grid
+! using libcerf which is based on Faddeeva package
+! (http://ab-initio.mit.edu/wiki/index.php/Faddeeva_Package). The implementation
+! has accuracy of at least 13 significant digits.
+!===============================================================================
+
+  subroutine initialize_w_tabulated()
+
+    integer                   :: i, j      ! loop indices
+    real(C_DOUBLE), parameter :: w = 0.1_8 ! width on grid
+    real(C_DOUBLE)            :: x         ! real part
+    real(C_DOUBLE)            :: y         ! imaginary part
+    complex(C_DOUBLE_COMPLEX) :: z         ! argument to Faddeeva function
+
+    IM: do j = -1, 60
+      y = w*j
+      RE: do i = -1, 60
+        x = w*i
+        z = cmplx(x,y)
+        w_tabulated(i,j) = w_of_z(z)
+      end do RE
+    end do IM
+
+  end subroutine initialize_w_tabulated
 
 end module math

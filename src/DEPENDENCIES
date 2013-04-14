@@ -244,6 +244,7 @@ main.o: particle_restart.o
 main.o: plot.o
 
 math.o: constants.o
+math.o: libcerf
 
 mesh.o: constants.o
 mesh.o: global.o

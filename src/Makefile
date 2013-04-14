@@ -5,6 +5,7 @@ templates = $(wildcard templates/*.o)
 xml_fort = xml-fortran/xmlparse.o \
            xml-fortran/read_xml_primitives.o \
            xml-fortran/write_xml_primitives.o
+cerf = $(wildcard libcerf/*.o)
 
 #===============================================================================
 # Object Files
@@ -226,11 +227,13 @@ endif
 #===============================================================================
 
 all: xml-fortran $(program)
+libcerf:
+	cd libcerf; make COMPILER=$(COMPILER)
 xml-fortran:
 	cd xml-fortran; make MACHINE=$(MACHINE) F90=$(F90) F90FLAGS="$(F90FLAGS)"
 	cd templates; make F90=$(F90) F90FLAGS="$(F90FLAGS)"
 $(program): $(objects)
-	$(F90) $(objects) $(templates) $(xml_fort) $(LDFLAGS) -o $@
+	$(F90) $(objects) $(templates) $(xml_fort) $(cerf) $(LDFLAGS) -o $@
 install:
 	@install -D $(program) $(DESTDIR)$(prefix)/bin/$(program)
 	@install -D utils/statepoint_cmp.py $(DESTDIR)$(prefix)/bin/statepoint_cmp
@@ -248,6 +251,7 @@ uninstall:
 distclean: clean
 	cd xml-fortran; make clean
 	cd templates; make clean
+	cd libcerf; make clean
 clean:
 	@rm -f *.o *.mod $(program)
 neat:
@@ -258,10 +262,10 @@ neat:
 #===============================================================================
 
 .SUFFIXES: .F90 .o
-.PHONY: all xml-fortran install uninstall clean neat distclean 
+.PHONY: all xml-fortran libcerf install uninstall clean neat distclean 
 
 %.o: %.F90
-	$(F90) $(F90FLAGS) -DGIT_SHA1="\"$(GIT_SHA1)\"" -Ixml-fortran -Itemplates -c $<
+	$(F90) $(F90FLAGS) -DGIT_SHA1="\"$(GIT_SHA1)\"" -Ixml-fortran -Itemplates -Ilibcerf -c $<
 
 #===============================================================================
 # Dependencies
