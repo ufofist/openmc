@@ -1,13 +1,14 @@
 program main
 
   use constants
-  use depletion,    only: run_depletion
-  use eigenvalue,   only: run_eigenvalue
-  use finalize,     only: finalize_run
-  use fixed_source, only: run_fixedsource
+  use depletion,         only: run_depletion
+  use eigenvalue,        only: run_eigenvalue
+  use finalize,          only: finalize_run
+  use fixed_source,      only: run_fixedsource
   use global
-  use initialize,   only: initialize_run
-  use plot,         only: run_plot
+  use initialize,        only: initialize_run
+  use particle_restart,  only: run_particle_restart
+  use plot,              only: run_plot
 
   implicit none
 
@@ -25,6 +26,8 @@ program main
   case (MODE_TALLIES)
     ! For tallies-only mode, we just skip straight to finalize_run to write out
     ! the tally results
+  case (MODE_PARTICLE)
+    if (master) call run_particle_restart()
   case (MODE_DEPLETION)
     call run_depletion()
   end select
