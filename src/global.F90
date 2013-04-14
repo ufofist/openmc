@@ -166,6 +166,7 @@ module global
   integer(8) :: bank_last    ! index of last particle in bank
   integer(8) :: work         ! number of particles per processor
   integer(8) :: maxwork      ! maximum number of particles per processor
+  integer(8) :: current_work ! index in source bank of current history simulated
 
   ! Temporary k-effective values
   real(8), allocatable :: k_batch(:) ! batch estimates of k
@@ -253,10 +254,11 @@ module global
   logical :: restart_run = .false.
   integer :: restart_batch
 
-  character(MAX_FILE_LEN) :: path_input          ! Path to input file
-  character(MAX_FILE_LEN) :: path_cross_sections ! Path to cross_sections.xml
-  character(MAX_FILE_LEN) :: path_source = ''    ! Path to binary source
-  character(MAX_FILE_LEN) :: path_state_point    ! Path to binary state point
+  character(MAX_FILE_LEN) :: path_input            ! Path to input file
+  character(MAX_FILE_LEN) :: path_cross_sections   ! Path to cross_sections.xml
+  character(MAX_FILE_LEN) :: path_source = ''      ! Path to binary source
+  character(MAX_FILE_LEN) :: path_state_point      ! Path to binary state point
+  character(MAX_FILE_LEN) :: path_particle_restart ! Path to particle restart
 
   ! Message used in message/warning/fatal_error
   character(MAX_LINE_LEN) :: message
@@ -273,6 +275,9 @@ module global
   integer    :: trace_batch
   integer    :: trace_gen
   integer(8) :: trace_particle
+
+  ! Particle restart run
+  logical :: particle_restart_run = .false.
 
   ! ============================================================================
   ! CMFD VARIABLES 
@@ -371,11 +376,14 @@ module global
 contains
 
 !===============================================================================
-! FREE_MEMORY deallocates all global allocatable arrays in the program
+! FREE_MEMORY deallocates and clears  all global allocatable arrays in the 
+! program
 !===============================================================================
 
   subroutine free_memory()
-
+    
+    integer :: i ! Loop Index
+    
     ! Deallocate cells, surfaces, materials
     if (allocated(cells)) deallocate(cells)
     if (allocated(universes)) deallocate(universes)
@@ -385,14 +393,27 @@ contains
     if (allocated(plots)) deallocate(plots)
 
     ! Deallocate cross section data, listings, and cache
-    if (allocated(nuclides)) deallocate(nuclides)
+    if (allocated(nuclides)) then
+    ! First call the clear routines
+      do i = 1, size(nuclides)
+        call nuclides(i) % clear()
+      end do
+      deallocate(nuclides)
+    end if
     if (allocated(sab_tables)) deallocate(sab_tables)
     if (allocated(xs_listings)) deallocate(xs_listings)
     if (allocated(micro_xs)) deallocate(micro_xs)
 
     ! Deallocate tally-related arrays
     if (allocated(meshes)) deallocate(meshes)
-    if (allocated(tallies)) deallocate(tallies)
+    if (allocated(tallies)) then
+    ! First call the clear routines
+      do i = 1, size(tallies)
+        call tallies(i) % clear()
+      end do
+      ! Now deallocate the tally array
+      deallocate(tallies)
+    end if
     if (allocated(tally_maps)) deallocate(tally_maps)
 
     ! Deallocate energy grid
@@ -411,7 +432,20 @@ contains
     call active_tracklength_tallies % clear()
     call active_current_tallies % clear()
     call active_tallies % clear()
-
+    
+    ! Deallocate dictionaries
+    call cell_dict % clear()
+    call universe_dict % clear()
+    call lattice_dict % clear()
+    call surface_dict % clear()
+    call material_dict % clear()
+    call mesh_dict % clear()
+    call tally_dict % clear()
+    call plot_dict % clear()
+    call nuclide_dict % clear()
+    call sab_dict % clear()
+    call xs_listing_dict % clear()
+    
   end subroutine free_memory
 
 end module global

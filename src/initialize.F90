@@ -145,6 +145,9 @@ contains
       end if
     end if
 
+    ! check for particle restart run
+    if (particle_restart_run) run_mode = MODE_PARTICLE
+
     ! Stop initialization timer
     call time_initialize % stop()
 
@@ -303,6 +306,11 @@ contains
         case ('-eps_tol', '-ksp_gmres_restart')
           ! Handle options that would be based to PETSC
           i = i + 1
+        case ('-s','-particle','--particle')
+          ! Read in path for particle restart
+          i = i + 1
+          path_particle_restart = argv(i)
+          particle_restart_run = .true.
         case default
           message = "Unknown command line option: " // argv(i)
           call fatal_error()
@@ -400,7 +408,7 @@ contains
       index_cell_in_univ(i_univ) = index_cell_in_univ(i_univ) + 1
       univ % cells(index_cell_in_univ(i_univ)) = i
     end do
-
+    
   end subroutine prepare_universes
 
 !===============================================================================
