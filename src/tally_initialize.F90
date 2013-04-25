@@ -59,7 +59,8 @@ contains
       t % total_score_bins = t % n_score_bins * t % n_nuclide_bins
 
       ! Allocate results array
-      allocate(t % results(t % total_score_bins, t % total_filter_bins))
+      if (.not. use_servers) allocate(t % results(&
+           t % total_score_bins, t % total_filter_bins))
 
     end do TALLY_LOOP
 
