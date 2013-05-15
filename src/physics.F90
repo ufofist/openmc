@@ -790,7 +790,7 @@ contains
     kT = nuc % kT
 
     ! Check if energy is above threshold
-    if (p % E >= FREE_GAS_THRESHOLD * kT) then
+    if (p % E >= FREE_GAS_THRESHOLD * kT .and. nuc % awr > ONE) then
       v_target = ZERO
       return
     end if
@@ -1469,7 +1469,11 @@ contains
       ! read number of interpolation regions and incoming energies 
       NR  = int(edist % data(1))
       NE  = int(edist % data(2 + 2*NR))
-      if (NR > 0) then
+      if (NR == 1) then
+        message = "Assuming linear-linear interpolation when sampling &
+             &continuous tabular distribution"
+        call warning()
+      else if (NR > 1) then
         call write_particle_restart()
         message = "Multiple interpolation regions not supported while &
              &attempting to sample continuous tabular distribution."
