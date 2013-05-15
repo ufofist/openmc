@@ -823,8 +823,6 @@ contains
         j = j + n - 1
       case (SCORE_TRANSPORT)
         string = trim(string) // ' transport'
-      case (SCORE_DIFFUSION)
-        string = trim(string) // ' diffusion'
       case (SCORE_N_1N)
         string = trim(string) // ' n1n'
       case (SCORE_ABSORPTION)
@@ -1079,7 +1077,7 @@ contains
     type(TallyObject), pointer :: t => null()
 
     ! Create filename for log file
-    path = "summary.out"
+    path = trim(path_output) // "summary.out"
 
     ! Open log file for writing
     open(UNIT=UNIT_SUMMARY, FILE=path, STATUS='replace', ACTION='write')
@@ -1179,7 +1177,7 @@ contains
     type(SAlphaBeta), pointer :: sab => null()
 
     ! Create filename for log file
-    path = "cross_sections.out"
+    path = trim(path_output) // "cross_sections.out"
 
     ! Open log file for writing
     open(UNIT=UNIT_XS, FILE=path, STATUS='replace', ACTION='write')
@@ -1310,7 +1308,7 @@ contains
   subroutine print_plot()
 
     integer :: i ! loop index for plots
-    type(PlotSlice), pointer :: pl => null()
+    type(ObjectPlot), pointer :: pl => null()
 
     ! Display header for plotting
     call header("PLOTTING SUMMARY")
@@ -1318,20 +1316,34 @@ contains
     do i = 1, n_plots
       pl => plots(i)
 
-      ! Write plot id
+      ! Plot id
       write(ou,100) "Plot ID:", trim(to_str(pl % id))
+      
+      ! Plot type
+      if (pl % type == PLOT_TYPE_SLICE) then
+        write(ou,100) "Plot Type:", "Slice"
+      else if (pl % type == PLOT_TYPE_VOXEL) then
+        write(ou,100) "Plot Type:", "Voxel"
+      end if
 
-      ! Write plotting origin
+      ! Plot parameters
       write(ou,100) "Origin:", trim(to_str(pl % origin(1))) // &
            " " // trim(to_str(pl % origin(2))) // " " // &
            trim(to_str(pl % origin(3)))
-
-      ! Write plotting width
       if (pl % type == PLOT_TYPE_SLICE) then
-
         write(ou,100) "Width:", trim(to_str(pl % width(1))) // &
              " " // trim(to_str(pl % width(2)))
-        write(ou,100) "Coloring:", trim(to_str(pl % color_by))
+      else if (pl % type == PLOT_TYPE_VOXEL) then
+        write(ou,100) "Width:", trim(to_str(pl % width(1))) // &
+             " " // trim(to_str(pl % width(2))) // &
+             " " // trim(to_str(pl % width(3)))
+      end if
+      if (pl % color_by == PLOT_COLOR_CELLS) then
+        write(ou,100) "Coloring:", "Cells"
+      else if (pl % color_by == PLOT_COLOR_MATS) then
+        write(ou,100) "Coloring:", "Materials"
+      end if
+      if (pl % type == PLOT_TYPE_SLICE) then
         select case (pl % basis)
         case (PLOT_BASIS_XY)
           write(ou,100) "Basis:", "xy"
@@ -1342,6 +1354,9 @@ contains
         end select
         write(ou,100) "Pixels:", trim(to_str(pl % pixels(1))) // " " // &
              trim(to_str(pl % pixels(2)))
+      else if (pl % type == PLOT_TYPE_VOXEL) then
+        write(ou,100) "Voxels:", trim(to_str(pl % pixels(1))) // " " // &
+             trim(to_str(pl % pixels(2))) // " " // trim(to_str(pl % pixels(3))) 
       end if
 
       write(ou,*)
@@ -1360,8 +1375,8 @@ contains
 
   subroutine print_runtime()
 
-    integer(8)    :: total_particles ! total # of particles simulated
-    real(8)       :: speed           ! # of neutrons/second
+    real(8)       :: speed_inactive  ! # of neutrons/second in inactive batches
+    real(8)       :: speed_active    ! # of neutrons/second in active batches
     character(15) :: string
 
     ! display header block
@@ -1384,22 +1399,35 @@ contains
     write(ou,100) "Total time for finalization", time_finalize % elapsed
     write(ou,100) "Total time elapsed", time_total % elapsed
 
+    ! Calculate particle rate in active/inactive batches
     if (restart_run) then
-      total_particles = n_particles * (n_batches - &
-           restart_batch) * gen_per_batch
+      if (restart_batch < n_inactive) then
+        speed_inactive = real(n_particles * (n_inactive - restart_batch) * &
+             gen_per_batch) / time_inactive % elapsed
+        speed_active = real(n_particles * n_active * gen_per_batch) / &
+           time_active % elapsed
+      else
+        speed_inactive = ZERO
+        speed_active = real(n_particles * (n_batches - restart_batch) * &
+             gen_per_batch) / time_active % elapsed
+      end if
     else
-      total_particles = n_particles * n_batches * gen_per_batch
+      speed_inactive = real(n_particles * n_inactive * gen_per_batch) / &
+           time_inactive % elapsed
+      speed_active = real(n_particles * n_active * gen_per_batch) / &
+           time_active % elapsed
     end if
 
-    ! display calculate rate
-    speed = real(total_particles) / (time_inactive % elapsed + &
-         time_active % elapsed)
-    string = to_str(speed)
-    write(ou,101) trim(string)
+    ! display calculation rate
+    string = to_str(speed_inactive)
+    if (.not. (restart_run .and. (restart_batch >= n_inactive))) &
+         write(ou,101) "Calculation Rate (inactive)", trim(string)
+    string = to_str(speed_active)
+    write(ou,101) "Calculation Rate (active)", trim(string)
 
     ! format for write statements
 100 format (1X,A,T36,"= ",ES11.4," seconds")
-101 format (1X,"Calculation Rate",T36,"=  ",A," neutrons/second")
+101 format (1X,A,T36,"=  ",A," neutrons/second")
 
   end subroutine print_runtime
 
@@ -1435,7 +1463,7 @@ contains
          % sum, global_tallies(K_TRACKLENGTH) % sum_sq
     write(ou,102) "k-effective (Absorption)", global_tallies(K_ABSORPTION) &
          % sum, global_tallies(K_ABSORPTION) % sum_sq
-    write(ou,102) "Combined k-effective", k_combined
+    if (n_active > 3) write(ou,102) "Combined k-effective", k_combined
     write(ou,102) "Leakage Fraction", global_tallies(LEAKAGE) % sum, &
          global_tallies(LEAKAGE) % sum_sq
     write(ou,*)
@@ -1493,7 +1521,6 @@ contains
     score_names(abs(SCORE_SCATTER_N))     = ""
     score_names(abs(SCORE_SCATTER_PN))    = ""
     score_names(abs(SCORE_TRANSPORT))     = "Transport Rate"
-    score_names(abs(SCORE_DIFFUSION))     = "Diffusion Coefficient"
     score_names(abs(SCORE_N_1N))          = "(n,1n) Rate"
     score_names(abs(SCORE_ABSORPTION))    = "Absorption Rate"
     score_names(abs(SCORE_FISSION))       = "Fission Rate"
@@ -1503,9 +1530,10 @@ contains
 
     ! Create filename for tally output
     if (run_mode == MODE_TALLIES) then
-      filename = "tallies." // trim(to_str(restart_batch)) // ".out"
+      filename = trim(path_output) // "tallies." // &
+           trim(to_str(restart_batch)) // ".out"
     else
-      filename = "tallies.out"
+      filename = trim(path_output) // "tallies.out"
     end if
 
     ! Open tally file for writing

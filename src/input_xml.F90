@@ -71,6 +71,7 @@ contains
 
     ! Initialize XML scalar variables
     cross_sections_ = ''
+    output_path_ = ''
     verbosity_ = 0
     energy_grid_ = 'union'
     seed_ = 0_8
@@ -99,6 +100,14 @@ contains
       end if
     else
       path_cross_sections = trim(cross_sections_)
+    end if
+
+    ! Set output directory if a path has been specified on the <output_path>
+    ! element
+    if (len_trim(output_path_) > 0) then
+      path_output = output_path_
+      if (.not. ends_with(path_output, "/")) &
+           path_output = trim(path_output) // "/"
     end if
 
     ! Check for depletion
@@ -279,12 +288,12 @@ contains
 
         ! Read parameters for spatial distribution
         if (n < coeffs_reqd) then
-          message = "Not enough parameters specified for spatial " &
-               // "distribution of external source."
+          message = "Not enough parameters specified for spatial &
+               &distribution of external source."
           call fatal_error()
         elseif (n > coeffs_reqd) then
-          message = "Too many parameters specified for spatial " &
-               // "distribution of external source."
+          message = "Too many parameters specified for spatial &
+               &distribution of external source."
           call fatal_error()
         elseif (n > 0) then
           allocate(external_source % params_space(n))
@@ -324,12 +333,12 @@ contains
 
         ! Read parameters for angle distribution
         if (n < coeffs_reqd) then
-          message = "Not enough parameters specified for angle " &
-               // "distribution of external source."
+          message = "Not enough parameters specified for angle &
+               &distribution of external source."
           call fatal_error()
         elseif (n > coeffs_reqd) then
-          message = "Too many parameters specified for angle " &
-               // "distribution of external source."
+          message = "Too many parameters specified for angle &
+               &distribution of external source."
           call fatal_error()
         elseif (n > 0) then
           allocate(external_source % params_angle(n))
@@ -372,12 +381,12 @@ contains
 
         ! Read parameters for energy distribution
         if (n < coeffs_reqd) then
-          message = "Not enough parameters specified for energy " &
-               // "distribution of external source."
+          message = "Not enough parameters specified for energy &
+               &distribution of external source."
           call fatal_error()
         elseif (n > coeffs_reqd) then
-          message = "Too many parameters specified for energy " &
-               // "distribution of external source."
+          message = "Too many parameters specified for energy &
+               &distribution of external source."
           call fatal_error()
         elseif (n > 0) then
           allocate(external_source % params_energy(n))
@@ -472,8 +481,7 @@ contains
         message = "Need to specify (x,y,z) coordinates of upper-right corner &
              &of UFS mesh."
       elseif (size(uniform_fs_(1) % dimension) /= 3) then
-        message = "Dimension of UFS mesh must be given as three &
-             &integers."
+        message = "Dimension of UFS mesh must be given as three integers."
         call fatal_error()
       end if
 
@@ -962,8 +970,8 @@ contains
 
       ! Read lattice lower-left location
       if (size(lattice_(i) % dimension) /= size(lattice_(i) % lower_left)) then
-        message = "Number of entries on <lower_left> must be the same as " // &
-             "the number of entries on <dimension>."
+        message = "Number of entries on <lower_left> must be the same as &
+             &the number of entries on <dimension>."
         call fatal_error()
       end if
 
@@ -972,8 +980,8 @@ contains
 
       ! Read lattice widths
       if (size(lattice_(i) % width) /= size(lattice_(i) % lower_left)) then
-        message = "Number of entries on <width> must be the same as " // &
-             "the number of entries on <lower_left>."
+        message = "Number of entries on <width> must be the same as &
+             &the number of entries on <lower_left>."
         call fatal_error()
       end if
 
@@ -2014,10 +2022,9 @@ contains
             ! Set tally estimator to analog
             t % estimator = ESTIMATOR_ANALOG
           case ('diffusion')
-            t % score_bins(j) = SCORE_DIFFUSION
-
-            ! Set tally estimator to analog
-            t % estimator = ESTIMATOR_ANALOG
+            message = "Diffusion score no longer supported for tallies, & 
+                      &please remove"
+            call fatal_error()
           case ('n1n')
             t % score_bins(j) = SCORE_N_1N
 
@@ -2186,7 +2193,7 @@ contains
     integer n_cols, col_id
     logical :: file_exists              ! does plots.xml file exist?
     character(MAX_LINE_LEN) :: filename ! absolute path to plots.xml
-    type(PlotSlice), pointer :: pl => null()
+    type(ObjectPlot), pointer :: pl => null()
 
     ! Check if plots.xml exists
     filename = trim(path_input) // "plots.xml"
@@ -2220,20 +2227,55 @@ contains
         call fatal_error()
       end if
 
-      ! Set output file path
-      pl % path_plot = trim(path_input) // trim(to_str(pl % id)) // &
-           "_" // trim(plot_(i) % filename) // ".ppm"
-
-      ! Copy plot pixel size
-      if (size(plot_(i) % pixels) == 2) then
-        pl % pixels = plot_(i) % pixels
-      else
-        message = "<pixels> must be length 2 in plot " // to_str(pl % id)
+      ! Copy plot type
+      select case (plot_(i) % type)
+      case ("slice")
+        pl % type = PLOT_TYPE_SLICE
+      case ("voxel")
+        pl % type = PLOT_TYPE_VOXEL
+      case default
+        message = "Unsupported plot type '" // trim(plot_(i) % type) &
+             // "' in plot " // trim(to_str(pl % id))
         call fatal_error()
+      end select
+
+      ! Set output file path
+      select case (pl % type)
+      case (PLOT_TYPE_SLICE)
+        pl % path_plot = trim(path_input) // trim(to_str(pl % id)) // &
+             "_" // trim(plot_(i) % filename) // ".ppm"
+      case (PLOT_TYPE_VOXEL)
+        pl % path_plot = trim(path_input) // trim(to_str(pl % id)) // &
+             "_" // trim(plot_(i) % filename) // ".voxel"
+      end select
+      
+      ! Copy plot pixel size
+      if (pl % type == PLOT_TYPE_SLICE) then
+        if (size(plot_(i) % pixels) == 2) then
+          pl % pixels(1) = plot_(i) % pixels(1)
+          pl % pixels(2) = plot_(i) % pixels(2)
+        else
+          message = "<pixels> must be length 2 in slice plot " // &
+                    trim(to_str(pl % id))
+          call fatal_error()
+        end if
+      else if (pl % type == PLOT_TYPE_VOXEL) then
+        if (size(plot_(i) % pixels) == 3) then
+          pl % pixels = plot_(i) % pixels
+        else
+          message = "<pixels> must be length 3 in voxel plot " // &
+                    trim(to_str(pl % id))
+          call fatal_error()
+        end if
       end if
 
       ! Copy plot background color
       if (associated(plot_(i) % background)) then
+        if (pl % type == PLOT_TYPE_VOXEL) then
+          message = "Background color ignored in voxel plot " // & 
+                     trim(to_str(pl % id))
+          call warning()
+        end if
         if (size(plot_(i) % background) == 3) then
           pl % not_found % rgb = plot_(i) % background
         else
@@ -2245,30 +2287,22 @@ contains
         pl % not_found % rgb = (/ 255, 255, 255 /)
       end if
       
-      ! Copy plot type
-      select case (plot_(i) % type)
-      case ("slice")
-        pl % type = PLOT_TYPE_SLICE
-      case default
-        message = "Unsupported plot type '" // plot_(i) % type &
-             // "' in plot " // trim(to_str(pl % id))
-        call fatal_error()
-      end select
-
       ! Copy plot basis
-      select case (plot_(i) % basis)
-      case ("xy")
-        pl % basis = PLOT_BASIS_XY
-      case ("xz")
-        pl % basis = PLOT_BASIS_XZ
-      case ("yz")
-        pl % basis = PLOT_BASIS_YZ
-      case default
-        message = "Unsupported plot basis '" // plot_(i) % basis &
-             // "' in plot " // trim(to_str(pl % id))
-        call fatal_error()
-      end select
-
+      if (pl % type == PLOT_TYPE_SLICE) then
+        select case (plot_(i) % basis)
+        case ("xy")
+          pl % basis = PLOT_BASIS_XY
+        case ("xz")
+          pl % basis = PLOT_BASIS_XZ
+        case ("yz")
+          pl % basis = PLOT_BASIS_YZ
+        case default
+          message = "Unsupported plot basis '" // plot_(i) % basis &
+               // "' in plot " // trim(to_str(pl % id))
+          call fatal_error()
+        end select
+      end if
+      
       ! Copy plotting origin
       if (size(plot_(i) % origin) == 3) then
         pl % origin = plot_(i) % origin
@@ -2279,15 +2313,23 @@ contains
       end if
 
       ! Copy plotting width
-      if (size(plot_(i) % width) == 3) then
-        pl % width = plot_(i) % width
-      else if (size(plot_(i) % width) == 2) then
-        pl % width(1) = plot_(i) % width(1)
-        pl % width(2) = plot_(i) % width(2)
-      else
-        message = "Bad plot width " &
-             // "in plot " // trim(to_str(pl % id))
-        call fatal_error()
+      if (pl % type == PLOT_TYPE_SLICE) then
+        if (size(plot_(i) % width) == 2) then
+          pl % width(1) = plot_(i) % width(1)
+          pl % width(2) = plot_(i) % width(2)
+        else
+          message = "<width> must be length 2 in slice plot " // &
+                    trim(to_str(pl % id))
+          call fatal_error()
+        end if
+      else if (pl % type == PLOT_TYPE_VOXEL) then
+        if (size(plot_(i) % width) == 3) then
+          pl % width = plot_(i) % width
+        else
+          message = "<width> must be length 3 in voxel plot " // &
+                    trim(to_str(pl % id))
+          call fatal_error()
+        end if
       end if
 
       ! Copy plot color type and initialize all colors randomly
@@ -2320,6 +2362,13 @@ contains
 
       ! Copy user specified colors
       if (associated(plot_(i) % col_spec_)) then
+      
+        if (pl % type == PLOT_TYPE_VOXEL) then
+          message = "Color specifications ignored in voxel plot " // & 
+                     trim(to_str(pl % id))
+          call warning()
+        end if
+      
         n_cols = size(plot_(i) % col_spec_)
         do j = 1, n_cols
           if (size(plot_(i) % col_spec_(j) % rgb) /= 3) then
@@ -2359,6 +2408,12 @@ contains
       ! Deal with masks
       if (associated(plot_(i) % mask_)) then
       
+        if (pl % type == PLOT_TYPE_VOXEL) then
+          message = "Mask ignored in voxel plot " // & 
+                     trim(to_str(pl % id))
+          call warning()
+        end if
+      
         select case(size(plot_(i) % mask_))
           case default
             message = "Mutliple masks" // &
@@ -2367,8 +2422,8 @@ contains
           case (0)
           case (1)
           
-            ! First we need to change the user-specified identifiers to indices in
-            ! the cell and material arrays
+            ! First we need to change the user-specified identifiers to indices
+            ! in the cell and material arrays
             do j=1,size(plot_(i) % mask_(1) % components)
               col_id = plot_(i) % mask_(1) % components(j)
             

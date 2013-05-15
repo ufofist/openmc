@@ -48,13 +48,16 @@ module constants
   ! ============================================================================
   ! PHYSICAL CONSTANTS
 
+  ! Values here are from the Committee on Data for Science and Technology
+  ! (CODATA) 2010 recommendation (doi:10.1103/RevModPhys.84.1527).
+
   real(8), parameter ::            &
        PI           = 3.1415926535898_8, & ! pi
-       MASS_NEUTRON = 1.0086649156,      & ! mass of a neutron
-       MASS_PROTON  = 1.00727646677,     & ! mass of a proton
-       AMU          = 1.66053873e-27,    & ! 1 amu in kg
-       N_AVOGADRO   = 0.602214179,       & ! Avogadro's number in 10^24/mol
-       K_BOLTZMANN  = 8.617342e-11,      & ! Boltzmann constant in MeV/K
+       MASS_NEUTRON = 1.008664916,       & ! mass of a neutron in amu
+       MASS_PROTON  = 1.007276466812,    & ! mass of a proton in amu
+       AMU          = 1.660538921e-27,   & ! 1 amu in kg
+       N_AVOGADRO   = 0.602214129,       & ! Avogadro's number in 10^24/mol
+       K_BOLTZMANN  = 8.6173324e-11,     & ! Boltzmann constant in MeV/K
        INFINITY     = huge(0.0_8),       & ! positive infinity
        ZERO         = 0.0_8,             &
        ONE          = 1.0_8,             &
@@ -263,7 +266,7 @@ module constants
        EVENT_FISSION =  3 
 
   ! Tally score type
-  integer, parameter :: N_SCORE_TYPES = 15
+  integer, parameter :: N_SCORE_TYPES = 14
   integer, parameter :: &
        SCORE_FLUX          = -1,  & ! flux
        SCORE_TOTAL         = -2,  & ! total reaction rate
@@ -272,14 +275,13 @@ module constants
        SCORE_SCATTER_N     = -5,  & ! arbitrary scattering moment
        SCORE_SCATTER_PN    = -6,  & ! system for scoring 0th through nth moment
        SCORE_TRANSPORT     = -7,  & ! transport reaction rate
-       SCORE_DIFFUSION     = -8,  & ! diffusion coefficient
-       SCORE_N_1N          = -9,  & ! (n,1n) rate
-       SCORE_ABSORPTION    = -10, & ! absorption rate
-       SCORE_FISSION       = -11, & ! fission rate
-       SCORE_NU_FISSION    = -12, & ! neutron production rate
-       SCORE_KAPPA_FISSION = -13, & ! fission energy production rate
-       SCORE_CURRENT       = -14, & ! partial current
-       SCORE_EVENTS        = -15    ! number of events
+       SCORE_N_1N          = -8,  & ! (n,1n) rate
+       SCORE_ABSORPTION    = -9,  & ! absorption rate
+       SCORE_FISSION       = -10, & ! fission rate
+       SCORE_NU_FISSION    = -11, & ! neutron production rate
+       SCORE_KAPPA_FISSION = -12, & ! fission energy production rate
+       SCORE_CURRENT       = -13, & ! partial current
+       SCORE_EVENTS        = -14    ! number of events
        
   ! Maximum scattering order supported
   integer, parameter :: SCATT_ORDER_MAX = 10
