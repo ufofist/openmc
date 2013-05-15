@@ -10,7 +10,7 @@ module global
   use material_header,  only: Material
   use mesh_header,      only: StructuredMesh
   use particle_header,  only: Particle
-  use plot_header,      only: PlotSlice
+  use plot_header,      only: ObjectPlot
   use set_header,       only: SetInt
   use source_header,    only: ExtSource
   use tally_header,     only: TallyObject, TallyMap, TallyResult
@@ -41,7 +41,7 @@ module global
   type(Lattice),   allocatable, target :: lattices(:)
   type(Surface),   allocatable, target :: surfaces(:)
   type(Material),  allocatable, target :: materials(:)
-  type(PlotSlice), allocatable, target :: plots(:)
+  type(ObjectPlot),allocatable, target :: plots(:)
 
   ! Size of main arrays
   integer :: n_cells     ! # of cells
@@ -279,6 +279,7 @@ module global
   character(MAX_FILE_LEN) :: path_source = ''      ! Path to binary source
   character(MAX_FILE_LEN) :: path_state_point      ! Path to binary state point
   character(MAX_FILE_LEN) :: path_particle_restart ! Path to particle restart
+  character(MAX_FILE_LEN) :: path_output = ''      ! Path to output directory
 
   ! Message used in message/warning/fatal_error
   character(MAX_LINE_LEN) :: message

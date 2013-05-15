@@ -17,14 +17,13 @@ score_types = {-1: 'flux',
                 -5: 'scatter-n',
                 -6: 'scatter-pn',
                 -7: 'transport',
-                -8: 'diffusion',
-                -9: 'n1n',
-                -10: 'absorption',
-                -11: 'fission',
-                -12: 'nu-fission',
-                -13: 'kappa-fission',
-                -14: 'current',
-                -15: 'events',
+                -8: 'n1n',
+                -9: 'absorption',
+                -10: 'fission',
+                -11: 'nu-fission',
+                -12: 'kappa-fission',
+                -13: 'current',
+                -14: 'events',
                 1: '(n,total)',
                 2: '(n,elastic)',
                 4: '(n,level)',
@@ -555,30 +554,30 @@ class StatePoint(object):
     
     def _get_int(self, n=1, path=None):
         if self._hdf5:
-            return self._f[path].value
+            return [int(v) for v in self._f[path].value]
         else:
-            return self._get_data(n, 'i', 4)
+            return [int(v) for v in self._get_data(n, 'i', 4)]
 
     def _get_long(self, n=1, path=None):
         if self._hdf5:
-            return self._f[path].value
+            return [long(v) for v in self._f[path].value]
         else:
-            return self._get_data(n, 'q', 8)
+            return [long(v) for v in self._get_data(n, 'q', 8)]
 
     def _get_float(self, n=1, path=None):
         if self._hdf5:
-            return self._f[path].value
+            return [float(v) for v in self._f[path].value]
         else:
-            return self._get_data(n, 'f', 4)
+            return [float(v) for v in self._get_data(n, 'f', 4)]
 
     def _get_double(self, n=1, path=None):
         if self._hdf5:
-            return self._f[path].value
+            return [float(v) for v in self._f[path].value]
         else:
-            return self._get_data(n, 'd', 8)
+            return [float(v) for v in self._get_data(n, 'd', 8)]
 
     def _get_string(self, n=1, path=None):
         if self._hdf5:
-            return self._f[path].value
+            return str(self._f[path].value)
         else:
-            return self._get_data(n, 's', 1)[0]
+            return str(self._get_data(n, 's', 1)[0])
