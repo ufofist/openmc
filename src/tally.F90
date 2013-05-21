@@ -2203,7 +2203,6 @@ contains
 
   subroutine server_listen()
 
-    integer :: i
     integer :: n
     integer :: global_index
     integer :: local_index
