@@ -51,6 +51,8 @@ element settings {
 
   element seed { xsd:positiveInteger }? &
 
+  element servers { xsd:positiveInteger }? &
+
   element source {
     element file { xsd:string { maxLength = "255" } }? &
     element space {
