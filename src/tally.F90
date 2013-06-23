@@ -1820,7 +1820,6 @@ contains
 
     if (use_servers) then
       ! Make sure all outstanding requests were completed
-      ! call MPI_WAIT(request, MPI_STATUS_IGNORE, mpi_err)
       if (request /= MPI_REQUEST_NULL) then
         call MPI_WAIT(request, MPI_STATUS_IGNORE, mpi_err)
       end if
@@ -2129,7 +2128,6 @@ contains
     integer :: server_rank  ! rank of server in MPI_COMM_WORLD
     integer :: global_index ! index in global tally array
     integer :: finish       ! last index in global tally array
-    real(8) :: buffer(max_server_send) ! scores with indices
 
     ! Compute global index
     global_index = server_global_index(tally_index) + (filter_index - 1) * &
@@ -2157,7 +2155,7 @@ contains
       end if
 
       ! Add global_index to send buffer
-      buffer(j+1) = real(global_index,8)
+      tally_buffer(j+1) = real(global_index,8)
       j = j + 1
 
       ! Determine number of scores to send
@@ -2165,11 +2163,11 @@ contains
            finish) - global_index
 
       ! Add score values to send buffer
-      buffer(j+1:j+n_send) = scores(i+1:i+n_send)
+      tally_buffer(j+1:j+n_send) = scores(i+1:i+n_send)
 
-       call MPI_ISEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+       call MPI_ISEND(tally_buffer(j), n_send + 1, MPI_REAL8, server_rank, 3, &
             MPI_COMM_WORLD, request, mpi_err)
-!!$      call MPI_SEND(buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
+!!$      call MPI_SEND(tally_buffer(j), n_send + 1, MPI_REAL8, server_rank, 0, &
 !!$           MPI_COMM_WORLD, request, mpi_err)
 
       i = i + n_send

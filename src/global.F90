@@ -157,6 +157,9 @@ module global
   integer :: compute_rank      ! rank on new communicator
   integer :: max_server_send = 0 ! maximum size of data sent to server
 
+  ! Buffer for tally scores sent from compute nodes to servers
+  real(8), allocatable :: tally_buffer(:)
+
   ! This array gives the global index of the first bin for each TallyObject
   integer, allocatable :: server_global_index(:)
 

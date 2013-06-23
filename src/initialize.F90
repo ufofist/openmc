@@ -712,6 +712,10 @@ contains
             total_score_bins + n_servers)
     end do
 
+    ! Allocate buffer used to store tally scores being sent from compute nodes
+    ! to servers
+    allocate(tally_buffer(max_server_send))
+
     ! Determine support ratio
     support_ratio = n_procs / n_servers
 
