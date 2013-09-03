@@ -10,7 +10,6 @@ module global
   use geometry_header,  only: Cell, Universe, Lattice, Surface
   use material_header,  only: Material
   use mesh_header,      only: StructuredMesh
-  use particle_header,  only: Particle
   use plot_header,      only: ObjectPlot
   use set_header,       only: SetInt
   use source_header,    only: ExtSource
@@ -22,16 +21,11 @@ module global
 #endif
 
 #ifdef HDF5
-  use hdf5
+  use hdf5_interface,  only: HID_T
 #endif
 
   implicit none
   save
-
-  ! ============================================================================
-  ! THE PARTICLE
-
-  type(Particle), pointer :: p => null()
 
   ! ============================================================================
   ! GEOMETRY-RELATED VARIABLES
@@ -63,6 +57,9 @@ module global
   type(DictIntInt) :: mesh_dict
   type(DictIntInt) :: tally_dict
   type(DictIntInt) :: plot_dict
+
+  ! Number of lost particles
+  integer :: n_lost_particles
 
   ! ============================================================================
   ! CROSS SECTION RELATED VARIABLES
@@ -156,7 +153,8 @@ module global
   integer    :: n_active          ! # of active batches
   integer    :: gen_per_batch = 1 ! # of generations per batch
   integer    :: current_batch = 0 ! current batch
-  integer    :: current_gen   = 0 ! current generation
+  integer    :: current_gen   = 0 ! current generation within a batch
+  integer    :: overall_gen   = 0 ! overall generation in the run
 
   ! External source
   type(ExtSource), target :: external_source
@@ -172,7 +170,7 @@ module global
   integer(8) :: current_work ! index in source bank of current history simulated
 
   ! Temporary k-effective values
-  real(8), allocatable :: k_batch(:) ! batch estimates of k
+  real(8), allocatable :: k_generation(:) ! single-generation estimates of k
   real(8) :: keff = ONE       ! average k over active batches
   real(8) :: keff_std         ! standard deviation of average k
   real(8) :: k_col_abs = ZERO ! sum over batches of k_collision * k_absorption
@@ -182,7 +180,7 @@ module global
 
   ! Shannon entropy
   logical :: entropy_on = .false.
-  real(8), allocatable :: entropy(:)         ! shannon entropy at each batch
+  real(8), allocatable :: entropy(:)         ! shannon entropy at each generation
   real(8), allocatable :: entropy_p(:,:,:,:) ! % of source sites in each cell
   type(StructuredMesh), pointer :: entropy_mesh
 
@@ -252,7 +250,6 @@ module global
   integer(HID_T) :: hdf5_tallyresult_t ! Compound type for TallyResult
   integer(HID_T) :: hdf5_bank_t        ! Compound type for Bank
   integer(HID_T) :: hdf5_integer8_t    ! type for integer(8)
-  integer        :: hdf5_err           ! error flag 
 #endif
 
   ! ============================================================================
@@ -281,6 +278,10 @@ module global
   ! The verbosity controls how much information will be printed to the
   ! screen and in logs
   integer :: verbosity = 7
+
+  ! Flag for enabling cell overlap checking during transport
+  logical                  :: check_overlaps = .false.
+  integer(8), allocatable  :: overlap_check_cnt(:)
 
   ! Trace for single particle
   logical    :: trace
@@ -404,6 +405,9 @@ contains
     if (allocated(materials)) deallocate(materials)
     if (allocated(plots)) deallocate(plots)
 
+    ! Deallocate geometry debugging information
+    if (allocated(overlap_check_cnt)) deallocate(overlap_check_cnt)
+
     ! Deallocate cross section data, listings, and cache
     if (allocated(nuclides)) then
     ! First call the clear routines
@@ -415,6 +419,19 @@ contains
     if (allocated(sab_tables)) deallocate(sab_tables)
     if (allocated(xs_listings)) deallocate(xs_listings)
     if (allocated(micro_xs)) deallocate(micro_xs)
+
+    ! Deallocate external source
+    if (allocated(external_source % params_space)) &
+         deallocate(external_source % params_space)
+    if (allocated(external_source % params_angle)) &
+         deallocate(external_source % params_angle)
+    if (allocated(external_source % params_energy)) &
+         deallocate(external_source % params_energy)
+
+    ! Deallocate k and entropy
+    if (allocated(k_generation)) deallocate(k_generation)
+    if (allocated(entropy)) deallocate(entropy)
+    if (allocated(entropy_p)) deallocate(entropy_p)
 
     ! Deallocate tally-related arrays
     if (allocated(meshes)) deallocate(meshes)
@@ -457,6 +474,9 @@ contains
     call nuclide_dict % clear()
     call sab_dict % clear()
     call xs_listing_dict % clear()
+
+    ! Clear statepoint batch set
+    call statepoint_batch % clear()
     
   end subroutine free_memory
 

@@ -2,9 +2,10 @@ module particle_restart_write
 
   use, intrinsic :: ISO_FORTRAN_ENV
 
-  use bank_header,  only: Bank
+  use bank_header,     only: Bank
   use global
-  use string,       only: to_str
+  use particle_header, only: Particle
+  use string,          only: to_str
 
 #ifdef HDF5
   use hdf5_interface
@@ -24,16 +25,18 @@ contains
 ! WRITE_PARTICLE_RESTART
 !===============================================================================
 
-  subroutine write_particle_restart()
+  subroutine write_particle_restart(p)
+
+    type(Particle), intent(in) :: p
 
     ! Dont write another restart file if in particle restart mode
     if (run_mode == MODE_PARTICLE) return
 
     ! write out binary or HDF5 file
 #ifdef HDF5
-    call write_particle_restart_hdf5()
+    call write_particle_restart_hdf5(p)
 #else
-    call write_particle_restart_binary()
+    call write_particle_restart_binary(p)
 #endif
 
   end subroutine write_particle_restart
@@ -44,14 +47,16 @@ contains
 ! WRITE_PARTICLE_RESTART_HDF5
 !===============================================================================
 
-  subroutine write_particle_restart_hdf5()
+  subroutine write_particle_restart_hdf5(p)
+
+    type(Particle), intent(in) :: p
 
     character(MAX_FILE_LEN) :: filename
-    integer(HSIZE_T)        :: dims1(1)
     type(Bank), pointer     :: src => null()
 
     ! set up file name
-    filename = trim(path_output) // 'particle_'//trim(to_str(rank))//'.h5'
+    filename = trim(path_output) // 'particle_' // trim(to_str(current_batch)) &
+         // '_' // trim(to_str(p % id)) // '.h5'
 
     ! create hdf5 file
     call h5fcreate_f(filename, H5F_ACC_TRUNC_F, hdf5_particle_file, hdf5_err)
@@ -60,11 +65,15 @@ contains
     src => source_bank(current_work)
 
     ! write data to file
+    call hdf5_write_integer(hdf5_particle_file, 'filetype', &
+         FILETYPE_PARTICLE_RESTART)
+    call hdf5_write_integer(hdf5_particle_file, 'revision', &
+         REVISION_PARTICLE_RESTART)
     call hdf5_write_integer(hdf5_particle_file, 'current_batch', current_batch)
     call hdf5_write_integer(hdf5_particle_file, 'gen_per_batch', gen_per_batch)
     call hdf5_write_integer(hdf5_particle_file, 'current_gen', current_gen)
-    call hdf5_write_long(hdf5_particle_file, 'n_particles', n_particles)
-    call hdf5_write_long(hdf5_particle_file, 'id', p % id)
+    call hdf5_write_long(hdf5_particle_file, 'n_particles', n_particles, hdf5_integer8_t)
+    call hdf5_write_long(hdf5_particle_file, 'id', p % id, hdf5_integer8_t)
     call hdf5_write_double(hdf5_particle_file, 'weight', src % wgt)
     call hdf5_write_double(hdf5_particle_file, 'energy', src % E)
     dims1 = (/3/)
@@ -84,13 +93,16 @@ contains
 ! WRITE_PARTICLE_RESTART_BINARY
 !===============================================================================
 
-  subroutine write_particle_restart_binary()
+  subroutine write_particle_restart_binary(p)
+
+    type(Particle), intent(in) :: p
 
     character(MAX_FILE_LEN) :: filename
     type(Bank), pointer     :: src => null()
 
     ! set up file name
-    filename = trim(path_output) // 'particle_'//trim(to_str(rank))//'.binary'
+    filename = trim(path_output) // 'particle_' // trim(to_str(current_batch)) &
+         // '_' // trim(to_str(p % id)) // '.binary'
 
     ! create hdf5 file
     open(UNIT=UNIT_PARTICLE, FILE=filename, STATUS='replace', &
@@ -100,6 +112,8 @@ contains
     src => source_bank(current_work)
 
     ! write data to file
+    write(UNIT_PARTICLE) FILETYPE_PARTICLE_RESTART
+    write(UNIT_PARTICLE) REVISION_PARTICLE_RESTART
     write(UNIT_PARTICLE) current_batch
     write(UNIT_PARTICLE) gen_per_batch
     write(UNIT_PARTICLE) current_gen

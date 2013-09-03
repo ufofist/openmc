@@ -5,11 +5,10 @@ module source
   use error,           only: fatal_error
   use geometry_header, only: BASE_UNIVERSE
   use global
+  use math,            only: maxwell_spectrum, watt_spectrum
   use output,          only: write_message
-  use particle_header, only: deallocate_coord
-  use physics,         only: maxwell_spectrum, watt_spectrum
+  use particle_header, only: Particle
   use random_lcg,      only: prn, set_particle_seed
-  use state_point,     only: read_source_binary
   use string,          only: to_str
 
 #ifdef MPI
@@ -38,7 +37,8 @@ contains
       ! Read the source from a binary file instead of sampling from some
       ! assumed source distribution
 
-      call read_source_binary()
+      message = 'This feature is currently disabled and will be added back in.'
+      call fatal_error()
 
     else
       ! Generation source sites from specified distribution in user input
@@ -149,26 +149,26 @@ contains
 ! GET_SOURCE_PARTICLE returns the next source particle 
 !===============================================================================
 
-  subroutine get_source_particle(index_source)
+  subroutine get_source_particle(p, index_source)
 
-    integer(8), intent(in) :: index_source
+    type(Particle), intent(inout) :: p
+    integer(8),     intent(in)    :: index_source
 
     integer(8) :: particle_seed  ! unique index for particle
     type(Bank), pointer :: src => null()
 
     ! set defaults
-    call initialize_particle()
+    call p % initialize()
 
     ! Copy attributes from source to particle
     src => source_bank(index_source)
-    call copy_source_attributes(src)
+    call copy_source_attributes(p, src)
 
     ! set identifier for particle
     p % id = bank_first + index_source - 1
 
     ! set random number seed
-    particle_seed = ((current_batch - 1)*gen_per_batch + & 
-         current_gen - 1)*n_particles + p % id
+    particle_seed = (overall_gen - 1)*n_particles + p % id
     call set_particle_seed(particle_seed)
 
     ! set particle trace
@@ -182,9 +182,10 @@ contains
 ! COPY_SOURCE_ATTRIBUTES
 !===============================================================================
 
-  subroutine copy_source_attributes(src)
+  subroutine copy_source_attributes(p, src)
 
-    type(Bank), pointer :: src
+    type(Particle), intent(inout) :: p
+    type(Bank),     pointer       :: src
 
     ! copy attributes from source bank site
     p % wgt         = src % wgt
@@ -196,38 +197,5 @@ contains
     p % last_E      = src % E
 
   end subroutine copy_source_attributes
-
-!===============================================================================
-! INITIALIZE_PARTICLE sets default attributes for a particle from the source
-! bank
-!===============================================================================
-
-  subroutine initialize_particle()
-
-    ! Set particle to neutron that's alive
-    p % type  = NEUTRON
-    p % alive = .true.
-
-    ! clear attributes
-    p % surface       = NONE
-    p % cell_born     = NONE
-    p % material      = NONE
-    p % last_material = NONE
-    p % wgt           = ONE
-    p % last_wgt      = ONE
-    p % absorb_wgt    = ZERO
-    p % n_bank        = 0
-    p % wgt_bank      = ZERO
-    p % n_collision   = 0
-
-    ! remove any original coordinates
-    call deallocate_coord(p % coord0)
-
-    ! Set up base level coordinates
-    allocate(p % coord0)
-    p % coord0 % universe = BASE_UNIVERSE
-    p % coord             => p % coord0
-
-  end subroutine initialize_particle
 
 end module source

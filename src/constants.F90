@@ -8,11 +8,16 @@ module constants
   ! OpenMC major, minor, and release numbers
   integer, parameter :: VERSION_MAJOR   = 0
   integer, parameter :: VERSION_MINOR   = 5
-  integer, parameter :: VERSION_RELEASE = 1
+  integer, parameter :: VERSION_RELEASE = 2
 
   ! Revision numbers for binary files
-  integer, parameter :: REVISION_SOURCE     = 1
-  integer, parameter :: REVISION_STATEPOINT = 8
+  integer, parameter :: REVISION_STATEPOINT       = 9
+  integer, parameter :: REVISION_PARTICLE_RESTART = 1
+
+  ! Binary file types
+  integer, parameter :: &
+       FILETYPE_STATEPOINT       = -1, &
+       FILETYPE_PARTICLE_RESTART = -2
 
   ! ============================================================================
   ! ADJUSTABLE PARAMETERS 
@@ -116,6 +121,9 @@ module constants
        SURF_CONE_X =  9, & ! Cone parallel to x-axis
        SURF_CONE_Y = 10, & ! Cone parallel to y-axis
        SURF_CONE_Z = 11    ! Cone parallel to z-axis
+
+  ! Maximum number of lost particles
+  integer, parameter :: MAX_LOST_PARTICLES = 10
 
   ! ============================================================================
   ! CROSS SECTION RELATED CONSTANTS
@@ -262,8 +270,7 @@ module constants
        EVENT_SURFACE = -2, &
        EVENT_LATTICE = -1, &
        EVENT_SCATTER =  1, &
-       EVENT_ABSORB  =  2, &
-       EVENT_FISSION =  3 
+       EVENT_ABSORB  =  2
 
   ! Tally score type
   integer, parameter :: N_SCORE_TYPES = 14
@@ -362,20 +369,18 @@ module constants
        MODE_FIXEDSOURCE = 1, & ! Fixed source mode
        MODE_EIGENVALUE  = 2, & ! K eigenvalue mode
        MODE_PLOTTING    = 3, & ! Plotting mode
-       MODE_TALLIES     = 4, & ! Tally results mode
-       MODE_PARTICLE    = 5, & ! Particle restart mode
-       MODE_DEPLETION   = 6    ! Depletion mode
+       MODE_PARTICLE    = 4, & ! Particle restart mode
+       MODE_DEPLETION   = 5    ! Depletion mode
 
   ! Unit numbers
   integer, parameter :: UNIT_SUMMARY  = 11 ! unit # for writing summary file
   integer, parameter :: UNIT_TALLY    = 12 ! unit # for writing tally file
   integer, parameter :: UNIT_PLOT     = 13 ! unit # for writing plot file
   integer, parameter :: UNIT_XS       = 14 ! unit # for writing xs summary file
-  integer, parameter :: UNIT_SOURCE   = 15 ! unit # for writing source file
-  integer, parameter :: UNIT_STATE    = 16 ! unit # for writing state point
-  integer, parameter :: CMFD_BALANCE  = 17 ! unit # for writing cmfd balance file
-  integer, parameter :: UNIT_PARTICLE = 18 ! unit # for writing particle restart
-  integer, parameter :: UNIT_ENDF     = 19 ! unit # for reading ENDF files
+  integer, parameter :: CMFD_BALANCE  = 15 ! unit # for writing cmfd balance file
+  integer, parameter :: UNIT_PARTICLE = 16 ! unit # for writing particle restart
+  integer, parameter :: UNIT_OUTPUT   = 17 ! unit # for writing output
+  integer, parameter :: UNIT_ENDF     = 18 ! unit # for reading ENDF files
 
   !=============================================================================
   ! CMFD CONSTANTS

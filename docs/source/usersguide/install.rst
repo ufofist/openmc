@@ -102,6 +102,12 @@ repository::
 
     git clone git://github.com/mit-crpg/openmc.git
 
+By default, the cloned repository will be set to the development branch. To
+switch to the source of the latest stable release, run the following commands::
+
+    cd openmc/src
+    git checkout master
+
 .. _GitHub: https://github.com/mit-crpg/openmc
 .. _git: http://git-scm.com
 .. _ssh: http://en.wikipedia.org/wiki/Secure_Shell
@@ -239,7 +245,8 @@ Cross Section Configuration
 In order to run a simulation with OpenMC, you will need cross section data for
 each nuclide in your problem. Since OpenMC uses ACE format cross sections, you
 can use nuclear data that was processed with NJOY, such as that distributed with
-MCNP_ or Serpent_.
+MCNP_ or Serpent_. The TALYS-based evaluated nuclear data library, TENDL_, is
+openly available in ACE format.
 
 Using JEFF Cross Sections from OECD/NEA
 ---------------------------------------
@@ -292,6 +299,7 @@ file.
 .. _here: http://www.oecd-nea.org/dbdata/pubs/jeff312-cd.html
 .. _MCNP: http://mcnp.lanl.gov
 .. _Serpent: http://montecarlo.vtt.fi
+.. _TENDL: ftp://ftp.nrg.eu/pub/www/talys/tendl2012/tendl2012.html
 
 --------------
 Running OpenMC

@@ -186,7 +186,7 @@ contains
       gen_per_batch = eigenvalue_ % generations_per_batch
 
       ! Allocate array for batch keff and entropy
-      allocate(k_batch(n_batches))
+      allocate(k_generation(n_batches*gen_per_batch))
       allocate(entropy(n_batches*gen_per_batch))
       entropy = ZERO
     end if
@@ -624,6 +624,7 @@ contains
     integer :: universe_num
     integer :: n_cells_in_univ
     integer :: coeffs_reqd
+    integer :: mid
     real(8) :: phi, theta, psi
     logical :: file_exists
     logical :: boundary_exists
@@ -662,6 +663,11 @@ contains
 
     ! Allocate cells array
     allocate(cells(n_cells))
+
+    if (check_overlaps) then
+      allocate(overlap_check_cnt(n_cells))
+      overlap_check_cnt = 0
+    end if
 
     n_universes = 0
     do i = 1, n_cells
@@ -1014,7 +1020,15 @@ contains
           end do
         end do
       end do
-        
+
+      ! Read material for area outside lattice
+      mid = lattice_(i) % outside
+      if (mid == 0 .or. mid == MATERIAL_VOID) then
+        lat % outside = MATERIAL_VOID
+      else
+        lat % outside = mid
+      end if
+
       ! Add lattice to dictionary
       call lattice_dict % add_key(lat % id, i)
 
@@ -1783,6 +1797,9 @@ contains
                    tally_(i) % filter(j) % bins(k))
             end do
 
+            ! Set to analog estimator
+            t % estimator = ESTIMATOR_ANALOG
+
           case default
             ! Specified tally filter is invalid, raise error
             message = "Unknown filter type '" // trim(tally_(i) % &
@@ -1994,6 +2011,7 @@ contains
             end if
           case ('scatter')
             t % score_bins(j) = SCORE_SCATTER
+            
           case ('nu-scatter')
             t % score_bins(j) = SCORE_NU_SCATTER
 
@@ -2584,7 +2602,9 @@ contains
 
        ! create dictionary entry for both name and alias
        call xs_listing_dict % add_key(listing % name, i)
-       call xs_listing_dict % add_key(listing % alias, i)
+       if (listing % alias /= '') then
+         call xs_listing_dict % add_key(listing % alias, i)
+       end if
     end do
 
   end subroutine read_cross_sections_xml

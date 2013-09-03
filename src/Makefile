@@ -1,16 +1,12 @@
 program = openmc
 prefix = /usr/local
 
+source = $(wildcard *.F90)
+objects = $(source:.F90=.o)
 templates = $(wildcard templates/*.o)
 xml_fort = xml-fortran/xmlparse.o \
            xml-fortran/read_xml_primitives.o \
            xml-fortran/write_xml_primitives.o
-
-#===============================================================================
-# Object Files
-#===============================================================================
-
-include OBJECTS
 
 #===============================================================================
 # User Options
@@ -28,9 +24,10 @@ PETSC    = no
 # External Library Paths
 #===============================================================================
 
-MPI_DIR   = /opt/mpich/3.0.2-$(COMPILER)
-HDF5_DIR  = /opt/hdf5/1.8.10-patch1-$(COMPILER)
-PETSC_DIR = /opt/petsc/3.3-p6-$(COMPILER)
+MPI_DIR   = /opt/mpich/3.0.4-$(COMPILER)
+HDF5_DIR  = /opt/hdf5/1.8.11-$(COMPILER)
+PHDF5_DIR = /opt/phdf5/1.8.11-$(COMPILER)
+PETSC_DIR = /opt/petsc/3.4.2-$(COMPILER)
 
 #===============================================================================
 # Add git SHA-1 hash
@@ -44,7 +41,7 @@ GIT_SHA1 = $(shell git log -1 2>/dev/null | head -n 1 | awk '{print $$2}')
 
 ifeq ($(COMPILER),gnu)
   F90 = gfortran
-  F90FLAGS := -cpp -fbacktrace -DNO_F2008
+  F90FLAGS := -cpp -fbacktrace
   LDFLAGS =
 
   # Debugging
@@ -72,7 +69,7 @@ endif
 
 ifeq ($(COMPILER),intel)
   F90 = ifort
-  F90FLAGS := -cpp -warn -assume byterecl -traceback
+  F90FLAGS := -fpp -warn -assume byterecl -traceback
   LDFLAGS =
 
   # Debugging
@@ -165,20 +162,21 @@ endif
 # Setup External Libraries
 #===============================================================================
 
-# MPI for distributed-memory parallelism
+# MPI for distributed-memory parallelism and HDF5 for I/O
 
 ifeq ($(MPI),yes)
-  F90 = $(MPI_DIR)/bin/mpif90
+  ifeq ($(HDF5),yes)
+    F90 = $(PHDF5_DIR)/bin/h5pfc
+    F90FLAGS += -DHDF5
+  else
+    F90 = $(MPI_DIR)/bin/mpif90
+  endif
   F90FLAGS += -DMPI
-endif
-
-# HDF5 for I/O
-
-ifeq ($(HDF5),yes)
-  F90FLAGS += -DHDF5 -I$(HDF5_DIR)/include
-  LDFLAGS += -L$(HDF5_DIR)/lib $(HDF5_DIR)/lib/libhdf5hl_fortran.a \
-             $(HDF5_DIR)/lib/libhdf5_hl.a $(HDF5_DIR)/lib/libhdf5_fortran.a \
-             $(HDF5_DIR)/lib/libhdf5.a -lz -lrt -lm -Wl,-rpath -Wl,$(HDF5_DIR)/lib
+else
+  ifeq ($(HDF5),yes)
+    F90 = $(HDF5_DIR)/bin/h5fc
+    F90FLAGS += -DHDF5
+  endif
 endif
 
 # PETSC for CMFD functionality
@@ -257,7 +255,6 @@ neat:
 # Rules
 #===============================================================================
 
-.SUFFIXES: .F90 .o
 .PHONY: all xml-fortran install uninstall clean neat distclean 
 
 %.o: %.F90

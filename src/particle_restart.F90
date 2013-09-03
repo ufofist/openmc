@@ -6,11 +6,10 @@ module particle_restart
   use constants
   use geometry_header, only: BASE_UNIVERSE
   use global
-  use particle_header, only: deallocate_coord
-  use output,          only: write_message
-  use physics,         only: transport
+  use output,          only: write_message, print_particle
+  use particle_header, only: Particle
   use random_lcg,      only: set_particle_seed
-  use source,          only: initialize_particle
+  use tracking,        only: transport
 
 #ifdef HDF5
   use hdf5_interface 
@@ -36,9 +35,9 @@ contains
 ! READ_HDF5_PARTICLE_RESTART
 !===============================================================================
 
-  subroutine read_hdf5_particle_restart()
+  subroutine read_hdf5_particle_restart(p)
 
-    integer(HSIZE_T)        :: dims1(1)
+    type(Particle), intent(inout) :: p
 
     ! write meessage
     message = "Loading particle restart file " // trim(path_particle_restart) &
@@ -53,8 +52,8 @@ contains
     call hdf5_read_integer(hdf5_particle_file, 'current_batch', current_batch)
     call hdf5_read_integer(hdf5_particle_file, 'gen_per_batch', gen_per_batch)
     call hdf5_read_integer(hdf5_particle_file, 'current_gen', current_gen)
-    call hdf5_read_long(hdf5_particle_file, 'n_particles', n_particles)
-    call hdf5_read_long(hdf5_particle_file, 'id', p % id)
+    call hdf5_read_long(hdf5_particle_file, 'n_particles', n_particles, hdf5_integer8_t)
+    call hdf5_read_long(hdf5_particle_file, 'id', p % id, hdf5_integer8_t)
     call hdf5_read_double(hdf5_particle_file, 'weight', p % wgt)
     call hdf5_read_double(hdf5_particle_file, 'energy', p % E)
     dims1 = (/3/)
@@ -79,7 +78,12 @@ contains
 ! READ_BINARY_PARTICLE_RESTART
 !===============================================================================
 
-  subroutine read_binary_particle_restart()
+  subroutine read_binary_particle_restart(p)
+
+    type(Particle), intent(inout) :: p
+
+    integer :: filetype
+    integer :: revision
 
     ! write meessage
     message = "Loading particle restart file " // trim(path_particle_restart) &
@@ -91,6 +95,8 @@ contains
          ACCESS='stream')
 
     ! read data from file
+    read(UNIT_PARTICLE) filetype
+    read(UNIT_PARTICLE) revision
     read(UNIT_PARTICLE) current_batch
     read(UNIT_PARTICLE) gen_per_batch
     read(UNIT_PARTICLE) current_gen
@@ -118,16 +124,16 @@ contains
   subroutine run_particle_restart()
 
     integer(8) :: particle_seed
+    type(Particle) :: p
 
     ! initialize the particle to be tracked
-    allocate(p)
-    call initialize_particle()
+    call p % initialize()
 
     ! read in the restart information
 #ifdef HDF5
-    call read_hdf5_particle_restart()
+    call read_hdf5_particle_restart(p)
 #else
-    call read_binary_particle_restart()
+    call read_binary_particle_restart(p)
 #endif
 
     ! set all tallies to 0 for now (just tracking errors)
@@ -139,14 +145,10 @@ contains
     call set_particle_seed(particle_seed)
 
     ! transport neutron
-    call transport()
+    call transport(p)
 
     ! write output if particle made it
-    write(ou,*) 'Particle Successfully Transport:'
-    write(ou,*) 'WEIGHT:', p % wgt
-    write(ou,*) 'ENERGY:', p % E
-    write(ou,*) 'LOCATION:', p % coord % xyz
-    write(ou,*) 'ANGLE:', p % coord % uvw
+    call print_particle(p)
 
   end subroutine run_particle_restart
 
