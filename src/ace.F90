@@ -12,6 +12,10 @@ module ace
   use set_header,       only: SetChar
   use string,           only: to_str
 
+#ifdef MPI
+  use mpi
+#endif
+
   implicit none
 
   integer :: NXS(16)             ! Descriptors for ACE XSS tables
@@ -207,6 +211,12 @@ contains
     type(SAlphaBeta), pointer :: sab => null()
     type(XsListing), pointer :: listing => null()
 
+#ifdef MPI
+    integer                  :: temp(48) ! for NXS, JXS
+    integer                  :: fh       ! file handle
+    integer(MPI_OFFSET_KIND) :: offset   ! offset in memory
+#endif
+
     ! determine path, record length, and location of table
     listing => xs_listings(i_listing)
     filename      = listing % path
@@ -272,6 +282,53 @@ contains
       ! =======================================================================
       ! READ ACE TABLE IN BINARY FORMAT
 
+#ifdef MPI
+       ! Open ACE file
+       call MPI_FILE_OPEN(MPI_COMM_WORLD, filename, MPI_MODE_RDONLY, &
+            MPI_INFO_NULL, fh, mpi_err)
+
+       ! Skip to correct record -- Fortran assumes that records start at 1, so
+       ! we need to subtract 1
+       offset = record_length*(location - 1)
+       call MPI_FILE_SEEK(fh, offset, MPI_SEEK_SET, mpi_err)
+
+       ! Read name, awr, kT
+       call MPI_FILE_READ_ALL(fh, name, 10, MPI_CHARACTER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_READ_ALL(fh, awr, 1, MPI_REAL8, &
+            MPI_STATUS_IGNORE, mpi_err)
+       call MPI_FILE_READ_ALL(fh, kT, 1, MPI_REAL8, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Skip date_, comment, mat
+       call MPI_FILE_SEEK(fh, 90_MPI_OFFSET_KIND, MPI_SEEK_CUR, mpi_err)
+
+       ! TODO: Read all data (with derived type?)
+       ! Read first zaid identifier for S(a,b) table
+       call MPI_FILE_READ_ALL(fh, zaids(1), 1, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Skip remainder of zaids and awrs
+       call MPI_FILE_SEEK(fh, 188_MPI_OFFSET_KIND, MPI_SEEK_CUR, mpi_err)
+
+       ! Read NXS, JXS
+       call MPI_FILE_READ_ALL(fh, temp, 48, MPI_INTEGER, &
+            MPI_STATUS_IGNORE, mpi_err)
+       NXS = temp(1:16)
+       JXS = temp(17:48)
+
+       ! determine table length and allocate XSS
+       length = NXS(1)
+       allocate(XSS(length))
+
+       ! Read XSS array
+       offset = location*record_length
+       call MPI_FILE_READ_AT_ALL(fh, offset, XSS, length, MPI_REAL8, &
+            MPI_STATUS_IGNORE, mpi_err)
+
+       ! Close file
+       call MPI_FILE_CLOSE(fh, mpi_err)
+#else
       ! Open ACE file
       open(UNIT=in, FILE=filename, STATUS='old', ACTION='read', &
            ACCESS='direct', RECL=record_length)
@@ -293,6 +350,7 @@ contains
 
       ! Close ACE file
       close(UNIT=in)
+#endif
     end if
 
     ! ==========================================================================
