@@ -171,6 +171,15 @@ contains
     ! Avoid some valgrind leak errors
     call already_read % clear()
 
+    ! Determine if material is fissionable
+    do i = 1, n_materials
+      mat => materials(i)
+      do j = 1, mat % n_nuclides
+        nuc => nuclides(mat % nuclide(j))
+        if (nuc % fissionable) mat % fissionable = .true.
+      end do
+    end do
+
   end subroutine read_xs
 
 !===============================================================================

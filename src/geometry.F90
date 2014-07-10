@@ -141,10 +141,15 @@ contains
     logical :: use_search_cells     ! use cells provided as argument
     logical :: outside_lattice      ! if particle is not inside lattice bounds
     logical :: lattice_edge         ! if particle is on a lattice edge
+    logical :: start_in_fissionable
+    logical :: end_in_fissionable
+    logical :: just_born
     type(Cell),     pointer, save :: c => null()    ! pointer to cell
     type(Lattice),  pointer, save :: lat => null()  ! pointer to lattice
     type(Universe), pointer, save :: univ => null() ! universe to search in
 !$omp threadprivate(c, lat, univ)
+
+    just_born = (p % cell_born == NONE)
 
     ! Remove coordinates for any lower levels
     call deallocate_coord(p % coord % next)
@@ -190,6 +195,30 @@ contains
           ! set material
           p % last_material = p % material
           p % material = c % material
+
+          if (p % E > 0.625e-6 .and. tallies_on .and. .not. just_born) then
+            if (p % last_material > 0) then
+              start_in_fissionable = materials(p % last_material) % fissionable
+            else
+              start_in_fissionable = .false.
+            end if
+            if (p % material > 0) then
+              end_in_fissionable = materials(p % material) % fissionable
+            else
+              end_in_fissionable = .false.
+            end if
+
+            if (start_in_fissionable .and. .not. end_in_fissionable) then
+!$omp critical
+              global_tallies(ATLF) % value = global_tallies(ATLF) % value + p % wgt
+!$omp end critical
+            end if
+            if (.not. start_in_fissionable .and. end_in_fissionable) then
+!$omp critical
+              global_tallies(ATLF) % value = global_tallies(ATLF) % value - p % wgt
+!$omp end critical
+            end if
+          end if
 
         elseif (c % type == CELL_FILL) then
           ! ====================================================================
@@ -413,6 +442,14 @@ contains
         global_tallies(LEAKAGE) % value = &
            global_tallies(LEAKAGE) % value + p % wgt
 !$omp end critical
+
+        if (p % E > 0.625e-6 .and. p % material > 0) then
+          if (materials(p % material) % fissionable) then
+!$omp critical
+            global_tallies(ATLF) % value = global_tallies(ATLF) % value + p % wgt
+!$omp end critical
+          end if
+        end if
       end if
 
       ! Display message

@@ -1587,6 +1587,8 @@ contains
       if (n_realizations > 3) write(ou,102) "Combined k-effective", k_combined
       write(ou,102) "Leakage Fraction", global_tallies(LEAKAGE) % sum, &
            global_tallies(LEAKAGE) % sum_sq
+      write(ou,102) "Above-thermal Leakage", global_tallies(ATLF) % sum, &
+           global_tallies(ATLF) % sum_sq
     else
       message = "Could not compute uncertainties -- only one active batch simulated!"
       call warning()
@@ -1595,6 +1597,7 @@ contains
       write(ou,103) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH)  % sum
       write(ou,103) "k-effective (Absorption)", global_tallies(K_ABSORPTION) % sum
       write(ou,103) "Leakage Fraction", global_tallies(LEAKAGE) % sum
+      write(ou,103) "Above-thermal Leakage", global_tallies(ATLF) % sum
     end if
     write(ou,*)
 

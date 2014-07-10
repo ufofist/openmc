@@ -135,6 +135,7 @@ contains
           call cross_surface(p, last_cell)
           p % event = EVENT_SURFACE
         end if
+
       else
         ! ====================================================================
         ! PARTICLE HAS COLLISION

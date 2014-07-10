@@ -341,12 +341,13 @@ module constants
        OUT_TOP   = 6
 
   ! Global tallY parameters
-  integer, parameter :: N_GLOBAL_TALLIES = 4
+  integer, parameter :: N_GLOBAL_TALLIES = 5
   integer, parameter :: &
        K_COLLISION   = 1, &
        K_ABSORPTION  = 2, &
        K_TRACKLENGTH = 3, &
-       LEAKAGE       = 4
+       LEAKAGE       = 4, &
+       ATLF          = 5
 
   ! ============================================================================
   ! EXTERNAL SOURCE PARAMETERS
