@@ -94,7 +94,7 @@ contains
                   & scheme)
                 nuclides(i_nuclide) % E_min = nuclides_0K(n) % E_min
                 nuclides(i_nuclide) % E_max = nuclides_0K(n) % E_max
-                if (.not. already_read % contains(nuclides(i_nuclide) % & 
+                if (.not. already_read % contains(nuclides(i_nuclide) % &
                   & name_0K)) then
                   i_listing = xs_listing_dict % get_key(nuclides(i_nuclide) % &
                     & name_0K)
@@ -444,7 +444,7 @@ contains
 
       ! Skip total and absorption
       XSS_index = XSS_index + 2*NE
-      
+
       ! Continue reading elastic scattering and heating
       nuc % elastic_0K = get_real(NE)
 
@@ -480,13 +480,13 @@ contains
       ! Read data from XSS -- only the energy grid, elastic scattering and heating
       ! cross section values are actually read from here. The total and absorption
       ! cross sections are reconstructed from the partial reaction data.
-      
+
       XSS_index = 1
       nuc % energy = get_real(NE)
-      
+
       ! Skip total and absorption
       XSS_index = XSS_index + 2*NE
-      
+
       ! Continue reading elastic scattering and heating
       nuc % elastic = get_real(NE)
 
@@ -923,17 +923,20 @@ contains
       ! read angular distribution -- currently this does not actually parse the
       ! angular distribution tables for each incoming energy, that must be done
       ! on-the-fly
-      XSS_index = JXS9 + LOCB + 2 * NE
-      rxn % adist % data = get_real(length)
-
-      ! change location pointers since they are currently relative to JXS(9)
-      LC = LOCB + 2 * NE + 1
+      length = 0
       do j = 1, NE
-        ! For consistency, leave location as 0 if type is isotropic.
-        ! This is not necessary for current correctness, but can avoid
-        ! future issues
-        if (rxn % adist % location(j) /= 0) then
-          rxn % adist % location(j) = abs(rxn % adist % location(j)) - LC
+        LC = rxn % adist % location(j)
+        rxn % adist % location(j) = length
+        XSS_index = JXS9 + abs(LC) - 1
+        if (LC > 0) then
+          ! 32 equiprobable bins
+          rxn % adist % data(length + 1:length + 33) = get_real(33)
+          length = length + 33
+        elseif (LC < 0) then
+          ! tabular distribution
+          NP = int(XSS(JXS9 + abs(LC)))
+          rxn % adist % data(length + 1:length + 2 + 3*NP) = get_real(2 + 3*NP)
+          length = length + 2 + 3*NP
         end if
       end do
     end do
