@@ -13,6 +13,9 @@ module eigenvalue
   use mesh_header,  only: StructuredMesh
   use output,       only: write_message, header, print_columns,              &
                           print_batch_keff, print_generation
+#ifdef PAPI
+  use papi_interface, only: papi_start_counting, papi_stop_counting
+#endif
   use particle_header, only: Particle
   use random_lcg,   only: prn, set_particle_seed, prn_skip
   use search,       only: binary_search
@@ -50,6 +53,10 @@ contains
 
     ! Turn on inactive timer
     call time_inactive % start()
+    
+#ifdef PAPI
+    call papi_start_counting()
+#endif
 
     ! ==========================================================================
     ! LOOP OVER BATCHES
@@ -99,6 +106,10 @@ contains
     end do BATCH_LOOP
 
     call time_active % stop()
+    
+#ifdef PAPI
+    call papi_stop_counting()
+#endif
 
     ! ==========================================================================
     ! END OF RUN WRAPUP

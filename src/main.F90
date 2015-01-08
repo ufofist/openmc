@@ -8,8 +8,15 @@ program main
   use initialize,        only: initialize_run
   use particle_restart,  only: run_particle_restart
   use plot,              only: run_plot
+#ifdef PAPI
+  use papi_interface,    only: papi_initialize
+#endif
 
   implicit none
+  
+#ifdef PAPI
+  call papi_initialize()
+#endif
 
   ! set up problem
   call initialize_run()

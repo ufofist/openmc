@@ -26,6 +26,7 @@ option(debug    "Compile with debug flags"                       OFF)
 option(optimize "Turn on all compiler optimization flags"        OFF)
 option(verbose  "Create verbose Makefiles"                       OFF)
 option(coverage "Compile with flags"                             OFF)
+option(papi     "Performance counters"                           OFF)
 
 if (verbose)
   set(CMAKE_VERBOSE_MAKEFILE on)
@@ -50,6 +51,21 @@ elseif($ENV{FC} MATCHES "h5pfc$")
   add_definitions(-DMPI -DHDF5)
   set(MPI_ENABLED TRUE)
   set(HDF5_ENABLED TRUE)
+endif()
+
+#===============================================================================
+# PAPI for performance counters
+#===============================================================================
+
+if(papi)
+  find_library(libpapi papi $ENV{PAPI_DIR}/lib)
+  if(libpapi STREQUAL "libpapi-NOTFOUND")
+    message(FATAL_ERROR "Count not find libpapi")
+  endif()
+  message("-- Using PAPI: ${libpapi}")
+  add_definitions(-DPAPI)
+  include_directories($ENV{PAPI_DIR}/include)
+  set(libraries "${libpapi};${libraries}")
 endif()
 
 #===============================================================================
