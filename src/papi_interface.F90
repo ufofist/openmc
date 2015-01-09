@@ -10,7 +10,7 @@ module papi_interface
 #ifdef PAPI
   include "f90papi.h"
 
-  integer(C_INT), parameter   :: N_EVENTS = 9
+  integer(C_INT), parameter   :: N_EVENTS = 6
   character(PAPI_MAX_STR_LEN) :: event_names(N_EVENTS)
   integer(C_INT), save        :: eventset = PAPI_NULL
   integer(C_LONG_LONG), save  :: values(PAPI_MAX_HWCTRS)
@@ -41,15 +41,12 @@ contains
     end if
 
     ! Set events
-    event_names(1) = "PAPI_FP_INS"
-    event_names(2) = "PAPI_L3_TCM"
-    event_names(3) = "PAPI_L3_TCA"
-    event_names(4) = "PAPI_L3_ICA"
-    event_names(5) = "PAPI_L3_DCA"
-    event_names(6) = "PAPI_L2_ICA"
-    event_names(7) = "PAPI_L2_ICM"
-    event_names(8) = "PAPI_L2_DCA"
-    event_names(9) = "PAPI_L2_DCM"
+    event_names(1) = "PAPI_L3_TCM"
+    event_names(2) = "PAPI_L3_TCA"
+    event_names(3) = "PAPI_L2_ICA"
+    event_names(4) = "PAPI_L2_ICM"
+    event_names(5) = "PAPI_L2_DCA"
+    event_names(6) = "PAPI_L2_DCM"
 
 !$omp parallel
 !$omp critical
