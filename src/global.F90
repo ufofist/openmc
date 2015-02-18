@@ -1,7 +1,7 @@
 module global
 
   use ace_header,       only: Nuclide, SAlphaBeta, xsListing, NuclideMicroXS, &
-                              MaterialMacroXS
+                              MaterialMacroXS, Nuclide0K
   use bank_header,      only: Bank
   use cmfd_header
   use constants
@@ -62,7 +62,7 @@ module global
   ! Cross section arrays
   type(Nuclide),    allocatable, target :: nuclides(:)    ! Nuclide cross-sections
   type(SAlphaBeta), allocatable, target :: sab_tables(:)  ! S(a,b) tables
-  type(XsListing),  allocatable, target :: xs_listings(:) ! cross_sections.xml listings 
+  type(XsListing),  allocatable, target :: xs_listings(:) ! cross_sections.xml listings
 
   ! Cross section caches
   type(NuclideMicroXS), allocatable :: micro_xs(:)  ! Cache for each nuclide
@@ -76,11 +76,6 @@ module global
   type(DictCharInt) :: nuclide_dict
   type(DictCharInt) :: sab_dict
   type(DictCharInt) :: xs_listing_dict
-
-  ! Unionized energy grid
-  integer :: grid_method ! how to treat the energy grid
-  integer :: n_grid      ! number of points on unionized grid
-  real(8), allocatable :: e_grid(:) ! energies on unionized grid
 
   ! Unreoslved resonance probablity tables
   logical :: urr_ptables_on = .true.
@@ -119,7 +114,7 @@ module global
   !   2) track-length estimate of k-eff
   !   3) leakage fraction
 
-  type(TallyResult), target :: global_tallies(N_GLOBAL_TALLIES)
+  type(TallyResult), allocatable, target :: global_tallies(:)
 
   ! Tally map structure
   type(TallyMap), allocatable :: tally_maps(:)
@@ -223,7 +218,6 @@ module global
   type(Timer) :: time_total         ! timer for total run
   type(Timer) :: time_initialize    ! timer for initialization
   type(Timer) :: time_read_xs       ! timer for reading cross sections
-  type(Timer) :: time_unionize      ! timer for unionizing energy grid
   type(Timer) :: time_bank          ! timer for fission bank synchronization
   type(Timer) :: time_bank_sample   ! timer for fission bank sampling
   type(Timer) :: time_bank_sendrecv ! timer for fission bank SEND/RECV
@@ -272,9 +266,6 @@ module global
   character(MAX_FILE_LEN) :: path_particle_restart ! Path to particle restart
   character(MAX_FILE_LEN) :: path_output = ''      ! Path to output directory
 
-  ! Message used in message/warning/fatal_error
-  character(2*MAX_LINE_LEN) :: message
-
   ! Random number seed
   integer(8) :: seed = 1_8
 
@@ -299,8 +290,11 @@ module global
   ! Particle restart run
   logical :: particle_restart_run = .false.
 
+  ! Write out initial source
+  logical :: write_initial_source = .false.
+
   ! ============================================================================
-  ! CMFD VARIABLES 
+  ! CMFD VARIABLES
 
   ! Main object
   type(cmfd_type) :: cmfd
@@ -310,11 +304,11 @@ module global
 
   ! CMFD communicator
   integer :: cmfd_comm
- 
+
   ! Timing objects
   type(Timer) :: time_cmfd      ! timer for whole cmfd calculation
   type(Timer) :: time_cmfdbuild ! timer for matrix build
-  type(Timer) :: time_cmfdsolve ! timer for solver 
+  type(Timer) :: time_cmfdsolve ! timer for solver
 
   ! Flag for active core map
   logical :: cmfd_coremap = .false.
@@ -329,9 +323,6 @@ module global
   integer :: n_cmfd_meshes  = 1 ! # of structured meshes
   integer :: n_cmfd_tallies = 3 ! # of user-defined tallies
 
-  ! Flag to hold cmfd weight adjustment factors
-  logical :: cmfd_hold_weights = .false.
-
   ! Eigenvalue solver type
   character(len=10) :: cmfd_solver_type = 'power'
 
@@ -344,11 +335,9 @@ module global
   ! Batch to begin cmfd
   integer :: cmfd_begin = 1
 
-  ! When and how long to flush cmfd tallies during inactive batches
-  integer :: cmfd_inact_flush(2) = (/9999,1/)
-
-  ! Batch to last flush before active batches
-  integer :: cmfd_act_flush = 0
+  ! Tally reset list
+  integer :: n_cmfd_resets
+  type(SetInt) :: cmfd_reset
 
   ! Compute effective downscatter cross section
   logical :: cmfd_downscatter = .false.
@@ -366,10 +355,17 @@ module global
 
   ! CMFD run logicals
   logical :: cmfd_on             = .false.
-  logical :: cmfd_tally_on       = .true. 
 
   ! CMFD display info
   character(len=25) :: cmfd_display = 'balance'
+
+  ! Estimate of spectral radius of CMFD matrices and tolerances
+  real(8) :: cmfd_spectral = ZERO
+  real(8) :: cmfd_shift = 1.e6
+  real(8) :: cmfd_ktol = 1.e-8_8
+  real(8) :: cmfd_stol = 1.e-8_8
+  real(8) :: cmfd_atoli = 1.e-10_8
+  real(8) :: cmfd_rtoli = 1.e-5_8
 
   ! Information about state points to be written
   integer :: n_state_points = 0
@@ -384,20 +380,27 @@ module global
   logical :: output_xs      = .false.
   logical :: output_tallies = .true.
 
-!$omp threadprivate(micro_xs, material_xs, fission_bank, n_bank, message, &
+  ! ============================================================================
+  ! RESONANCE SCATTERING VARIABLES
+
+  logical :: treat_res_scat = .false. ! is resonance scattering treated?
+  integer :: n_res_scatterers_total = 0 ! total number of resonant scatterers
+  type(Nuclide0K), allocatable, target :: nuclides_0K(:) ! 0K nuclides info
+
+!$omp threadprivate(micro_xs, material_xs, fission_bank, n_bank, &
 !$omp&              trace, thread_id, current_work, matching_bins)
 
 contains
 
 !===============================================================================
-! FREE_MEMORY deallocates and clears  all global allocatable arrays in the 
+! FREE_MEMORY deallocates and clears  all global allocatable arrays in the
 ! program
 !===============================================================================
 
   subroutine free_memory()
-    
+
     integer :: i ! Loop Index
-    
+
     ! Deallocate cells, surfaces, materials
     if (allocated(cells)) deallocate(cells)
     if (allocated(universes)) deallocate(universes)
@@ -417,6 +420,11 @@ contains
       end do
       deallocate(nuclides)
     end if
+
+    if (allocated(nuclides_0K)) then
+      deallocate(nuclides_0K)
+    end if
+
     if (allocated(sab_tables)) deallocate(sab_tables)
     if (allocated(xs_listings)) deallocate(xs_listings)
     if (allocated(micro_xs)) deallocate(micro_xs)
@@ -435,6 +443,7 @@ contains
     if (allocated(entropy_p)) deallocate(entropy_p)
 
     ! Deallocate tally-related arrays
+    if (allocated(global_tallies)) deallocate(global_tallies)
     if (allocated(meshes)) deallocate(meshes)
     if (allocated(tallies)) then
     ! First call the clear routines
@@ -446,9 +455,6 @@ contains
     end if
     if (allocated(matching_bins)) deallocate(matching_bins)
     if (allocated(tally_maps)) deallocate(tally_maps)
-
-    ! Deallocate energy grid
-    if (allocated(e_grid)) deallocate(e_grid)
 
     ! Deallocate fission and source bank and entropy
 !$omp parallel
@@ -474,7 +480,7 @@ contains
 
     ! Deallocate track_identifiers
     if (allocated(track_identifiers)) deallocate(track_identifiers)
-    
+
     ! Deallocate dictionaries
     call cell_dict % clear()
     call universe_dict % clear()
@@ -511,7 +517,7 @@ contains
         if (allocated(ufs_mesh % width)) deallocate(ufs_mesh % width)
         deallocate(ufs_mesh)
     end if
-    
+
   end subroutine free_memory
 
 end module global

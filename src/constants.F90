@@ -8,10 +8,10 @@ module constants
   ! OpenMC major, minor, and release numbers
   integer, parameter :: VERSION_MAJOR   = 0
   integer, parameter :: VERSION_MINOR   = 6
-  integer, parameter :: VERSION_RELEASE = 0
+  integer, parameter :: VERSION_RELEASE = 2
 
   ! Revision numbers for binary files
-  integer, parameter :: REVISION_STATEPOINT       = 12
+  integer, parameter :: REVISION_STATEPOINT       = 13
   integer, parameter :: REVISION_PARTICLE_RESTART = 1
 
   ! Binary file types
@@ -126,6 +126,9 @@ module constants
        SURF_CONE_X =  9, & ! Cone parallel to x-axis
        SURF_CONE_Y = 10, & ! Cone parallel to y-axis
        SURF_CONE_Z = 11    ! Cone parallel to z-axis
+
+  ! Flag to say that the outside of a lattice is not defined
+  integer, parameter :: NO_OUTER_UNIVERSE = -22
 
   ! Maximum number of lost particles
   integer, parameter :: MAX_LOST_PARTICLES = 10
@@ -336,8 +339,9 @@ module constants
 
   ! Source spatial distribution types
   integer, parameter :: &
-       SRC_SPACE_BOX   = 1, & ! Source in a rectangular prism
-       SRC_SPACE_POINT = 2    ! Source at a single point
+       SRC_SPACE_BOX     = 1, & ! Source in a rectangular prism
+       SRC_SPACE_POINT   = 2, & ! Source at a single point
+       SRC_SPACE_FISSION = 3    ! Source in prism filtered by fissionable mats
 
   ! Source angular distribution types
   integer, parameter :: &
@@ -365,9 +369,8 @@ module constants
 
   ! Energy grid methods
   integer, parameter :: &
-       GRID_NUCLIDE  = 1, & ! non-unionized energy grid
-       GRID_UNION    = 2, & ! union grid with pointers
-       GRID_LETHARGY = 3    ! lethargy mapping
+       GRID_NUCLIDE   = 1, & ! non-unionized energy grid
+       GRID_LOGARITHM = 2    ! logarithmic mapping
 
   ! Running modes
   integer, parameter ::        &
@@ -392,9 +395,6 @@ module constants
 
   ! constant to represent a zero flux "albedo"
   real(8), parameter :: ZERO_FLUX = 999.0_8
-
-  ! constant to represent albedo rejection
-  real(8), parameter :: ALBEDO_REJECT = 999.0_8
 
   ! constant for writing out no residual
   real(8), parameter :: CMFD_NORES = 99999.0_8

@@ -6,7 +6,7 @@ from collections import OrderedDict
 import numpy as np
 import scipy.stats
 
-REVISION_STATEPOINT = 12
+REVISION_STATEPOINT = 13
 
 filter_types = {1: 'universe', 2: 'material', 3: 'cell', 4: 'cellborn',
                 5: 'surface', 6: 'mesh', 7: 'energyin', 8: 'energyout'}
@@ -182,7 +182,6 @@ class StatePoint(object):
         # Read run information
         self.run_mode = self._get_int(path='run_mode')[0]
         self.n_particles = self._get_long(path='n_particles')[0]
-        self.n_batches = self._get_int(path='n_batches')[0]
 
         # Read current batch
         self.current_batch = self._get_int(path='current_batch')[0]
@@ -291,14 +290,27 @@ class StatePoint(object):
             t.n_nuclides = n_nuclides
             t.nuclides = self._get_int(n_nuclides, path=base+'nuclide_bins')
 
-            # Read score bins and scattering order
+            # Read score bins and user score bins
             t.n_scores = self._get_int(path=base+'n_score_bins')[0]
             t.scores = [score_types[j] for j in self._get_int(
                     t.n_scores, path=base+'score_bins')]
-            t.moment_order = self._get_int(t.n_scores, path=base+'moment_order')
-
-            # Read number of user score bins
             t.n_user_scores = self._get_int(path=base+'n_user_score_bins')[0]
+
+            # Read scattering moment order strings (e.g., P3, Y-1,2, etc.)
+            t.moments = list()
+            base += 'moments/'
+
+            # Extract the moment order string for each score
+            for k in range(t.n_scores):
+                moment = self._get_string(8, path=base+'order{0}'.format(k+1))
+                moment = moment.lstrip('[\'')
+                moment = moment.rstrip('\']')
+
+                # Remove extra whitespace
+                moment.replace(" ", "")
+
+                # Add the moment to the tally's list
+                t.moments.append(moment)
 
             # Set up stride
             stride = 1
