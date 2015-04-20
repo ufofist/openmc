@@ -65,7 +65,7 @@ contains
     total_weight = total_weight + p % wgt
 
     ! Force calculation of cross-sections by setting last energy to zero
-    micro_xs % last_E = ZERO
+    p % micro_xs % last_E = ZERO
 
     ! Prepare to write out particle track.
     if (p % write_track) then
@@ -90,10 +90,10 @@ contains
            &lattice_translation)
 
       ! Sample a distance to collision
-      if (material_xs % total == ZERO) then
+      if (p % material_xs % total == ZERO) then
         d_collision = INFINITY
       else
-        d_collision = -log(prn()) / material_xs % total
+        d_collision = -log(prn()) / p % material_xs % total
       end if
 
       ! Select smaller of the two distances
@@ -114,7 +114,7 @@ contains
 !$omp atomic
       global_tallies(K_TRACKLENGTH) % value = &
            global_tallies(K_TRACKLENGTH) % value + p % wgt * distance * &
-           material_xs % nu_fission
+           p % material_xs % nu_fission
 
       if (d_collision > d_boundary) then
         ! ====================================================================
@@ -141,7 +141,7 @@ contains
 !$omp atomic
         global_tallies(K_COLLISION) % value = &
              global_tallies(K_COLLISION) % value + p % wgt * &
-             material_xs % nu_fission / material_xs % total
+             p % material_xs % nu_fission / p % material_xs % total
 
         ! score surface current tallies -- this has to be done before the collision
         ! since the direction of the particle will change and we need to use the

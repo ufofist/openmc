@@ -90,14 +90,14 @@ contains
     ! absorption (including fission)
 
     if (nuc % fissionable .and. run_mode == MODE_EIGENVALUE) then
-      call sample_fission(i_nuclide, i_reaction)
+      call sample_fission(p, i_nuclide, i_reaction)
       call create_fission_sites(p, i_nuclide, i_reaction)
     end if
 
     ! If survival biasing is being used, the following subroutine adjusts the
     ! weight of the particle. Otherwise, it checks to see if absorption occurs
 
-    if (micro_xs(i_nuclide) % absorption > ZERO) then
+    if (p % micro_xs(i_nuclide) % absorption > ZERO) then
       call absorption(p, i_nuclide)
     else
       p % absorb_wgt = ZERO
@@ -140,11 +140,11 @@ contains
     ! Sample cumulative distribution function
     select case (base)
     case ('total')
-      cutoff = prn() * material_xs % total
+      cutoff = prn() * p % material_xs % total
     case ('scatter')
-      cutoff = prn() * material_xs % total - material_xs % absorption
+      cutoff = prn() * p % material_xs % total - p % material_xs % absorption
     case ('fission')
-      cutoff = prn() * material_xs % fission
+      cutoff = prn() * p % material_xs % fission
     end select
 
     i = 0
@@ -165,12 +165,12 @@ contains
       ! Determine microscopic cross section
       select case (base)
       case ('total')
-        sigma = atom_density * micro_xs(i_nuclide) % total
+        sigma = atom_density * p % micro_xs(i_nuclide) % total
       case ('scatter')
-        sigma = atom_density * (micro_xs(i_nuclide) % total - &
-             micro_xs(i_nuclide) % absorption)
+        sigma = atom_density * (p % micro_xs(i_nuclide) % total - &
+             p % micro_xs(i_nuclide) % absorption)
       case ('fission')
-        sigma = atom_density * micro_xs(i_nuclide) % fission
+        sigma = atom_density * p % micro_xs(i_nuclide) % fission
       end select
 
       ! Increment probability to compare to cutoff
@@ -183,8 +183,9 @@ contains
 ! SAMPLE_FISSION
 !===============================================================================
 
-  subroutine sample_fission(i_nuclide, i_reaction)
+  subroutine sample_fission(p, i_nuclide, i_reaction)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in)  :: i_nuclide  ! index in nuclides array
     integer, intent(out) :: i_reaction ! index in nuc % reactions array
 
@@ -203,16 +204,16 @@ contains
     ! default to the first reaction if we know that there are no partial fission
     ! reactions
 
-    if (micro_xs(i_nuclide) % use_ptable .or. &
+    if (p % micro_xs(i_nuclide) % use_ptable .or. &
          .not. nuc % has_partial_fission) then
       i_reaction = nuc % index_fission(1)
       return
     end if
 
     ! Get grid index and interpolatoin factor and sample fission cdf
-    i_grid = micro_xs(i_nuclide) % index_grid
-    f      = micro_xs(i_nuclide) % interp_factor
-    cutoff = prn() * micro_xs(i_nuclide) % fission
+    i_grid = p % micro_xs(i_nuclide) % index_grid
+    f      = p % micro_xs(i_nuclide) % interp_factor
+    cutoff = prn() * p % micro_xs(i_nuclide) % fission
     prob   = ZERO
 
     ! Loop through each partial fission reaction type
@@ -245,8 +246,8 @@ contains
 
     if (survival_biasing) then
       ! Determine weight absorbed in survival biasing
-      p % absorb_wgt = p % wgt * micro_xs(i_nuclide) % absorption / &
-           micro_xs(i_nuclide) % total
+      p % absorb_wgt = p % wgt * p % micro_xs(i_nuclide) % absorption / &
+           p % micro_xs(i_nuclide) % total
 
       ! Adjust weight of particle by probability of absorption
       p % wgt = p % wgt - p % absorb_wgt
@@ -256,16 +257,16 @@ contains
 !$omp atomic
       global_tallies(K_ABSORPTION) % value = &
            global_tallies(K_ABSORPTION) % value + p % absorb_wgt * &
-           micro_xs(i_nuclide) % nu_fission / micro_xs(i_nuclide) % absorption
+           p % micro_xs(i_nuclide) % nu_fission / p % micro_xs(i_nuclide) % absorption
     else
       ! See if disappearance reaction happens
-      if (micro_xs(i_nuclide) % absorption > &
-           prn() * micro_xs(i_nuclide) % total) then
+      if (p % micro_xs(i_nuclide) % absorption > &
+           prn() * p % micro_xs(i_nuclide) % total) then
         ! Score absorption estimate of keff
 !$omp atomic
         global_tallies(K_ABSORPTION) % value = &
              global_tallies(K_ABSORPTION) % value + p % wgt * &
-             micro_xs(i_nuclide) % nu_fission / micro_xs(i_nuclide) % absorption
+             p % micro_xs(i_nuclide) % nu_fission / p % micro_xs(i_nuclide) % absorption
 
         p % alive = .false.
         p % event = EVENT_ABSORB
@@ -315,32 +316,29 @@ contains
 
     ! Get pointer to nuclide and grid index/interpolation factor
     nuc    => nuclides(i_nuclide)
-    i_grid =  micro_xs(i_nuclide) % index_grid
-    f      =  micro_xs(i_nuclide) % interp_factor
+    i_grid =  p % micro_xs(i_nuclide) % index_grid
+    f      =  p % micro_xs(i_nuclide) % interp_factor
 
     ! For tallying purposes, this routine might be called directly. In that
     ! case, we need to sample a reaction via the cutoff variable
     prob = ZERO
-    cutoff = prn() * (micro_xs(i_nuclide) % total - &
-         micro_xs(i_nuclide) % absorption)
+    cutoff = prn() * (p % micro_xs(i_nuclide) % total - &
+         p % micro_xs(i_nuclide) % absorption)
 
-    prob = prob + micro_xs(i_nuclide) % elastic
+    prob = prob + p % micro_xs(i_nuclide) % elastic
     if (prob > cutoff) then
       ! =======================================================================
       ! ELASTIC SCATTERING
 
-      if (micro_xs(i_nuclide) % index_sab /= NONE) then
+      if (p % micro_xs(i_nuclide) % index_sab /= NONE) then
         ! S(a,b) scattering
-        call sab_scatter(i_nuclide, micro_xs(i_nuclide) % index_sab, &
-             p % E, p % coord0 % uvw, p % mu)
-
+        call sab_scatter(p, i_nuclide)
       else
         ! get pointer to elastic scattering reaction
         rxn => nuc % reactions(1)
 
         ! Perform collision physics for elastic scattering
-        call elastic_scatter(i_nuclide, rxn, &
-             p % E, p % coord0 % uvw, p % mu, p % wgt)
+        call elastic_scatter(p, i_nuclide, rxn)
       end if
 
       p % event_MT = ELASTIC
@@ -382,8 +380,7 @@ contains
       end do
 
       ! Perform collision physics for inelastic scattering
-      call inelastic_scatter(nuc, rxn, p % E, p % coord0 % uvw, &
-           p % mu, p % wgt)
+      call inelastic_scatter(p, nuc, rxn)
       p % event_MT = rxn % MT
 
     end if
@@ -398,14 +395,11 @@ contains
 ! target.
 !===============================================================================
 
-  subroutine elastic_scatter(i_nuclide, rxn, E, uvw, mu_lab, wgt)
+  subroutine elastic_scatter(p, i_nuclide, rxn)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in)     :: i_nuclide
     type(Reaction), pointer :: rxn
-    real(8), intent(inout)  :: E
-    real(8), intent(inout)  :: uvw(3)
-    real(8), intent(out)    :: mu_lab
-    real(8), intent(inout)  :: wgt
 
     real(8) :: awr       ! atomic weight ratio of target
     real(8) :: mu_cm     ! cosine of polar angle in center-of-mass
@@ -413,22 +407,24 @@ contains
     real(8) :: v_n(3)    ! velocity of neutron
     real(8) :: v_cm(3)   ! velocity of center-of-mass
     real(8) :: v_t(3)    ! velocity of target nucleus
+    real(8) :: uvw(3)    ! directional cosines in lab
     real(8) :: uvw_cm(3) ! directional cosines in center-of-mass
     type(Nuclide), pointer :: nuc
 
     ! get pointer to nuclide
     nuc => nuclides(i_nuclide)
 
-    vel = sqrt(E)
+    vel = sqrt(p % E)
     awr = nuc % awr
 
     ! Neutron velocity in LAB
+    uvw = p % coord0 % uvw
     v_n = vel * uvw
 
     ! Sample velocity of target nucleus
-    if (.not. micro_xs(i_nuclide) % use_ptable) then
-      call sample_target_velocity(nuc, v_t, E, uvw, v_n, wgt, &
-        & micro_xs(i_nuclide) % elastic)
+    if (.not. p % micro_xs(i_nuclide) % use_ptable) then
+      call sample_target_velocity(nuc, v_t, p % E, uvw, v_n, p % wgt, &
+           p % micro_xs(i_nuclide) % elastic)
     else
       v_t = ZERO
     end if
@@ -443,7 +439,7 @@ contains
     vel = sqrt(dot_product(v_n, v_n))
 
     ! Sample scattering angle
-    mu_cm = sample_angle(rxn, E)
+    mu_cm = sample_angle(rxn, p % E)
 
     ! Determine direction cosines in CM
     uvw_cm = v_n/vel
@@ -456,15 +452,15 @@ contains
     ! Transform back to LAB frame
     v_n = v_n + v_cm
 
-    E = dot_product(v_n, v_n)
-    vel = sqrt(E)
+    p % E = dot_product(v_n, v_n)
+    vel = sqrt(p % E)
 
     ! compute cosine of scattering angle in LAB frame by taking dot product of
     ! neutron's pre- and post-collision angle
-    mu_lab = dot_product(uvw, v_n) / vel
+    p % mu = dot_product(uvw, v_n) / vel
 
     ! Set energy and direction of particle in LAB frame
-    uvw = v_n / vel
+    p % coord0 % uvw = v_n / vel
 
   end subroutine elastic_scatter
 
@@ -473,13 +469,10 @@ contains
 ! according to a specified S(a,b) table.
 !===============================================================================
 
-  subroutine sab_scatter(i_nuclide, i_sab, E, uvw, mu)
+  subroutine sab_scatter(p, i_nuclide)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in)     :: i_nuclide ! index in micro_xs
-    integer, intent(in)     :: i_sab     ! index in sab_tables
-    real(8), intent(inout)  :: E         ! incoming/outgoing energy
-    real(8), intent(inout)  :: uvw(3)    ! directional cosines
-    real(8), intent(out)    :: mu        ! scattering cosine
 
     integer :: i            ! incoming energy bin
     integer :: j            ! outgoing energy bin
@@ -505,20 +498,20 @@ contains
     real(8) :: r1             ! RNG for outgoing energy
 
     ! Get pointer to S(a,b) table
-    sab => sab_tables(i_sab)
+    sab => sab_tables(p % micro_xs(i_nuclide) % index_sab)
 
     ! Determine whether inelastic or elastic scattering will occur
-    if (prn() < micro_xs(i_nuclide) % elastic_sab / &
-         micro_xs(i_nuclide) % elastic) then
+    if (prn() < p % micro_xs(i_nuclide) % elastic_sab / &
+         p % micro_xs(i_nuclide) % elastic) then
       ! elastic scattering
 
       ! Get index and interpolation factor for elastic grid
-      if (E < sab % elastic_e_in(1)) then
+      if (p % E < sab % elastic_e_in(1)) then
         i = 1
         f = ZERO
       else
-        i = binary_search(sab % elastic_e_in, sab % n_elastic_e_in, E)
-        f = (E - sab%elastic_e_in(i)) / &
+        i = binary_search(sab % elastic_e_in, sab % n_elastic_e_in, p % E)
+        f = (p % E - sab%elastic_e_in(i)) / &
              (sab%elastic_e_in(i+1) - sab%elastic_e_in(i))
       end if
 
@@ -536,7 +529,7 @@ contains
         mu_i1jk = sab % elastic_mu(k,i+1)
 
         ! Cosine of angle between incoming and outgoing neutron
-        mu = (1 - f)*mu_ijk + f*mu_i1jk
+        p % mu = (1 - f)*mu_ijk + f*mu_i1jk
 
       elseif (sab % elastic_mode == SAB_ELASTIC_EXACT) then
         ! This treatment is used for data derived in the coherent
@@ -552,7 +545,7 @@ contains
         end if
 
         ! Characteristic scattering cosine for this Bragg edge
-        mu = ONE - TWO*sab % elastic_e_in(k) / E
+        p % mu = ONE - TWO*sab % elastic_e_in(k) / p % E
 
       end if
 
@@ -562,12 +555,12 @@ contains
       ! Perform inelastic calculations
 
       ! Get index and interpolation factor for inelastic grid
-      if (E < sab % inelastic_e_in(1)) then
+      if (p % E < sab % inelastic_e_in(1)) then
         i = 1
         f = ZERO
       else
-        i = binary_search(sab % inelastic_e_in, sab % n_inelastic_e_in, E)
-        f = (E - sab%inelastic_e_in(i)) / &
+        i = binary_search(sab % inelastic_e_in, sab % n_inelastic_e_in, p % E)
+        f = (p % E - sab%inelastic_e_in(i)) / &
              (sab%inelastic_e_in(i+1) - sab%inelastic_e_in(i))
       end if
 
@@ -617,7 +610,7 @@ contains
         E_i1j = sab % inelastic_e_out(j,i+1)
 
         ! Outgoing energy
-        E = (1 - f)*E_ij + f*E_i1j
+        p % E = (1 - f)*E_ij + f*E_i1j
 
         ! Sample outgoing cosine bin
         k = 1 + int(prn() * sab % n_inelastic_mu)
@@ -627,7 +620,7 @@ contains
         mu_i1jk = sab % inelastic_mu(k,j,i+1)
 
         ! Cosine of angle between incoming and outgoing neutron
-        mu = (1 - f)*mu_ijk + f*mu_i1jk
+        p % mu = (1 - f)*mu_ijk + f*mu_i1jk
 
       else if (sab % secondary_mode == SAB_SECONDARY_CONT) then
         ! Continuous secondary energy - this is to be similar to
@@ -679,17 +672,17 @@ contains
         ! Find secondary energy (variable E)
         frac = (p_l_j1 - p_l_j) / (E_l_j1 - E_l_j)
         if (frac == ZERO) then
-          E = E_l_j + (r1 - c_j) / p_l_j
+          p % E = E_l_j + (r1 - c_j) / p_l_j
         else
-          E = E_l_j + (sqrt(max(ZERO, p_l_j * p_l_j + &
-                       TWO * frac * (r1 - c_j))) - p_l_j) / frac
+          p % E = E_l_j + (sqrt(max(ZERO, p_l_j * p_l_j + &
+               TWO * frac * (r1 - c_j))) - p_l_j) / frac
         end if
 
         ! Now interpolate between incident energy bins i and i + 1
         if (l == i) then
-          E = E_1 + (E - E_i_1) * (E_J - E_1) / (E_i_J - E_i_1)
+          p % E = E_1 + (p % E - E_i_1) * (E_J - E_1) / (E_i_J - E_i_1)
         else
-          E = E_1 + (E - E_i1_1) * (E_J - E_1) / (E_i1_J - E_i1_1)
+          p % E = E_1 + (p % E - E_i1_1) * (E_J - E_1) / (E_i1_J - E_i1_1)
         end if
 
         ! Find angular distribution for closest outgoing energy bin
@@ -704,7 +697,7 @@ contains
 
         ! Will use mu from the randomly chosen incoming and closest outgoing
         ! energy bins
-        mu = sab % inelastic_data(l) % mu(k, j)
+        p % mu = sab % inelastic_data(l) % mu(k, j)
 
       else
         call fatal_error("Invalid secondary energy mode on S(a,b) table " &
@@ -713,7 +706,7 @@ contains
     end if  ! (elastic or inelastic)
 
     ! change direction of particle
-    uvw = rotate_angle(uvw, mu)
+    p % coord0 % uvw = rotate_angle(p % coord0 % uvw, p % mu)
 
   end subroutine sab_scatter
 
@@ -1090,8 +1083,8 @@ contains
     end if
 
     ! Determine expected number of neutrons produced
-    nu_t = p % wgt / keff * weight * micro_xs(i_nuclide) % nu_fission / &
-         micro_xs(i_nuclide) % total
+    nu_t = p % wgt / keff * weight * p % micro_xs(i_nuclide) % nu_fission / &
+         p % micro_xs(i_nuclide) % total
 
     ! Sample number of neutrons produced
     if (prn() > nu_t - int(nu_t)) then
@@ -1268,14 +1261,11 @@ contains
 ! than fission), i.e. level scattering, (n,np), (n,na), etc.
 !===============================================================================
 
-  subroutine inelastic_scatter(nuc, rxn, E, uvw, mu, wgt)
+  subroutine inelastic_scatter(p, nuc, rxn)
 
+    type(Particle), intent(inout) :: p
     type(Nuclide),  pointer :: nuc
     type(Reaction), pointer :: rxn
-    real(8), intent(inout)  :: E      ! energy in lab (incoming/outgoing)
-    real(8), intent(inout)  :: uvw(3) ! directional cosines
-    real(8), intent(out)    :: mu     ! cosine of scattering angle in lab
-    real(8), intent(inout)  :: wgt    ! particle weight
 
     integer :: law         ! secondary energy distribution law
     real(8) :: A           ! atomic weight ratio of nuclide
@@ -1285,7 +1275,7 @@ contains
     real(8) :: yield       ! neutron yield
 
     ! copy energy of neutron
-    E_in = E
+    E_in = p % E
 
     ! determine A and Q
     A = nuc % awr
@@ -1295,32 +1285,32 @@ contains
     law = rxn % edist % law
 
     ! sample scattering angle
-    mu = sample_angle(rxn, E_in)
+    p % mu = sample_angle(rxn, E_in)
 
     ! sample outgoing energy
     if (law == 44 .or. law == 61) then
-      call sample_energy(rxn%edist, E_in, E, mu)
+      call sample_energy(rxn%edist, E_in, p % E, p % mu)
     elseif (law == 66) then
-      call sample_energy(rxn%edist, E_in, E, A=A, Q=Q)
+      call sample_energy(rxn%edist, E_in, p % E, A=A, Q=Q)
     else
-      call sample_energy(rxn%edist, E_in, E)
+      call sample_energy(rxn%edist, E_in, p % E)
     end if
 
     ! if scattering system is in center-of-mass, transfer cosine of scattering
     ! angle and outgoing energy from CM to LAB
     if (rxn % scatter_in_cm) then
-      E_cm = E
+      E_cm = p % E
 
       ! determine outgoing energy in lab
-      E = E_cm + (E_in + TWO * mu * (A+ONE) * sqrt(E_in * E_cm)) &
+      p % E = E_cm + (E_in + TWO * p % mu * (A+ONE) * sqrt(E_in * E_cm)) &
            / ((A+ONE)*(A+ONE))
 
       ! determine outgoing angle in lab
-      mu = mu * sqrt(E_cm/E) + ONE/(A+ONE) * sqrt(E_in/E)
+      p % mu = p % mu * sqrt(E_cm/p % E) + ONE/(A+ONE) * sqrt(E_in/p % E)
     end if
 
     ! change direction of particle
-    uvw = rotate_angle(uvw, mu)
+    p % coord0 % uvw = rotate_angle(p % coord0 % uvw, p % mu)
 
     ! change weight of particle based on yield
     if (rxn % multiplicity_with_E) then
@@ -1328,7 +1318,7 @@ contains
     else
       yield = rxn % multiplicity
     end if
-    wgt = yield * wgt
+    p % wgt = yield * p % wgt
 
   end subroutine inelastic_scatter
 

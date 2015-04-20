@@ -89,7 +89,7 @@ contains
           else
             score = p % last_wgt
           end if
-          score = score / material_xs % total
+          score = score / p % material_xs % total
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           ! For flux, we need no cross section
@@ -112,9 +112,9 @@ contains
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % total * atom_density * flux
+            score = p % micro_xs(i_nuclide) % total * atom_density * flux
           else
-            score = material_xs % total * flux
+            score = p % material_xs % total * flux
           end if
         end if
 
@@ -131,10 +131,10 @@ contains
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           ! Note SCORE_SCATTER_N not available for tracklength.
           if (i_nuclide > 0) then
-            score = (micro_xs(i_nuclide) % total &
-                 - micro_xs(i_nuclide) % absorption) * atom_density * flux
+            score = (p % micro_xs(i_nuclide) % total &
+                 - p % micro_xs(i_nuclide) % absorption) * atom_density * flux
           else
-            score = (material_xs % total - material_xs % absorption) * flux
+            score = (p % material_xs % total - p % material_xs % absorption) * flux
           end if
         end if
 
@@ -180,8 +180,8 @@ contains
         ! Skip any event where the particle didn't scatter
         if (p % event /= EVENT_SCATTER) cycle SCORE_LOOP
         ! get material macros
-        macro_total = material_xs % total
-        macro_scatt = material_xs % total - material_xs % absorption
+        macro_total = p % material_xs % total
+        macro_scatt = p % material_xs % total - p % material_xs % absorption
         ! Score total rate - p1 scatter rate Note estimator needs to be
         ! adjusted since tallying is only occuring when a scatter has
         ! happened. Effectively this means multiplying the estimator by
@@ -215,9 +215,9 @@ contains
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % absorption * atom_density * flux
+            score = p % micro_xs(i_nuclide) % absorption * atom_density * flux
           else
-            score = material_xs % absorption * flux
+            score = p % material_xs % absorption * flux
           end if
         end if
 
@@ -228,9 +228,9 @@ contains
             ! No fission events occur if survival biasing is on -- need to
             ! calculate fraction of absorptions that would have resulted in
             ! fission
-            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
-              score = p % absorb_wgt * micro_xs(p % event_nuclide) % fission &
-                   / micro_xs(p % event_nuclide) % absorption
+            if (p % micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = p % absorb_wgt * p % micro_xs(p % event_nuclide) % fission &
+                   / p % micro_xs(p % event_nuclide) % absorption
             else
               score = ZERO
             end if
@@ -240,15 +240,15 @@ contains
             ! All fission events will contribute, so again we can use
             ! particle's weight entering the collision as the estimate for the
             ! fission reaction rate
-            score = p % last_wgt * micro_xs(p % event_nuclide) % fission &
-                 / micro_xs(p % event_nuclide) % absorption
+            score = p % last_wgt * p % micro_xs(p % event_nuclide) % fission &
+                 / p % micro_xs(p % event_nuclide) % absorption
           end if
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % fission * atom_density * flux
+            score = p % micro_xs(i_nuclide) % fission * atom_density * flux
           else
-            score = material_xs % fission * flux
+            score = p % material_xs % fission * flux
           end if
         end if
 
@@ -270,9 +270,9 @@ contains
             ! No fission events occur if survival biasing is on -- need to
             ! calculate fraction of absorptions that would have resulted in
             ! nu-fission
-            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
-              score = p % absorb_wgt * micro_xs(p % event_nuclide) % &
-                   nu_fission / micro_xs(p % event_nuclide) % absorption
+            if (p % micro_xs(p % event_nuclide) % absorption > ZERO) then
+              score = p % absorb_wgt * p % micro_xs(p % event_nuclide) % &
+                   nu_fission / p % micro_xs(p % event_nuclide) % absorption
             else
               score = ZERO
             end if
@@ -289,9 +289,9 @@ contains
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % nu_fission * atom_density * flux
+            score = p % micro_xs(i_nuclide) % nu_fission * atom_density * flux
           else
-            score = material_xs % nu_fission * flux
+            score = p % material_xs % nu_fission * flux
           end if
         end if
 
@@ -302,10 +302,10 @@ contains
             ! No fission events occur if survival biasing is on -- need to
             ! calculate fraction of absorptions that would have resulted in
             ! fission scale by kappa-fission
-            if (micro_xs(p % event_nuclide) % absorption > ZERO) then
+            if (p % micro_xs(p % event_nuclide) % absorption > ZERO) then
               score = p % absorb_wgt * &
-                   micro_xs(p % event_nuclide) % kappa_fission / &
-                   micro_xs(p % event_nuclide) % absorption
+                   p % micro_xs(p % event_nuclide) % kappa_fission / &
+                   p % micro_xs(p % event_nuclide) % absorption
             else
               score = ZERO
             end if
@@ -316,15 +316,15 @@ contains
             ! particle's weight entering the collision as the estimate for
             ! the fission energy production rate
             score = p % last_wgt * &
-                 micro_xs(p % event_nuclide) % kappa_fission / &
-                 micro_xs(p % event_nuclide) % absorption
+                 p % micro_xs(p % event_nuclide) % kappa_fission / &
+                 p % micro_xs(p % event_nuclide) % absorption
           end if
 
         else if (t % estimator == ESTIMATOR_TRACKLENGTH) then
           if (i_nuclide > 0) then
-            score = micro_xs(i_nuclide) % kappa_fission * atom_density * flux
+            score = p % micro_xs(i_nuclide) % kappa_fission * atom_density * flux
           else
-            score = material_xs % kappa_fission * flux
+            score = p % material_xs % kappa_fission * flux
           end if
         end if
 
@@ -361,8 +361,8 @@ contains
                 if (score_bin == rxn % MT) then
                   ! Retrieve index on nuclide energy grid and interpolation
                   ! factor
-                  i_energy = micro_xs(i_nuclide) % index_grid
-                  f = micro_xs(i_nuclide) % interp_factor
+                  i_energy = p % micro_xs(i_nuclide) % index_grid
+                  f = p % micro_xs(i_nuclide) % interp_factor
                   if (i_energy >= rxn % threshold) then
                     score = ((ONE - f) * rxn % sigma(i_energy - &
                          rxn%threshold + 1) + f * rxn % sigma(i_energy - &
@@ -390,8 +390,8 @@ contains
                   if (score_bin == rxn % MT) then
                     ! Retrieve index on nuclide energy grid and interpolation
                     ! factor
-                    i_energy = micro_xs(i_nuc) % index_grid
-                    f = micro_xs(i_nuc) % interp_factor
+                    i_energy = p % micro_xs(i_nuc) % index_grid
+                    f = p % micro_xs(i_nuc) % interp_factor
                     if (i_energy >= rxn % threshold) then
                       score = score + ((ONE - f) * rxn % sigma(i_energy - &
                            rxn%threshold + 1) + f * rxn % sigma(i_energy - &

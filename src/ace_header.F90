@@ -250,47 +250,6 @@ module ace_header
     character(MAX_FILE_LEN) :: path ! path to library containing table
   end type XsListing
 
-!===============================================================================
-! NUCLIDEMICROXS contains cached microscopic cross sections for a
-! particular nuclide at the current energy
-!===============================================================================
-
-  type NuclideMicroXS
-    integer :: index_grid      ! index on nuclide energy grid
-    integer :: index_temp      ! temperature index for nuclide
-    real(8) :: last_E = 0.0    ! last evaluated energy
-    real(8) :: interp_factor   ! interpolation factor on nuc. energy grid
-    real(8) :: total           ! microscropic total xs
-    real(8) :: elastic         ! microscopic elastic scattering xs
-    real(8) :: absorption      ! microscopic absorption xs
-    real(8) :: fission         ! microscopic fission xs
-    real(8) :: nu_fission      ! microscopic production xs
-    real(8) :: kappa_fission   ! microscopic energy-released from fission
-
-    ! Information for S(a,b) use
-    integer :: index_sab          ! index in sab_tables (zero means no table)
-    integer :: last_index_sab = 0 ! index in sab_tables last used by this nuclide
-    real(8) :: elastic_sab        ! microscopic elastic scattering on S(a,b) table
-
-    ! Information for URR probability table use
-    logical :: use_ptable  ! in URR range with probability tables?
-    real(8) :: last_prn
-  end type NuclideMicroXS
-
-!===============================================================================
-! MATERIALMACROXS contains cached macroscopic cross sections for the material a
-! particle is traveling through
-!===============================================================================
-
-  type MaterialMacroXS
-    real(8) :: total         ! macroscopic total xs
-    real(8) :: elastic       ! macroscopic elastic scattering xs
-    real(8) :: absorption    ! macroscopic absorption xs
-    real(8) :: fission       ! macroscopic fission xs
-    real(8) :: nu_fission    ! macroscopic production xs
-    real(8) :: kappa_fission ! macroscopic energy-released from fission
-  end type MaterialMacroXS
-
   contains
 
 !===============================================================================

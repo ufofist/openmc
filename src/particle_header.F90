@@ -32,6 +32,47 @@ module particle_header
   end type LocalCoord
 
 !===============================================================================
+! NUCLIDEMICROXS contains cached microscopic cross sections for a
+! particular nuclide at the current energy
+!===============================================================================
+
+  type NuclideMicroXS
+    integer :: index_grid      ! index on nuclide energy grid
+    integer :: index_temp      ! temperature index for nuclide
+    real(8) :: last_E = 0.0    ! last evaluated energy
+    real(8) :: interp_factor   ! interpolation factor on nuc. energy grid
+    real(8) :: total           ! microscropic total xs
+    real(8) :: elastic         ! microscopic elastic scattering xs
+    real(8) :: absorption      ! microscopic absorption xs
+    real(8) :: fission         ! microscopic fission xs
+    real(8) :: nu_fission      ! microscopic production xs
+    real(8) :: kappa_fission   ! microscopic energy-released from fission
+
+    ! Information for S(a,b) use
+    integer :: index_sab          ! index in sab_tables (zero means no table)
+    integer :: last_index_sab = 0 ! index in sab_tables last used by this nuclide
+    real(8) :: elastic_sab        ! microscopic elastic scattering on S(a,b) table
+
+    ! Information for URR probability table use
+    logical :: use_ptable  ! in URR range with probability tables?
+    real(8) :: last_prn
+  end type NuclideMicroXS
+
+!===============================================================================
+! MATERIALMACROXS contains cached macroscopic cross sections for the material a
+! particle is traveling through
+!===============================================================================
+
+  type MaterialMacroXS
+    real(8) :: total         ! macroscopic total xs
+    real(8) :: elastic       ! macroscopic elastic scattering xs
+    real(8) :: absorption    ! macroscopic absorption xs
+    real(8) :: fission       ! macroscopic fission xs
+    real(8) :: nu_fission    ! macroscopic production xs
+    real(8) :: kappa_fission ! macroscopic energy-released from fission
+  end type MaterialMacroXS
+
+!===============================================================================
 ! PARTICLE describes the state of a particle being transported through the
 ! geometry
 !===============================================================================
@@ -77,6 +118,10 @@ module particle_header
     ! Statistical data
     integer    :: n_collision   ! # of collisions
 
+    ! Cross section caches
+    type(NuclideMicroXS), allocatable :: micro_xs(:)  ! Cache for each nuclide
+    type(MaterialMacroXS)             :: material_xs  ! Cache for current material
+
     ! Track output
     logical    :: write_track = .false.
 
@@ -112,9 +157,10 @@ contains
 ! bank
 !===============================================================================
 
-  subroutine initialize_particle(this)
+  subroutine initialize_particle(this, xs_cache_size)
 
     class(Particle) :: this
+    integer, intent(in) :: xs_cache_size
 
     ! Clear coordinate lists
     call this % clear()
@@ -141,6 +187,9 @@ contains
     this % coord0 % universe = BASE_UNIVERSE
     this % coord             => this % coord0
 
+    ! Create cross section caches
+    allocate(this % micro_xs(xs_cache_size))
+
   end subroutine initialize_particle
 
 !===============================================================================
@@ -156,6 +205,9 @@ contains
 
     ! Make sure coord pointer is nullified
     nullify(this % coord)
+
+    ! Deallocate cross section cache
+    if (allocated(this % micro_xs)) deallocate(this % micro_xs)
 
   end subroutine clear_particle
 

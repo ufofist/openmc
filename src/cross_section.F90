@@ -38,12 +38,12 @@ contains
     type(Material), pointer :: mat ! current material
 
     ! Set all material macroscopic cross sections to zero
-    material_xs % total          = ZERO
-    material_xs % elastic        = ZERO
-    material_xs % absorption     = ZERO
-    material_xs % fission        = ZERO
-    material_xs % nu_fission     = ZERO
-    material_xs % kappa_fission  = ZERO
+    p % material_xs % total          = ZERO
+    p % material_xs % elastic        = ZERO
+    p % material_xs % absorption     = ZERO
+    p % material_xs % fission        = ZERO
+    p % material_xs % nu_fission     = ZERO
+    p % material_xs % kappa_fission  = ZERO
 
     ! Exit subroutine if material is void
     if (p % material == MATERIAL_VOID) return
@@ -93,10 +93,10 @@ contains
       i_nuclide = mat % nuclide(i)
 
       ! Calculate microscopic cross section for this nuclide
-      if (p % E /= micro_xs(i_nuclide) % last_E) then
-        call calculate_nuclide_xs(i_nuclide, i_sab, p % E, p % material, i)
-      else if (i_sab /= micro_xs(i_nuclide) % last_index_sab) then
-        call calculate_nuclide_xs(i_nuclide, i_sab, p % E, p % material, i)
+      if (p % E /= p % micro_xs(i_nuclide) % last_E) then
+        call calculate_nuclide_xs(p, i_nuclide, i_sab, i)
+      else if (i_sab /= p % micro_xs(i_nuclide) % last_index_sab) then
+        call calculate_nuclide_xs(p, i_nuclide, i_sab, i)
       end if
 
       ! ========================================================================
@@ -106,28 +106,28 @@ contains
       atom_density = mat % atom_density(i)
 
       ! Add contributions to material macroscopic total cross section
-      material_xs % total = material_xs % total + &
-           atom_density * micro_xs(i_nuclide) % total
+      p % material_xs % total = p % material_xs % total + &
+           atom_density * p % micro_xs(i_nuclide) % total
 
       ! Add contributions to material macroscopic scattering cross section
-      material_xs % elastic = material_xs % elastic + &
-           atom_density * micro_xs(i_nuclide) % elastic
+      p % material_xs % elastic = p % material_xs % elastic + &
+           atom_density * p % micro_xs(i_nuclide) % elastic
 
       ! Add contributions to material macroscopic absorption cross section
-      material_xs % absorption = material_xs % absorption + &
-           atom_density * micro_xs(i_nuclide) % absorption
+      p % material_xs % absorption = p % material_xs % absorption + &
+           atom_density * p % micro_xs(i_nuclide) % absorption
 
       ! Add contributions to material macroscopic fission cross section
-      material_xs % fission = material_xs % fission + &
-           atom_density * micro_xs(i_nuclide) % fission
+      p % material_xs % fission = p % material_xs % fission + &
+           atom_density * p % micro_xs(i_nuclide) % fission
 
       ! Add contributions to material macroscopic nu-fission cross section
-      material_xs % nu_fission = material_xs % nu_fission + &
-           atom_density * micro_xs(i_nuclide) % nu_fission
+      p % material_xs % nu_fission = p % material_xs % nu_fission + &
+           atom_density * p % micro_xs(i_nuclide) % nu_fission
 
       ! Add contributions to material macroscopic energy release from fission
-      material_xs % kappa_fission = material_xs % kappa_fission + &
-           atom_density * micro_xs(i_nuclide) % kappa_fission
+      p % material_xs % kappa_fission = p % material_xs % kappa_fission + &
+           atom_density * p % micro_xs(i_nuclide) % kappa_fission
     end do
 
   end subroutine calculate_xs
@@ -137,24 +137,23 @@ contains
 ! given index in the nuclides array at the energy of the given particle
 !===============================================================================
 
-  subroutine calculate_nuclide_xs(i_nuclide, i_sab, E, i_mat, i_nuc_mat)
+  subroutine calculate_nuclide_xs(p, i_nuclide, i_sab, i_nuc_mat)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in) :: i_nuclide ! index into nuclides array
     integer, intent(in) :: i_sab     ! index into sab_tables array
-    integer, intent(in) :: i_mat     ! index into materials array
     integer, intent(in) :: i_nuc_mat ! index into nuclides array for a material
     integer :: i_grid ! index on nuclide energy grid
     integer :: i_low  ! lower logarithmic mapping index
     integer :: i_high ! upper logarithmic mapping index
     integer :: u      ! index into logarithmic mapping array
-    real(8), intent(in) :: E ! energy
     real(8) :: f             ! interp factor on nuclide energy grid
     type(Nuclide),  pointer :: nuc
     type(Material), pointer :: mat
 
     ! Set pointer to nuclide and material
     nuc => nuclides(i_nuclide)
-    mat => materials(i_mat)
+    mat => materials(p % material)
 
     ! Determine index on nuclide energy grid
     select case (grid_method)
@@ -166,32 +165,32 @@ contains
       ! Determine the energy grid index using a logarithmic mapping to reduce
       ! the energy range over which a binary search needs to be performed
 
-      if (E < nuc % energy(1)) then
+      if (p % E < nuc % energy(1)) then
         i_grid = 1
-      elseif (E > nuc % energy(nuc % n_grid)) then
+      elseif (p % E > nuc % energy(nuc % n_grid)) then
         i_grid = nuc % n_grid - 1
       else
         ! Determine bounding indices based on which equal log-spaced interval
         ! the energy is in
-        u = int(log(E/1.0e-11_8)/log_spacing)
+        u = int(log(p % E/1.0e-11_8)/log_spacing)
         i_low  = nuc % grid_index(u)
         i_high = nuc % grid_index(u + 1) + 1
 
         ! Perform binary search over reduced range
         i_grid = binary_search(nuc % energy(i_low:i_high), &
-             i_high - i_low + 1, E) + i_low - 1
+             i_high - i_low + 1, p % E) + i_low - 1
       end if
 
     case (GRID_NUCLIDE)
       ! Perform binary search on the nuclide energy grid in order to determine
       ! which points to interpolate between
 
-      if (E <= nuc % energy(1)) then
+      if (p % E <= nuc % energy(1)) then
         i_grid = 1
-      elseif (E > nuc % energy(nuc % n_grid)) then
+      elseif (p % E > nuc % energy(nuc % n_grid)) then
         i_grid = nuc % n_grid - 1
       else
-        i_grid = binary_search(nuc % energy, nuc % n_grid, E)
+        i_grid = binary_search(nuc % energy, nuc % n_grid, p % E)
       end if
 
     end select
@@ -200,50 +199,50 @@ contains
     if (nuc % energy(i_grid) == nuc % energy(i_grid+1)) i_grid = i_grid + 1
 
     ! calculate interpolation factor
-    f = (E - nuc%energy(i_grid))/(nuc%energy(i_grid+1) - nuc%energy(i_grid))
+    f = (p % E - nuc%energy(i_grid))/(nuc%energy(i_grid+1) - nuc%energy(i_grid))
 
-    micro_xs(i_nuclide) % index_grid    = i_grid
-    micro_xs(i_nuclide) % interp_factor = f
+    p % micro_xs(i_nuclide) % index_grid    = i_grid
+    p % micro_xs(i_nuclide) % interp_factor = f
 
     ! Initialize sab treatment to false
-    micro_xs(i_nuclide) % index_sab   = NONE
-    micro_xs(i_nuclide) % elastic_sab = ZERO
+    p % micro_xs(i_nuclide) % index_sab   = NONE
+    p % micro_xs(i_nuclide) % elastic_sab = ZERO
 
     ! Initialize URR probability table treatment to false
-    micro_xs(i_nuclide) % use_ptable  = .false.
+    p % micro_xs(i_nuclide) % use_ptable  = .false.
 
     ! Initialize nuclide cross-sections to zero
-    micro_xs(i_nuclide) % fission    = ZERO
-    micro_xs(i_nuclide) % nu_fission = ZERO
-    micro_xs(i_nuclide) % kappa_fission  = ZERO
+    p % micro_xs(i_nuclide) % fission    = ZERO
+    p % micro_xs(i_nuclide) % nu_fission = ZERO
+    p % micro_xs(i_nuclide) % kappa_fission  = ZERO
 
     ! Calculate microscopic nuclide total cross section
-    micro_xs(i_nuclide) % total = (ONE - f) * nuc % total(i_grid) &
+    p % micro_xs(i_nuclide) % total = (ONE - f) * nuc % total(i_grid) &
          + f * nuc % total(i_grid+1)
 
     ! Calculate microscopic nuclide elastic cross section
-    micro_xs(i_nuclide) % elastic = (ONE - f) * nuc % elastic(i_grid) &
+    p % micro_xs(i_nuclide) % elastic = (ONE - f) * nuc % elastic(i_grid) &
          + f * nuc % elastic(i_grid+1)
 
     ! Calculate microscopic nuclide absorption cross section
-    micro_xs(i_nuclide) % absorption = (ONE - f) * nuc % absorption( &
+    p % micro_xs(i_nuclide) % absorption = (ONE - f) * nuc % absorption( &
          i_grid) + f * nuc % absorption(i_grid+1)
 
     if (nuc % fissionable) then
       ! Calculate microscopic nuclide total cross section
-      micro_xs(i_nuclide) % fission = (ONE - f) * nuc % fission(i_grid) &
+      p % micro_xs(i_nuclide) % fission = (ONE - f) * nuc % fission(i_grid) &
            + f * nuc % fission(i_grid+1)
 
       ! Calculate microscopic nuclide nu-fission cross section
-      micro_xs(i_nuclide) % nu_fission = (ONE - f) * nuc % nu_fission( &
+      p % micro_xs(i_nuclide) % nu_fission = (ONE - f) * nuc % nu_fission( &
            i_grid) + f * nuc % nu_fission(i_grid+1)
 
       ! Calculate microscopic nuclide kappa-fission cross section
       ! The ENDF standard (ENDF-102) states that MT 18 stores
       ! the fission energy as the Q_value (fission(1))
-      micro_xs(i_nuclide) % kappa_fission = &
+      p % micro_xs(i_nuclide) % kappa_fission = &
            nuc % reactions(nuc % index_fission(1)) % Q_value * &
-           micro_xs(i_nuclide) % fission
+           p % micro_xs(i_nuclide) % fission
     end if
 
     ! If there is S(a,b) data for this nuclide, we need to do a few
@@ -251,20 +250,20 @@ contains
     ! need to correct it by subtracting the non-S(a,b) elastic cross section and
     ! then add back in the calculated S(a,b) elastic+inelastic cross section.
 
-    if (i_sab > 0) call calculate_sab_xs(i_nuclide, i_sab, E)
+    if (i_sab > 0) call calculate_sab_xs(p, i_nuclide, i_sab)
 
     ! if the particle is in the unresolved resonance range and there are
     ! probability tables, we need to determine cross sections from the table
 
     if (urr_ptables_on .and. nuc % urr_present) then
-      if (E > nuc % urr_data % energy(1) .and. &
-           E < nuc % urr_data % energy(nuc % urr_data % n_energy)) then
-        call calculate_urr_xs(i_nuclide, E)
+      if (p % E > nuc % urr_data % energy(1) .and. &
+           p % E < nuc % urr_data % energy(nuc % urr_data % n_energy)) then
+        call calculate_urr_xs(p, i_nuclide)
       end if
     end if
 
-    micro_xs(i_nuclide) % last_E = E
-    micro_xs(i_nuclide) % last_index_sab = i_sab
+    p % micro_xs(i_nuclide) % last_E = p % E
+    p % micro_xs(i_nuclide) % last_index_sab = i_sab
 
   end subroutine calculate_nuclide_xs
 
@@ -274,11 +273,11 @@ contains
 ! whatever data were taken from the normal Nuclide table.
 !===============================================================================
 
-  subroutine calculate_sab_xs(i_nuclide, i_sab, E)
+  subroutine calculate_sab_xs(p, i_nuclide, i_sab)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in) :: i_nuclide ! index into nuclides array
     integer, intent(in) :: i_sab     ! index into sab_tables array
-    real(8), intent(in) :: E         ! energy
 
     integer :: i_grid    ! index on S(a,b) energy grid
     real(8) :: f         ! interp factor on S(a,b) energy grid
@@ -287,18 +286,18 @@ contains
     type(SAlphaBeta), pointer :: sab
 
     ! Set flag that S(a,b) treatment should be used for scattering
-    micro_xs(i_nuclide) % index_sab = i_sab
+    p % micro_xs(i_nuclide) % index_sab = i_sab
 
     ! Get pointer to S(a,b) table
     sab => sab_tables(i_sab)
 
     ! Get index and interpolation factor for inelastic grid
-    if (E < sab % inelastic_e_in(1)) then
+    if (p % E < sab % inelastic_e_in(1)) then
       i_grid = 1
       f = ZERO
     else
-      i_grid = binary_search(sab % inelastic_e_in, sab % n_inelastic_e_in, E)
-      f = (E - sab%inelastic_e_in(i_grid)) / &
+      i_grid = binary_search(sab % inelastic_e_in, sab % n_inelastic_e_in, p % E)
+      f = (p % E - sab%inelastic_e_in(i_grid)) / &
            (sab%inelastic_e_in(i_grid+1) - sab%inelastic_e_in(i_grid))
     end if
 
@@ -307,32 +306,32 @@ contains
          f * sab % inelastic_sigma(i_grid + 1)
 
     ! Check for elastic data
-    if (E < sab % threshold_elastic) then
+    if (p % E < sab % threshold_elastic) then
       ! Determine whether elastic scattering is given in the coherent or
       ! incoherent approximation. For coherent, the cross section is
       ! represented as P/E whereas for incoherent, it is simply P
 
       if (sab % elastic_mode == SAB_ELASTIC_EXACT) then
-        if (E < sab % elastic_e_in(1)) then
+        if (p % E < sab % elastic_e_in(1)) then
           ! If energy is below that of the lowest Bragg peak, the elastic
           ! cross section will be zero
           elastic = ZERO
         else
           i_grid = binary_search(sab % elastic_e_in, &
-               sab % n_elastic_e_in, E)
-          elastic = sab % elastic_P(i_grid) / E
+               sab % n_elastic_e_in, p % E)
+          elastic = sab % elastic_P(i_grid) / p % E
         end if
       else
         ! Determine index on elastic energy grid
-        if (E < sab % elastic_e_in(1)) then
+        if (p % E < sab % elastic_e_in(1)) then
           i_grid = 1
         else
           i_grid = binary_search(sab % elastic_e_in, &
-               sab % n_elastic_e_in, E)
+               sab % n_elastic_e_in, p % E)
         end if
 
         ! Get interpolation factor for elastic grid
-        f = (E - sab%elastic_e_in(i_grid))/(sab%elastic_e_in(i_grid+1) - &
+        f = (p % E - sab%elastic_e_in(i_grid))/(sab%elastic_e_in(i_grid+1) - &
              sab%elastic_e_in(i_grid))
 
         ! Calculate S(a,b) elastic scattering cross section
@@ -345,12 +344,12 @@ contains
     end if
 
     ! Correct total and elastic cross sections
-    micro_xs(i_nuclide) % total = micro_xs(i_nuclide) % total - &
-         micro_xs(i_nuclide) % elastic + inelastic + elastic
-    micro_xs(i_nuclide) % elastic = inelastic + elastic
+    p % micro_xs(i_nuclide) % total = p % micro_xs(i_nuclide) % total - &
+         p % micro_xs(i_nuclide) % elastic + inelastic + elastic
+    p % micro_xs(i_nuclide) % elastic = inelastic + elastic
 
     ! Store S(a,b) elastic cross section for sampling later
-    micro_xs(i_nuclide) % elastic_sab = elastic
+    p % micro_xs(i_nuclide) % elastic_sab = elastic
 
   end subroutine calculate_sab_xs
 
@@ -359,10 +358,10 @@ contains
 ! from probability tables
 !===============================================================================
 
-  subroutine calculate_urr_xs(i_nuclide, E)
+  subroutine calculate_urr_xs(p, i_nuclide)
 
+    type(Particle), intent(inout) :: p
     integer, intent(in) :: i_nuclide ! index into nuclides array
-    real(8), intent(in) :: E         ! energy
 
     integer :: i            ! loop index
     integer :: i_energy     ! index for energy
@@ -380,7 +379,7 @@ contains
     type(Nuclide),  pointer :: nuc
     type(Reaction), pointer :: rxn
 
-    micro_xs(i_nuclide) % use_ptable = .true.
+    p % micro_xs(i_nuclide) % use_ptable = .true.
 
     ! get pointer to probability table
     nuc => nuclides(i_nuclide)
@@ -389,12 +388,12 @@ contains
     ! determine energy table
     i_energy = 1
     do
-      if (E < urr % energy(i_energy + 1)) exit
+      if (p % E < urr % energy(i_energy + 1)) exit
       i_energy = i_energy + 1
     end do
 
     ! determine interpolation factor on table
-    f = (E - urr % energy(i_energy)) / &
+    f = (p % E - urr % energy(i_energy)) / &
          (urr % energy(i_energy + 1) - urr % energy(i_energy))
 
     ! sample probability table using the cumulative distribution
@@ -404,7 +403,7 @@ contains
     ! preserve correlation of temperature in probability tables
     same_nuc = .false.
     do i = 1, nuc % nuc_list % size()
-      if (E /= ZERO .and. E == micro_xs(nuc % nuc_list % get_item(i)) % last_E) then
+      if (p % E /= ZERO .and. p % E == p % micro_xs(nuc % nuc_list % get_item(i)) % last_E) then
         same_nuc = .true.
         same_nuc_idx = i
         exit
@@ -412,10 +411,10 @@ contains
     end do
 
     if (same_nuc) then
-      r = micro_xs(nuc % nuc_list % get_item(same_nuc_idx)) % last_prn
+      r = p % micro_xs(nuc % nuc_list % get_item(same_nuc_idx)) % last_prn
     else
       r = prn()
-      micro_xs(i_nuclide) % last_prn = r
+      p % micro_xs(i_nuclide) % last_prn = r
     end if
 
     i_low = 1
@@ -440,7 +439,7 @@ contains
            f * urr % prob(i_energy + 1, URR_N_GAMMA, i_up)
     elseif (urr % interp == LOG_LOG) then
       ! Get logarithmic interpolation factor
-      f = log(E / urr % energy(i_energy)) / &
+      f = log(p % E / urr % energy(i_energy)) / &
            log(urr % energy(i_energy + 1) / urr % energy(i_energy))
 
       ! Calculate elastic cross section/factor
@@ -478,8 +477,8 @@ contains
       rxn => nuc % reactions(nuc % urr_inelastic)
 
       ! Get index on energy grid and interpolation factor
-      i_energy = micro_xs(i_nuclide) % index_grid
-      f = micro_xs(i_nuclide) % interp_factor
+      i_energy = p % micro_xs(i_nuclide) % index_grid
+      f = p % micro_xs(i_nuclide) % interp_factor
 
       ! Determine inelastic scattering cross section
       if (i_energy >= rxn % threshold) then
@@ -490,10 +489,10 @@ contains
 
     ! Multiply by smooth cross-section if needed
     if (urr % multiply_smooth) then
-      elastic = elastic * micro_xs(i_nuclide) % elastic
-      capture = capture * (micro_xs(i_nuclide) % absorption - &
-           micro_xs(i_nuclide) % fission)
-      fission = fission * micro_xs(i_nuclide) % fission
+      elastic = elastic * p % micro_xs(i_nuclide) % elastic
+      capture = capture * (p % micro_xs(i_nuclide) % absorption - &
+           p % micro_xs(i_nuclide) % fission)
+      fission = fission * p % micro_xs(i_nuclide) % fission
     end if
 
     ! Check for negative values
@@ -504,15 +503,15 @@ contains
     ! Set elastic, absorption, fission, and total cross sections. Note that the
     ! total cross section is calculated as sum of partials rather than using the
     ! table-provided value
-    micro_xs(i_nuclide) % elastic = elastic
-    micro_xs(i_nuclide) % absorption = capture + fission
-    micro_xs(i_nuclide) % fission = fission
-    micro_xs(i_nuclide) % total = elastic + inelastic + capture + fission
+    p % micro_xs(i_nuclide) % elastic = elastic
+    p % micro_xs(i_nuclide) % absorption = capture + fission
+    p % micro_xs(i_nuclide) % fission = fission
+    p % micro_xs(i_nuclide) % total = elastic + inelastic + capture + fission
 
     ! Determine nu-fission cross section
     if (nuc % fissionable) then
-      micro_xs(i_nuclide) % nu_fission = nu_total(nuc, E) * &
-           micro_xs(i_nuclide) % fission
+      p % micro_xs(i_nuclide) % nu_fission = nu_total(nuc, p % E) * &
+           p % micro_xs(i_nuclide) % fission
     end if
 
   end subroutine calculate_urr_xs

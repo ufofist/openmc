@@ -131,7 +131,7 @@ contains
     type(Particle), intent(inout) :: p
 
     ! Set particle
-    call p % initialize()
+    call p % initialize(n_nuclides_total)
 
     ! Sample the external source distribution
     call sample_external_source(source_site)

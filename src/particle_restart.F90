@@ -34,7 +34,7 @@ contains
     verbosity = 10
 
     ! Initialize the particle to be tracked
-    call p % initialize()
+    call p % initialize(n_nuclides_total)
 
     ! Read in the restart information
     call read_particle_restart(p, previous_run_mode)

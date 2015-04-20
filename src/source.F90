@@ -121,7 +121,7 @@ contains
     select case (external_source % type_space)
     case (SRC_SPACE_BOX)
       ! Set particle defaults
-      call p % initialize()
+      call p % initialize(n_nuclides_total)
       ! Repeat sampling source location until a good site has been found
       found = .false.
       do while (.not.found)
@@ -152,7 +152,7 @@ contains
       found = .false.
       do while (.not.found)
         ! Set particle defaults
-        call p % initialize()
+        call p % initialize(n_nuclides_total)
 
         ! Coordinates sampled uniformly over a box
         p_min = external_source % params_space(1:3)
@@ -259,7 +259,7 @@ contains
     type(Bank), pointer :: src
 
     ! set defaults
-    call p % initialize()
+    call p % initialize(n_nuclides_total)
 
     ! Copy attributes from source to particle
     src => source_bank(index_source)

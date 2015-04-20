@@ -53,9 +53,6 @@ contains
     ! allocate arrays for ACE table storage and cross section cache
     allocate(nuclides(n_nuclides_total))
     allocate(sab_tables(n_sab_tables))
-!$omp parallel
-    allocate(micro_xs(n_nuclides_total))
-!$omp end parallel
 
     ! ==========================================================================
     ! READ ALL ACE CROSS SECTION TABLES
@@ -752,31 +749,31 @@ contains
         ! Set flag and allocate space for Tab1 to store yield
         rxn % multiplicity_with_E = .true.
         allocate(rxn % multiplicity_E)
-        
+
         XSS_index = JXS(11) + rxn % multiplicity - 101
         NR = nint(XSS(XSS_index))
         rxn % multiplicity_E % n_regions = NR
-        
+
         ! allocate space for ENDF interpolation parameters
         if (NR > 0) then
           allocate(rxn % multiplicity_E % nbt(NR))
           allocate(rxn % multiplicity_E % int(NR))
         end if
-        
+
         ! read ENDF interpolation parameters
         XSS_index = XSS_index + 1
         if (NR > 0) then
           rxn % multiplicity_E % nbt = get_int(NR)
           rxn % multiplicity_E % int = get_int(NR)
         end if
-        
+
         ! allocate space for yield data
         XSS_index = XSS_index + 2*NR
         NE = nint(XSS(XSS_index))
         rxn % multiplicity_E % n_pairs = NE
         allocate(rxn % multiplicity_E % x(NE))
         allocate(rxn % multiplicity_E % y(NE))
-        
+
         ! read yield data
         XSS_index = XSS_index + 1
         rxn % multiplicity_E % x = get_real(NE)
