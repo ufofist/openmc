@@ -56,11 +56,11 @@ contains
 
   subroutine initialize_prng()
 
-    use global, only: seed
+    use global, only: starting_seed
 
     integer :: i
 
-    prn_seed0  = seed
+    prn_seed0  = starting_seed
 !$omp parallel
     do i = 1, N_STREAMS
       prn_seed(i) = prn_seed0 + i - 1
@@ -93,7 +93,7 @@ contains
     end do
 
   end subroutine set_particle_seed
-    
+
 !===============================================================================
 ! PRN_SKIP advances the random number seed 'n' times from the current seed
 !===============================================================================

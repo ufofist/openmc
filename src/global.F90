@@ -263,7 +263,7 @@ module global
   character(MAX_FILE_LEN) :: path_output = ''      ! Path to output directory
 
   ! Random number seed
-  integer(8) :: seed = 1_8
+  integer(8) :: starting_seed = 1_8
 
   ! The verbosity controls how much information will be printed to the
   ! screen and in logs

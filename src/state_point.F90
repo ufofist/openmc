@@ -86,7 +86,7 @@ contains
       call sp % write_data(path_input, "path")
 
       ! Write out random number seed
-      call sp % write_data(seed, "seed")
+      call sp % write_data(starting_seed, "seed")
 
       ! Write run information
       call sp % write_data(run_mode, "run_mode")
@@ -700,7 +700,7 @@ contains
     call sp % read_data(path_temp, "path")
 
     ! Read and overwrite random number seed
-    call sp % read_data(seed, "seed")
+    call sp % read_data(starting_seed, "seed")
 
     ! Read and overwrite run information except number of batches
     call sp % read_data(run_mode, "run_mode")

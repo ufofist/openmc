@@ -202,7 +202,8 @@ contains
     end if
 
     ! Copy random number seed if specified
-    if (check_for_node(doc, "seed")) call get_node_value(doc, "seed", seed)
+    if (check_for_node(doc, "seed")) &
+         call get_node_value(doc, "seed", starting_seed)
 
     ! Energy grid methods
     if (check_for_node(doc, "energy_grid")) then
