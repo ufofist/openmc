@@ -53,6 +53,8 @@ element settings {
 
   element output_path { xsd:string { maxLength = "255" } }? &
 
+  element papi { xsd:string }? &
+
   element ptables { xsd:boolean }? &
 
   element run_cmfd { xsd:boolean }? &

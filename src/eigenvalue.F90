@@ -53,9 +53,9 @@ contains
 
     ! Turn on inactive timer
     call time_inactive % start()
-    
+
 #ifdef PAPI
-    call papi_start_counting()
+    if (papi_on) call papi_start_counting()
 #endif
 
     ! ==========================================================================
@@ -106,9 +106,9 @@ contains
     end do BATCH_LOOP
 
     call time_active % stop()
-    
+
 #ifdef PAPI
-    call papi_stop_counting()
+    if (papi_on) call papi_stop_counting()
 #endif
 
     ! ==========================================================================

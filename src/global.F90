@@ -391,6 +391,10 @@ module global
 !$omp threadprivate(micro_xs, material_xs, fission_bank, n_bank, &
 !$omp&              trace, thread_id, current_work, matching_bins)
 
+#ifdef PAPI
+  logical :: papi_on = .false.
+#endif
+
 contains
 
 !===============================================================================

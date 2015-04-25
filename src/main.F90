@@ -13,13 +13,12 @@ program main
 #endif
 
   implicit none
-  
-#ifdef PAPI
-  call papi_initialize()
-#endif
 
   ! set up problem
   call initialize_run()
+#ifdef PAPI
+  if (papi_on) call papi_initialize()
+#endif
 
   ! start problem based on mode
   select case (run_mode)

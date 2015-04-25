@@ -10,8 +10,7 @@ module papi_interface
 #ifdef PAPI
   include "f90papi.h"
 
-  integer(C_INT), parameter   :: N_EVENTS = 6
-  character(PAPI_MAX_STR_LEN) :: event_names(N_EVENTS)
+  character(PAPI_MAX_STR_LEN), allocatable :: event_names(:)
   integer(C_INT), save        :: eventset = PAPI_NULL
   integer(C_LONG_LONG), save  :: values(PAPI_MAX_HWCTRS)
 
@@ -40,14 +39,6 @@ contains
       stop
     end if
 
-    ! Set events
-    event_names(1) = "PAPI_L3_TCM"
-    event_names(2) = "PAPI_L3_TCA"
-    event_names(3) = "PAPI_L2_ICA"
-    event_names(4) = "PAPI_L2_ICM"
-    event_names(5) = "PAPI_L2_DCA"
-    event_names(6) = "PAPI_L2_DCM"
-
 !$omp parallel
 !$omp critical
 #ifdef _OPENMP
@@ -67,7 +58,7 @@ contains
     end if
 
     ! Add events to event set
-    do i = 1, N_EVENTS
+    do i = 1, size(event_names)
       ! Add event
       call PAPIF_add_named_event(eventset, event_names(i), check)
       if (check /= PAPI_OK) then
@@ -113,7 +104,6 @@ contains
     use global
 
     integer :: i, j, n
-    integer(C_LONG_LONG) :: values_sum(N_EVENTS)
     real(8) :: l3_tcm = 0., t3_tca = 0., flop = 0.
     real(8) :: l2_dca = 0., l2_dcm = 0., l2_ica = 0., l2_icm = 0.
     real(8) :: tlb_im = 0., tlb_dm = 0.
@@ -124,11 +114,19 @@ contains
     integer(C_LONG_LONG), allocatable :: values_process(:)
 #endif
     real(8) :: seconds
+    integer(C_INT) :: n_events
     integer(C_INT) :: check
     integer(C_INT) :: event_code
     integer(C_INT) :: count, flags
-    character(PAPI_MAX_STR_LEN) :: symbol(N_EVENTS), long_descr(N_EVENTS), &
-                                   short_descr(N_EVENTS), event_note(N_EVENTS)
+    integer(C_LONG_LONG), allocatable :: values_sum(:)
+    character(PAPI_MAX_STR_LEN), allocatable :: symbol(:)
+    character(PAPI_MAX_STR_LEN), allocatable :: long_descr(:)
+    character(PAPI_MAX_STR_LEN), allocatable :: short_descr(:)
+    character(PAPI_MAX_STR_LEN), allocatable :: event_note(:)
+
+    n_events = size(event_names)
+    allocate(values_sum(n_events), symbol(n_events), long_descr(n_events), &
+         short_descr(n_events), event_note(n_events))
 
     values_sum(:) = 0.
 
@@ -144,7 +142,7 @@ contains
 #ifdef _OPENMP
     print *, "Thread ", omp_get_thread_num()
 #endif
-    do i = 1, N_EVENTS
+    do i = 1, n_events
       call PAPIF_event_name_to_code(event_names(i), event_code, check)
       if (check /= PAPI_OK) then
         call PAPIF_perror("PAPIF_event_name_to_code")
@@ -171,21 +169,21 @@ contains
     seconds = time_inactive%elapsed + time_active%elapsed
 
 #ifdef MPI
-    allocate(values_process(n_procs*N_EVENTS))
-    call MPI_GATHER(values_sum, N_EVENTS, MPI_INTEGER8, values_process, N_EVENTS, &
+    allocate(values_process(n_procs*n_events))
+    call MPI_GATHER(values_sum, n_events, MPI_INTEGER8, values_process, n_events, &
          MPI_INTEGER8, 0, MPI_COMM_WORLD, mpi_err)
     if (master) then
       values_sum(:) = 0.
       do j = 0, n_procs - 1
-        print *, values_process(j*N_EVENTS + i), trim(symbol(i)), " ", trim(long_descr(i))
-        values_sum(i) = values_sum(i) + values_process(j*N_EVENTS + i)
+        print *, values_process(j*n_events + i), trim(symbol(i)), " ", trim(long_descr(i))
+        values_sum(i) = values_sum(i) + values_process(j*n_events + i)
       end do
     end if
 #endif
 
     if (master) then
       print *, "ALL PROCESSES"
-      do i = 1, N_EVENTS
+      do i = 1, n_events
         select case (symbol(i))
         case ("PAPI_FP_INS")
           flop = values_sum(i)
@@ -269,6 +267,7 @@ contains
 #ifdef MPI
     deallocate(values_process)
 #endif
+    deallocate(values_sum, symbol, long_descr, short_descr, event_note)
 
   end subroutine papi_stop_counting
 

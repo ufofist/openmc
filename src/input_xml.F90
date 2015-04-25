@@ -10,10 +10,13 @@ module input_xml
   use list_header,      only: ListChar, ListReal
   use mesh_header,      only: StructuredMesh
   use output,           only: write_message
+#ifdef PAPI
+  use papi_interface,   only: event_names
+#endif
   use plot_header
   use random_lcg,       only: prn
   use string,           only: to_lower, to_str, str_to_int, str_to_real, &
-                              starts_with, ends_with
+                              starts_with, ends_with, split_string
   use tally_header,     only: TallyObject, TallyFilter
   use tally_initialize, only: add_tallies
   use xml_interface
@@ -75,6 +78,9 @@ contains
     type(Node), pointer :: node_res_scat  => null()
     type(Node), pointer :: node_scatterer => null()
     type(NodeList), pointer :: node_scat_list => null()
+#ifdef PAPI
+    character(MAX_WORD_LEN) :: words(MAX_WORDS)
+#endif
 
     ! Display output message
     call write_message("Reading settings XML file...", 5)
@@ -888,6 +894,20 @@ contains
              &// trim(temp_str))
       end select
     end if
+
+#ifdef PAPI
+    if (check_for_node(doc, "papi")) then
+      call get_node_value(doc, "papi", temp_str)
+      call split_string(temp_str, words, n)
+      allocate(event_names(n))
+      do i = 1, n
+        event_names(i) = trim(words(i))
+      end do
+
+      ! enable PAPI
+      papi_on = .true.
+    end if
+#endif
 
     ! Close settings XML file
     call close_xmldoc(doc)
