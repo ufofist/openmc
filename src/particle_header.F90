@@ -1,6 +1,6 @@
 module particle_header
 
-  use constants,       only: NEUTRON, ONE, NONE, ZERO
+  use constants,       only: NEUTRON, ONE, NONE, ZERO, N_STREAMS
   use geometry_header, only: BASE_UNIVERSE
 
   implicit none
@@ -122,6 +122,10 @@ module particle_header
     type(NuclideMicroXS), allocatable :: micro_xs(:)  ! Cache for each nuclide
     type(MaterialMacroXS)             :: material_xs  ! Cache for current material
 
+    ! Random number seed and current stream
+    integer(8), pointer :: prn_seed(:) => null()  ! seeds for each stream
+    integer(8), pointer :: current_seed ! current seed
+
     ! Track output
     logical    :: write_track = .false.
 
@@ -190,6 +194,9 @@ contains
     ! Create cross section caches
     allocate(this % micro_xs(xs_cache_size))
 
+    ! Random number seeds
+    if (.not. associated(this % prn_seed)) allocate(this % prn_seed(N_STREAMS))
+
   end subroutine initialize_particle
 
 !===============================================================================
@@ -208,6 +215,10 @@ contains
 
     ! Deallocate cross section cache
     if (allocated(this % micro_xs)) deallocate(this % micro_xs)
+
+    ! Clear random number seeds
+    if (associated(this % prn_seed)) deallocate(this % prn_seed)
+    nullify(this % current_seed)
 
   end subroutine clear_particle
 

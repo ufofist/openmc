@@ -4,7 +4,7 @@ module fixed_source
   use global
   use output,          only: write_message, header
   use particle_header, only: Particle
-  use random_lcg,      only: set_particle_seed
+  use random_lcg,      only: get_particle_seed, prn_seed
   use source,          only: sample_external_source, copy_source_attributes
   use state_point,     only: write_state_point
   use string,          only: to_str
@@ -53,24 +53,11 @@ contains
       ! LOOP OVER PARTICLES
 !$omp parallel do schedule(static) firstprivate(p)
       PARTICLE_LOOP: do i = 1, work
-
-        ! Set unique particle ID
-        p % id = (current_batch - 1)*n_particles + work_index(rank) + i
-
-        ! set particle trace
-        trace = .false.
-        if (current_batch == trace_batch .and. current_gen == trace_gen .and. &
-             work_index(rank) + i == trace_particle) trace = .true.
-
-        ! set random number seed
-        call set_particle_seed(p % id)
-
         ! grab source particle from bank
-        call sample_source_particle(p)
+        call sample_source_particle(p, i)
 
         ! transport particle
         call transport(p)
-
       end do PARTICLE_LOOP
 !$omp end parallel do
 
@@ -126,18 +113,40 @@ contains
 ! SAMPLE_SOURCE_PARTICLE
 !===============================================================================
 
-  subroutine sample_source_particle(p)
+  subroutine sample_source_particle(p, index_source)
 
     type(Particle), intent(inout) :: p
+    integer(8),     intent(in)    :: index_source
+
+    integer :: i
 
     ! Set particle
     call p % initialize(n_nuclides_total)
 
+    ! Set unique particle ID
+    p % id = (current_batch - 1)*n_particles + work_index(rank) + index_source
+
+    ! set random number seeds
+    do i = 1, N_STREAMS
+      p % prn_seed(i) = get_particle_seed(p % id, i)
+    end do
+
     ! Sample the external source distribution
+    p % current_seed => p % prn_seed(STREAM_SOURCE)
+    prn_seed => p % current_seed
     call sample_external_source(source_site)
+
+    ! Use tracking stream this point forward
+    p % current_seed => p % prn_seed(STREAM_TRACKING)
+    prn_seed => p % current_seed
 
     ! Copy source attributes to the particle
     call copy_source_attributes(p, source_site)
+
+    ! set particle trace
+    trace = .false.
+    if (current_batch == trace_batch .and. current_gen == trace_gen .and. &
+         work_index(rank) + index_source == trace_particle) trace = .true.
 
   end subroutine sample_source_particle
 

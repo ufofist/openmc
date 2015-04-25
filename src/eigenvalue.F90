@@ -14,7 +14,7 @@ module eigenvalue
   use output,       only: write_message, header, print_columns,              &
                           print_batch_keff, print_generation
   use particle_header, only: Particle
-  use random_lcg,   only: prn, set_particle_seed, prn_skip
+  use random_lcg,   only: prn, get_particle_seed, prn_skip, prn_seed
   use search,       only: binary_search
   use source,       only: get_source_particle
   use state_point,  only: write_state_point, write_source_point
@@ -253,6 +253,7 @@ contains
     integer(8) :: total        ! total sites in global fission bank
     integer(8) :: index_temp   ! index in temporary source bank
     integer(8) :: sites_needed ! # of sites to be sampled
+    integer(8), save, target :: seed         ! random number seed
     real(8)    :: p_sample     ! probability of sampling a site
     type(Bank), save, allocatable :: &
          & temp_sites(:)       ! local array of extra sites on each node
@@ -310,9 +311,10 @@ contains
     ! skip ahead in the sequence using the starting index in the 'global'
     ! fission bank for each processor.
 
-    call set_particle_seed(int((current_batch - 1)*gen_per_batch + &
-         current_gen,8))
-    call prn_skip(start)
+    seed = get_particle_seed(int((current_batch - 1)*gen_per_batch + &
+         current_gen,8), STREAM_TRACKING)
+    call prn_skip(seed, start)
+    prn_seed => seed
 
     ! Determine how many fission sites we need to sample from the source bank
     ! and the probability for selecting a site.

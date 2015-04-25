@@ -9,7 +9,7 @@ module particle_restart
   use output,           only: write_message, print_particle
   use output_interface, only: BinaryOutput
   use particle_header,  only: Particle
-  use random_lcg,       only: set_particle_seed
+  use random_lcg,       only: get_particle_seed, prn_seed
   use tracking,         only: transport
 
   implicit none
@@ -26,6 +26,7 @@ contains
 
   subroutine run_particle_restart()
 
+    integer :: i
     integer(8) :: particle_seed
     integer :: previous_run_mode
     type(Particle) :: p
@@ -51,7 +52,11 @@ contains
       particle_seed = p % id
     end select
 
-    call set_particle_seed(particle_seed)
+    do i = 1, N_STREAMS
+      p % prn_seed(i) = get_particle_seed(particle_seed, i)
+    end do
+    p % current_seed => p % prn_seed(STREAM_TRACKING)
+    prn_seed => p % current_seed
 
     ! Transport neutron
     call transport(p)

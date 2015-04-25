@@ -10,7 +10,7 @@ module source
   use output,           only: write_message
   use output_interface, only: BinaryOutput
   use particle_header,  only: Particle
-  use random_lcg,       only: prn, set_particle_seed, prn_set_stream
+  use random_lcg,       only: prn, get_particle_seed, prn_seed
   use string,           only: to_str
 
 #ifdef MPI
@@ -31,6 +31,7 @@ contains
     integer(8) :: i          ! loop index over bank sites
     integer(8) :: id         ! particle id
     integer(4) :: itmp       ! temporary integer
+    integer(8), target :: source_seed
     type(Bank), pointer :: src => null() ! source bank site
     type(BinaryOutput) :: sp ! statepoint/source binary file
 
@@ -69,7 +70,8 @@ contains
 
         ! initialize random number seed
         id = work_index(rank) + i
-        call set_particle_seed(id)
+        source_seed = get_particle_seed(id, STREAM_SOURCE)
+        prn_seed => source_seed
 
         ! sample external source distribution
         call sample_external_source(src)
@@ -113,9 +115,6 @@ contains
 
     ! Set weight to one by default
     site % wgt = ONE
-
-    ! Set the random number generator to the source stream.
-    call prn_set_stream(STREAM_SOURCE)
 
     ! Sample position
     select case (external_source % type_space)
@@ -240,9 +239,6 @@ contains
       call fatal_error("No energy distribution specified for external source!")
     end select
 
-    ! Set the random number generator back to the tracking stream.
-    call prn_set_stream(STREAM_TRACKING)
-
   end subroutine sample_external_source
 
 !===============================================================================
@@ -270,7 +266,11 @@ contains
 
     ! set random number seed
     particle_seed = (overall_gen - 1)*n_particles + p % id
-    call set_particle_seed(particle_seed)
+    do i = 1, N_STREAMS
+      p % prn_seed(i) = get_particle_seed(particle_seed, i)
+    end do
+    p % current_seed => p % prn_seed(STREAM_TRACKING)
+    prn_seed => p % current_seed
 
     ! set particle trace
     trace = .false.
