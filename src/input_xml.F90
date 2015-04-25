@@ -11,7 +11,7 @@ module input_xml
   use mesh_header,      only: StructuredMesh
   use output,           only: write_message
   use plot_header
-  use random_lcg,       only: prn
+  use random_lcg,       only: prn, get_particle_seed, prn_seed
   use string,           only: to_lower, to_str, str_to_int, str_to_real, &
                               starts_with, ends_with
   use tally_header,     only: TallyObject, TallyFilter
@@ -2868,6 +2868,7 @@ contains
     integer :: meshid
     integer :: i_mesh
     integer, allocatable :: iarray(:)
+    integer(8), target :: seed
     logical :: file_exists              ! does plots.xml file exist?
     character(MAX_LINE_LEN) :: filename ! absolute path to plots.xml
     character(MAX_LINE_LEN) :: temp_str
@@ -3043,6 +3044,11 @@ contains
       if (check_for_node(node_plot, "color")) &
         call get_node_value(node_plot, "color", temp_str)
       temp_str = to_lower(temp_str)
+
+      ! Set random number seed so that we can sample colors
+      seed = get_particle_seed(0_8, STREAM_TRACKING)
+      prn_seed => seed
+
       select case (trim(temp_str))
       case ("cell")
 
