@@ -155,11 +155,12 @@ contains
         call PAPIF_perror("PAPIF_get_event_info")
         stop
       end if
+#ifdef _OPENMP
       print *, values(i), trim(symbol(i)), " ", trim(long_descr(i))
+#endif
 
       ! Accumulate values
       values_sum(i) = values_sum(i) + values(i)
-      print *, values_sum(i), trim(symbol(i))
     end do
 !$omp end critical
 !$omp end parallel
@@ -175,8 +176,11 @@ contains
     if (master) then
       values_sum(:) = 0.
       do j = 0, n_procs - 1
-        print *, values_process(j*n_events + i), trim(symbol(i)), " ", trim(long_descr(i))
-        values_sum(i) = values_sum(i) + values_process(j*n_events + i)
+        print *, 'Process', j
+        do i = 1, n_events
+          print *, values_process(j*n_events + i), trim(symbol(i)), " ", trim(long_descr(i))
+          values_sum(i) = values_sum(i) + values_process(j*n_events + i)
+        end do
       end do
     end if
 #endif
