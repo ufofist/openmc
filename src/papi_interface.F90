@@ -104,7 +104,7 @@ contains
     use global
 
     integer :: i, j, n
-    real(8) :: l3_tcm = 0., t3_tca = 0., flop = 0.
+    real(8) :: l3_tcm = 0., l3_tca = 0., flop = 0.
     real(8) :: l2_dca = 0., l2_dcm = 0., l2_ica = 0., l2_icm = 0.
     real(8) :: tlb_im = 0., tlb_dm = 0.
     real(8) :: stl_icy = 0., br_msp = 0.
