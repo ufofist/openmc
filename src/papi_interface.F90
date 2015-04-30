@@ -106,6 +106,7 @@ contains
     integer :: i, j, n
     real(8) :: l3_tcm = 0., l3_tca = 0., flop = 0.
     real(8) :: l2_dca = 0., l2_dcm = 0., l2_ica = 0., l2_icm = 0.
+    real(8) :: l1_dcm = 0., l1_icm = 0.
     real(8) :: tlb_im = 0., tlb_dm = 0.
     real(8) :: stl_icy = 0., br_msp = 0.
     real(8) :: l2_pending = 0., l2_stalls = 0.
@@ -139,9 +140,6 @@ contains
     end if
 
 !$omp critical
-#ifdef _OPENMP
-    print *, "Thread ", omp_get_thread_num()
-#endif
     do i = 1, n_events
       call PAPIF_event_name_to_code(event_names(i), event_code, check)
       if (check /= PAPI_OK) then
@@ -155,9 +153,6 @@ contains
         call PAPIF_perror("PAPIF_get_event_info")
         stop
       end if
-#ifdef _OPENMP
-      print *, values(i), trim(symbol(i)), " ", trim(long_descr(i))
-#endif
 
       ! Accumulate values
       values_sum(i) = values_sum(i) + values(i)
@@ -176,9 +171,7 @@ contains
     if (master) then
       values_sum(:) = 0.
       do j = 0, n_procs - 1
-        print *, 'Process', j
         do i = 1, n_events
-          print *, values_process(j*n_events + i), trim(symbol(i)), " ", trim(long_descr(i))
           values_sum(i) = values_sum(i) + values_process(j*n_events + i)
         end do
       end do
@@ -186,7 +179,6 @@ contains
 #endif
 
     if (master) then
-      print *, "ALL PROCESSES"
       do i = 1, n_events
         select case (symbol(i))
         case ("PAPI_FP_INS")
@@ -203,6 +195,10 @@ contains
           l2_dca = values_sum(i)
         case ("PAPI_L2_DCM")
           l2_dcm = values_sum(i)
+        case ("PAPI_L1_ICM")
+          l1_icm = values_sum(i)
+        case ("PAPI_L1_DCM")
+          l1_dcm = values_sum(i)
         case ("PAPI_TLB_IM")
           tlb_im = values_sum(i)
         case ("PAPI_TLB_DM")
@@ -232,15 +228,21 @@ contains
       end if
       if (l3_tca > 0.) then
         print *, "  L3 accesses*      = ", real(l3_tca)/n
-        print *, "  L3 miss rate      = ", 100.*real(l3_tcm)/real(l3_tca)
+        if (l3_tcm > 0.) print *, "  L3 miss rate      = ", real(l3_tcm)/real(l3_tca)
       end if
       if (l2_ica > 0.) then
         print *, "  L2I accesses*     = ", real(l2_ica)/n
-        print *, "  L2I miss rate     = ", 100.*real(l2_icm)/real(l2_ica)
+        if (l2_icm > 0.) print *, "  L2I miss rate     = ", real(l2_icm)/real(l2_ica)
       end if
       if (l2_dca > 0.) then
         print *, "  L2D accesses*     = ", real(l2_dca)/n
-        print *, "  L2D miss rate     = ", 100.*real(l2_dcm)/real(l2_dca)
+        if (l2_dcm > 0.) print *, "  L2D miss rate     = ", real(l2_dcm)/real(l2_dca)
+      end if
+      if (l1_icm > 0.) then
+        print *, "  L1I misses*     = ", real(l1_icm)/n
+      end if
+      if (l1_dcm > 0.) then
+        print *, "  L1D misses*     = ", real(l1_dcm)/n
       end if
       if (tlb_im > 0.) then
         print *, "  TLBI misses*      = ", real(tlb_im)/n
