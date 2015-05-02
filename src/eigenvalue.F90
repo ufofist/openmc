@@ -14,7 +14,8 @@ module eigenvalue
   use output,       only: write_message, header, print_columns,              &
                           print_batch_keff, print_generation
 #ifdef PAPI
-  use papi_interface, only: papi_start_counting, papi_stop_counting
+  use papi_interface, only: papi_start_counting, papi_stop_counting, &
+                            papi_results
 #endif
   use particle_header, only: Particle
   use random_lcg,   only: prn, set_particle_seed, prn_skip
@@ -55,7 +56,11 @@ contains
     call time_inactive % start()
 
 #ifdef PAPI
-    if (papi_on) call papi_start_counting()
+    if (papi_on) then
+!$omp parallel
+      call papi_start_counting()
+!$omp end parallel
+    end if
 #endif
 
     ! ==========================================================================
@@ -108,7 +113,12 @@ contains
     call time_active % stop()
 
 #ifdef PAPI
-    if (papi_on) call papi_stop_counting()
+    if (papi_on) then
+!$omp parallel
+      call papi_stop_counting()
+!$omp end parallel
+      call papi_results()
+    end if
 #endif
 
     ! ==========================================================================

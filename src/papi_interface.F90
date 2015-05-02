@@ -40,6 +40,7 @@ contains
     end if
 
 !$omp parallel
+
 !$omp critical
 #ifdef _OPENMP
     ! Initialize thread support
@@ -67,6 +68,10 @@ contains
       end if
     end do
 !$omp end critical
+
+    ! Initialize array to store counters
+    values(:) = 0
+
 !$omp end parallel
 
   end subroutine papi_initialize
@@ -79,16 +84,12 @@ contains
 
     integer(C_INT) :: check
 
-!$omp parallel
-!$omp critical
     ! Start counting events
     call PAPIF_start(eventset, check)
     if (check /= PAPI_OK) then
       call PAPIF_perror("PAPIF_start")
       stop
     end if
-!$omp end critical
-!$omp end parallel
 
   end subroutine papi_start_counting
 
@@ -97,6 +98,33 @@ contains
 !===============================================================================
 
   subroutine papi_stop_counting()
+
+    integer(C_INT)       :: check
+    integer(C_LONG_LONG) :: nullvalues(PAPI_MAX_HWCTRS)
+
+    ! Stop counting events
+    call PAPIF_accum(eventset, values, check)
+    if (check /= PAPI_OK) then
+      call PAPIF_perror("PAPIF_accum")
+      stop
+    end if
+
+    ! The counters have already been accumulated from the call to PAPIF_accum;
+    ! since PAPIF_stop returns counter values, just write them to a dummy
+    ! variable
+    call PAPIF_stop(eventset, nullvalues, check)
+    if (check /= PAPI_OK) then
+      call PAPIF_perror("PAPIF_stop")
+      stop
+    end if
+
+  end subroutine papi_stop_counting
+
+!===============================================================================
+! PAPI_RESULTS
+!===============================================================================
+
+  subroutine papi_results()
 
 #ifdef _OPENMP
     use omp_lib
@@ -132,12 +160,6 @@ contains
     values_sum(:) = 0.
 
 !$omp parallel
-    ! Stop counting events
-    call PAPIF_stop(eventset, values, check)
-    if (check /= PAPI_OK) then
-      call PAPIF_perror("PAPIF_stop")
-      stop
-    end if
 
 !$omp critical
     do i = 1, n_events
@@ -275,7 +297,7 @@ contains
 #endif
     deallocate(values_sum, symbol, long_descr, short_descr, event_note)
 
-  end subroutine papi_stop_counting
+  end subroutine papi_results
 
 #endif
 
