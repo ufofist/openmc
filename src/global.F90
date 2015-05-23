@@ -13,6 +13,7 @@ module global
   use set_header,       only: SetInt
   use source_header,    only: ExtSource
   use tally_header,     only: TallyObject, TallyMap, TallyResult
+  use trigger_header,   only: KTrigger
   use timer_header,     only: Timer
 
 #ifdef HDF5
@@ -149,6 +150,16 @@ module global
   integer    :: current_batch = 0 ! current batch
   integer    :: current_gen   = 0 ! current generation within a batch
   integer    :: overall_gen   = 0 ! overall generation in the run
+
+  ! ============================================================================
+  ! TALLY PRECISION TRIGGER VARIABLES
+
+  integer        :: n_max_batches             ! max # of batches
+  integer        :: n_batch_interval = 1      ! batch interval for triggers
+  logical        :: pred_batches = .false.    ! predict batches for triggers
+  logical        :: trigger_on = .false.      ! flag for turning triggers on/off
+  type(KTrigger) :: keff_trigger              ! trigger for k-effective
+  logical :: satisfy_triggers = .false.       ! whether triggers are satisfied
 
   ! External source
   type(ExtSource), target :: external_source
@@ -303,9 +314,6 @@ module global
   ! Is CMFD active
   logical :: cmfd_run = .false.
 
-  ! CMFD communicator
-  integer :: cmfd_comm
-
   ! Timing objects
   type(Timer) :: time_cmfd      ! timer for whole cmfd calculation
   type(Timer) :: time_cmfdbuild ! timer for matrix build
@@ -324,9 +332,6 @@ module global
   integer :: n_cmfd_meshes  = 1 ! # of structured meshes
   integer :: n_cmfd_tallies = 3 ! # of user-defined tallies
 
-  ! Eigenvalue solver type
-  character(len=10) :: cmfd_solver_type = 'power'
-
   ! Adjoint method type
   character(len=10) :: cmfd_adjoint_type = 'physical'
 
@@ -344,8 +349,6 @@ module global
   logical :: cmfd_downscatter = .false.
 
   ! Convergence monitoring
-  logical :: cmfd_snes_monitor  = .false.
-  logical :: cmfd_ksp_monitor   = .false.
   logical :: cmfd_power_monitor = .false.
 
   ! Cmfd output
