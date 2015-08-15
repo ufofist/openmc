@@ -1,120 +1,58 @@
 #!/usr/bin/env python
 
-import os
-from subprocess import Popen, STDOUT, PIPE, call
-import filecmp
-from nose_mpi import NoseMPI
-import glob
-
-pwd = os.path.dirname(__file__)
-
-def setup(): 
-    os.putenv('PWD', pwd)
-    os.chdir(pwd)
-
-def test_run():
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
-
-def test_created_statepoint():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-
-def test_results():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def test_restart_form1():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path, 
-                      '-r', statepoint[0]],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path, '-r', statepoint[0]], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
-
-def test_created_statepoint_form1():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-
-def test_results_form1():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def test_restart_form2():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path, 
-                      '--restart', statepoint[0]],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path, '--restart', statepoint[0]], 
-                     stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
-
-def test_created_statepoint_form2():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-
-def test_results_form2():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def test_restart_serial():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    openmc_path = pwd + '/../../src/openmc'
-    proc = Popen([openmc_path, '--restart', statepoint[0]], 
-                 stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
-
-def test_created_statepoint_serial():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-
-def test_results_serial():
-    statepoint = glob.glob(pwd + '/statepoint.7.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
+import sys
+sys.path.insert(0, '..')
+from testing_harness import *
 
 
-def teardown():
-    output = glob.glob(pwd + '/statepoint.7.*')
-    output.append(pwd + '/results_test.dat')
-    for f in output:
-        if os.path.exists(f):
-            os.remove(f)
+class StatepointRestartTestHarness(TestHarness):
+    def execute_test(self):
+        """Run OpenMC with the appropriate arguments and check the outputs."""
+        try:
+            self._run_openmc()
+            self._test_output_created()
+            results = self._get_results()
+            self._write_results(results)
+            self._compare_results()
+
+            self._run_openmc_restart()
+            self._test_output_created()
+            results = self._get_results()
+            self._write_results(results)
+            self._compare_results()
+        finally:
+            self._cleanup()
+
+    def update_results(self):
+        """Update the results_true using the current version of OpenMC."""
+        try:
+            self._run_openmc()
+            self._test_output_created()
+            results = self._get_results()
+            self._write_results(results)
+            self._overwrite_results()
+        finally:
+            self._cleanup()
+
+    def _run_openmc_restart(self):
+        # Get the name of the statepoint file.
+        statepoint = glob.glob(os.path.join(os.getcwd(), self._sp_name))
+
+        # Run OpenMC
+        executor = Executor()
+
+        if self._opts.mpi_exec is not None:
+            returncode = executor.run_simulation(mpi_procs=self._opts.mpi_np,
+                                                 restart_file=statepoint,
+                                                 openmc_exec=self._opts.exe,
+                                                 mpi_exec=self._opts.mpi_exec)
+
+        else:
+            returncode = executor.run_simulation(openmc_exec=self._opts.exe)
+
+        assert returncode == 0, 'OpenMC did not exit successfully.'
+
+
+if __name__ == '__main__':
+    harness = StatepointRestartTestHarness('statepoint.07.*', True)
+    harness.main()

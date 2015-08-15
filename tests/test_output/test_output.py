@@ -1,54 +1,35 @@
 #!/usr/bin/env python
 
-import os
-from subprocess import Popen, STDOUT, PIPE, call
-import filecmp
-from nose_mpi import NoseMPI
-import glob
+import sys
+sys.path.insert(0, '..')
+from testing_harness import *
 
-pwd = os.path.dirname(__file__)
 
-def setup(): 
-    os.putenv('PWD', pwd)
-    os.chdir(pwd)
+class OutputTestHarness(TestHarness):
+    def _test_output_created(self):
+        """Make sure output files have been created."""
+        # Check for the statepoint.
+        TestHarness._test_output_created(self)
 
-def test_run():
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
+        # Check for the summary.
+        summary = glob.glob(os.path.join(os.getcwd(), 'summary.*'))
+        assert len(summary) == 1, 'Either multiple or no summary file exists.'
+        assert summary[0].endswith('out') or summary[0].endswith('h5'),\
+            'Summary file is not a binary or hdf5 file.'
 
-def test_summary_exists():
-    summary = glob.glob(pwd + '/summary.*')
-    assert len(summary) == 1
-    assert summary[0].endswith('out') or summary[0].endswith('h5')
+        # Check for the cross sections.
+        assert os.path.exists(os.path.join(os.getcwd(), 'cross_sections.out')),\
+            'Cross section output file does not exist.'
 
-def test_cross_sections_exists():
-    assert os.path.exists(pwd + '/cross_sections.out')
+    def _cleanup(self):
+        TestHarness._cleanup(self)
+        output = glob.glob(os.path.join(os.getcwd(), 'summary.*'))
+        output.append(os.path.join(os.getcwd(), 'cross_sections.out'))
+        for f in output:
+            if os.path.exists(f):
+                os.remove(f)
 
-def test_statepoint_exists():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
 
-def test_results():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def teardown():
-    output = glob.glob(pwd + '/statepoint.10.*') + glob.glob(pwd + '/summary.*')
-    output.append(pwd + '/summary.out')
-    output.append(pwd + '/cross_sections.out')
-    output.append(pwd + '/results_test.dat')
-    for f in output:
-        if os.path.exists(f):
-            os.remove(f)
+if __name__ == '__main__':
+    harness = OutputTestHarness('statepoint.10.*')
+    harness.main()

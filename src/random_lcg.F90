@@ -1,12 +1,14 @@
 module random_lcg
 
+  use constants
+
   implicit none
 
   private
   save
 
   integer(8) :: prn_seed0  ! original seed
-  integer(8) :: prn_seed   ! current seed
+  integer(8) :: prn_seed(N_STREAMS) ! current seed
   integer(8) :: prn_mult   ! multiplication factor, g
   integer(8) :: prn_add    ! additive factor, c
   integer    :: prn_bits   ! number of bits, M
@@ -14,11 +16,16 @@ module random_lcg
   integer(8) :: prn_mask   ! 2^M - 1
   integer(8) :: prn_stride ! stride between particles
   real(8)    :: prn_norm   ! 2^(-M)
+  integer    :: stream     ! current RNG stream
+
+!$omp threadprivate(prn_seed, stream)
 
   public :: prn
   public :: initialize_prng
   public :: set_particle_seed
   public :: prn_skip
+  public :: prn_set_stream
+  public :: STREAM_TRACKING, STREAM_TALLIES
 
 contains
 
@@ -33,12 +40,12 @@ contains
     ! This algorithm uses bit-masking to find the next integer(8) value to be
     ! used to calculate the random number
 
-    prn_seed = iand(prn_mult*prn_seed + prn_add, prn_mask)
+    prn_seed(stream) = iand(prn_mult*prn_seed(stream) + prn_add, prn_mask)
 
     ! Once the integer is calculated, we just need to divide by 2**m,
     ! represented here as multiplying by a pre-calculated factor
 
-    pseudo_rn = prn_seed * prn_norm
+    pseudo_rn = prn_seed(stream) * prn_norm
 
   end function prn
 
@@ -51,8 +58,15 @@ contains
 
     use global, only: seed
 
+    integer :: i
+
     prn_seed0  = seed
-    prn_seed   = prn_seed
+!$omp parallel
+    do i = 1, N_STREAMS
+      prn_seed(i) = prn_seed0 + i - 1
+    end do
+    stream     = STREAM_TRACKING
+!$omp end parallel
     prn_mult   = 2806196910506780709_8
     prn_add    = 1_8
     prn_bits   = 63
@@ -72,10 +86,14 @@ contains
 
     integer(8), intent(in) :: id
 
-    prn_seed = prn_skip_ahead(id*prn_stride, prn_seed0)
+    integer :: i
+
+    do i = 1, N_STREAMS
+      prn_seed(i) = prn_skip_ahead(id*prn_stride, prn_seed0 + i - 1)
+    end do
 
   end subroutine set_particle_seed
-    
+
 !===============================================================================
 ! PRN_SKIP advances the random number seed 'n' times from the current seed
 !===============================================================================
@@ -84,7 +102,7 @@ contains
 
     integer(8), intent(in) :: n ! number of seeds to skip
 
-    prn_seed = prn_skip_ahead(n, prn_seed)
+    prn_seed(stream) = prn_skip_ahead(n, prn_seed(stream))
 
   end subroutine prn_skip
 
@@ -148,5 +166,19 @@ contains
     new_seed = iand(g_new*seed + c_new, prn_mask)
 
   end function prn_skip_ahead
+
+!===============================================================================
+! PRN_SET_STREAM changes the random number stream. If random numbers are needed
+! in routines not used directly for tracking (e.g. physics), this allows the
+! numbers to be generated without affecting reproducibility of the physics.
+!===============================================================================
+
+  subroutine prn_set_stream(i)
+
+    integer, intent(in) :: i
+
+    stream = i
+
+  end subroutine prn_set_stream
 
 end module random_lcg

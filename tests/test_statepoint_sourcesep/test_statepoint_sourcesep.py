@@ -1,48 +1,22 @@
 #!/usr/bin/env python
 
-import os
-from subprocess import Popen, STDOUT, PIPE, call
-import filecmp
-from nose_mpi import NoseMPI
-import glob
+import sys
+sys.path.insert(0, '..')
+from testing_harness import *
 
-pwd = os.path.dirname(__file__)
 
-def setup(): 
-    os.putenv('PWD', pwd)
-    os.chdir(pwd)
+class SourcepointTestHarness(TestHarness):
+    def _test_output_created(self):
+        """Make sure statepoint.* and source* have been created."""
+        TestHarness._test_output_created(self)
+        source = glob.glob(os.path.join(os.getcwd(), 'source.*'))
+        assert len(source) == 1, 'Either multiple or no source files ' \
+             'exist.'
+        assert source[0].endswith('binary') \
+             or source[0].endswith('h5'), \
+             'Source file is not a binary or hdf5 file.'
 
-def test_run():
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
 
-def test_statepoint_exists():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-    source = glob.glob(pwd + '/source.10.*')
-    assert len(statepoint) == 1
-    assert source[0].endswith('binary') or source[0].endswith('h5')
-
-def test_results():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def teardown():
-    output = glob.glob(pwd + '/statepoint.10.*')
-    output += glob.glob(pwd + '/source.10.*')
-    output.append(pwd + '/results_test.dat')
-    for f in output:
-        if os.path.exists(f):
-            os.remove(f)
+if __name__ == '__main__':
+    harness = SourcepointTestHarness('statepoint.10.*')
+    harness.main()

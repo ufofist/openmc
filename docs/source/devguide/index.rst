@@ -10,11 +10,12 @@ as debugging.
 
 .. toctree::
     :numbered:
-    :maxdepth: 2
+    :maxdepth: 3
 
     structures
     styleguide
     workflow
-    xml-fortran
+    xml-parsing
     statepoint
     voxel
+    docbuild

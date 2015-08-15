@@ -5,15 +5,16 @@ module output
   use ace_header,      only: Nuclide, Reaction, UrrData
   use constants
   use endf,            only: reaction_name
-  use error,           only: warning
-  use geometry_header, only: Cell, Universe, Surface, BASE_UNIVERSE
+  use error,           only: fatal_error, warning
+  use geometry_header, only: Cell, Universe, Surface, Lattice, RectLattice, &
+                             HexLattice, BASE_UNIVERSE
   use global
   use math,            only: t_percentile
   use mesh_header,     only: StructuredMesh
   use mesh,            only: mesh_indices_to_bin, bin_to_mesh_indices
   use particle_header, only: LocalCoord, Particle
   use plot_header
-  use string,          only: upper_case, to_str
+  use string,          only: to_upper, to_str
   use tally_header,    only: TallyObject
 
   implicit none
@@ -31,6 +32,10 @@ contains
 
   subroutine title()
 
+#ifdef _OPENMP
+    use omp_lib
+#endif
+
     write(UNIT=OUTPUT_UNIT, FMT='(/11(A/))') &
          '       .d88888b.                             888b     d888  .d8888b.', &
          '      d88P" "Y88b                            8888b   d8888 d88P  Y88b', &
@@ -46,23 +51,29 @@ contains
 
     ! Write version information
     write(UNIT=OUTPUT_UNIT, FMT=*) &
-         '     Copyright:     2011-2013 Massachusetts Institute of Technology'
+         '     Copyright:      2011-2015 Massachusetts Institute of Technology'
     write(UNIT=OUTPUT_UNIT, FMT=*) &
-         '     License:       http://mit-crpg.github.io/openmc/license.html'
-    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Version:",7X,I1,".",I1,".",I1)') &
+         '     License:        http://mit-crpg.github.io/openmc/license.html'
+    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Version:",8X,I1,".",I1,".",I1)') &
          VERSION_MAJOR, VERSION_MINOR, VERSION_RELEASE
 #ifdef GIT_SHA1
-    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Git SHA1:",6X,A)') GIT_SHA1
+    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Git SHA1:",7X,A)') GIT_SHA1
 #endif
 
     ! Write the date and time
-    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Date/Time:",5X,A)') &
+    write(UNIT=OUTPUT_UNIT, FMT='(6X,"Date/Time:",6X,A)') &
          time_stamp()
 
 #ifdef MPI
     ! Write number of processors
-    write(UNIT=OUTPUT_UNIT, FMT='(6X,"MPI Processes:",1X,A)') &
+    write(UNIT=OUTPUT_UNIT, FMT='(6X,"MPI Processes:",2X,A)') &
          trim(to_str(n_procs))
+#endif
+
+#ifdef _OPENMP
+    ! Write number of OpenMP threads
+    write(UNIT=OUTPUT_UNIT, FMT='(6X,"OpenMP Threads:",1X,A)') &
+         trim(to_str(omp_get_max_threads()))
 #endif
 
   end subroutine title
@@ -120,13 +131,12 @@ contains
     if (mod(len_trim(msg),2) == 0) m = m + 1
 
     ! convert line to upper case
-    line = msg
-    call upper_case(line)
+    line = to_upper(msg)
 
     ! print header based on level
     select case (header_level)
     case (1)
-      write(UNIT=unit_, FMT='(/3(1X,A/))') repeat('=', 75), & 
+      write(UNIT=unit_, FMT='(/3(1X,A/))') repeat('=', 75), &
            repeat('=', n) // '>     ' // trim(line) // '     <' // &
            repeat('=', m), repeat('=', 75)
     case (2)
@@ -148,7 +158,7 @@ contains
     if (master) then
       write(UNIT=OUTPUT_UNIT, FMT='(1X,A,1X,I1,".",I1,".",I1)') &
            "OpenMC version", VERSION_MAJOR, VERSION_MINOR, VERSION_RELEASE
-      write(UNIT=OUTPUT_UNIT, FMT=*) "Copyright (c) 2011-2013 &
+      write(UNIT=OUTPUT_UNIT, FMT=*) "Copyright (c) 2011-2015 &
            &Massachusetts Institute of Technology"
       write(UNIT=OUTPUT_UNIT, FMT=*) "MIT/X license at &
            &<http://mit-crpg.github.io/openmc/license.html>"
@@ -167,22 +177,26 @@ contains
       write(OUTPUT_UNIT,*)
       write(OUTPUT_UNIT,*) 'Options:'
       write(OUTPUT_UNIT,*) '  -g, --geometry-debug   Run in geometry debugging mode'
+      write(OUTPUT_UNIT,*) '  -n, --particles        Number of particles per generation'
       write(OUTPUT_UNIT,*) '  -p, --plot             Run in plotting mode'
       write(OUTPUT_UNIT,*) '  -r, --restart          Restart a previous run from a state point'
       write(OUTPUT_UNIT,*) '                         or a particle restart file'
+      write(OUTPUT_UNIT,*) '  -s, --threads          Number of OpenMP threads'
+      write(OUTPUT_UNIT,*) '  -t, --track            Write tracks for all particles'
       write(OUTPUT_UNIT,*) '  -v, --version          Show version information'
-      write(OUTPUT_UNIT,*) '  -?, --help             Show this message'
+      write(OUTPUT_UNIT,*) '  -h, --help             Show this message'
     end if
 
   end subroutine print_usage
 
 !===============================================================================
-! WRITE_MESSAGE displays an informational message to the log file and the 
+! WRITE_MESSAGE displays an informational message to the log file and the
 ! standard output stream.
 !===============================================================================
 
-  subroutine write_message(level)
+  subroutine write_message(message, level)
 
+    character(*) :: message
     integer, optional :: level ! verbosity level
 
     integer :: i_start    ! starting position
@@ -203,7 +217,7 @@ contains
 
       i_start = 0
       do
-        if (length - i_start < line_wrap - 1) then
+        if (length - i_start < line_wrap + 1) then
           ! Remainder of message will fit on line
           write(ou, fmt='(1X,A)') message(i_start+1:length)
           exit
@@ -212,7 +226,7 @@ contains
           ! Determine last space in current line
           last_space = index(message(i_start+1:i_start+line_wrap), &
                ' ', BACK=.true.)
-          if (last_space == 0) then 
+          if (last_space == 0) then
             i_end = min(length + 1, i_start+line_wrap) - 1
             write(ou, fmt='(1X,A)') message(i_start+1:i_end)
           else
@@ -243,8 +257,7 @@ contains
     type(Cell),       pointer :: c => null()
     type(Surface),    pointer :: s => null()
     type(Universe),   pointer :: u => null()
-    type(Lattice),    pointer :: l => null()
-    type(LocalCoord), pointer :: coord => null()
+    class(Lattice),   pointer :: l => null()
 
     ! display type of particle
     select case (p % type)
@@ -259,39 +272,34 @@ contains
     end select
 
     ! loop through each level of universes
-    coord => p % coord0
-    i = 0
-    do while(associated(coord))
+    do i = 1, p % n_coord
       ! Print level
-      write(ou,*) '  Level ' // trim(to_str(i))
+      write(ou,*) '  Level ' // trim(to_str(i - 1))
 
       ! Print cell for this level
-      if (coord % cell /= NONE) then
-        c => cells(coord % cell)
+      if (p % coord(i) % cell /= NONE) then
+        c => cells(p % coord(i) % cell)
         write(ou,*) '    Cell             = ' // trim(to_str(c % id))
       end if
 
       ! Print universe for this level
-      if (coord % universe /= NONE) then
-        u => universes(coord % universe)
+      if (p % coord(i) % universe /= NONE) then
+        u => universes(p % coord(i) % universe)
         write(ou,*) '    Universe         = ' // trim(to_str(u % id))
       end if
 
       ! Print information on lattice
-      if (coord % lattice /= NONE) then
-        l => lattices(coord % lattice)
+      if (p % coord(i) % lattice /= NONE) then
+        l => lattices(p % coord(i) % lattice) % obj
         write(ou,*) '    Lattice          = ' // trim(to_str(l % id))
         write(ou,*) '    Lattice position = (' // trim(to_str(&
-             p % coord % lattice_x)) // ',' // trim(to_str(&
-             p % coord % lattice_y)) // ')'
+             p % coord(i) % lattice_x)) // ',' // trim(to_str(&
+             p % coord(i) % lattice_y)) // ')'
       end if
 
       ! Print local coordinates
-      write(ou,'(1X,A,3ES12.4)') '    xyz = ', coord % xyz
-      write(ou,'(1X,A,3ES12.4)') '    uvw = ', coord % uvw
-
-      coord => coord % next
-      i = i + 1
+      write(ou,'(1X,A,3ES12.4)') '    xyz = ', p % coord(i) % xyz
+      write(ou,'(1X,A,3ES12.4)') '    uvw = ', p % coord(i) % uvw
     end do
 
     ! Print surface
@@ -342,7 +350,7 @@ contains
     integer :: unit_      ! unit to write to
     character(MAX_LINE_LEN) :: string
     type(Universe), pointer :: u => null()
-    type(Lattice),  pointer :: l => null()
+    class(Lattice), pointer :: l => null()
     type(Material), pointer :: m => null()
 
     ! Set unit to stdout if not already set
@@ -354,6 +362,9 @@ contains
 
     ! Write user-specified id for cell
     write(unit_,*) 'Cell ' // to_str(c % id)
+
+    ! Write user-specified name for cell
+    write(unit_,*) '    Name = ' // c % name
 
     ! Find index in cells array and write
     index_cell = cell_dict % get_key(c % id)
@@ -371,7 +382,7 @@ contains
       u => universes(c % fill)
       write(unit_,*) '    Fill = Universe ' // to_str(u % id)
     case (CELL_LATTICE)
-      l => lattices(c % fill)
+      l => lattices(c % fill) % obj
       write(unit_,*) '    Fill = Lattice ' // to_str(l % id)
     end select
 
@@ -458,13 +469,10 @@ contains
 
   subroutine print_lattice(lat, unit)
 
-    type(Lattice), pointer :: lat
-    integer,      optional :: unit
+    class(Lattice), pointer :: lat
+    integer,       optional :: unit
 
-    integer :: i     ! loop index
     integer :: unit_ ! unit to write to
-    character(MAX_LINE_LEN) :: string
-
 
     ! set default unit if not specified
     if (present(unit)) then
@@ -476,27 +484,67 @@ contains
     ! Write information about lattice
     write(unit_,*) 'Lattice ' // to_str(lat % id)
 
-    ! Write dimension of lattice
-    string = ""
-    do i = 1, lat % n_dimension
-      string = trim(string) // ' ' // to_str(lat % dimension(i))
-    end do
-    write(unit_,*) '    Dimension =' // string
+    ! Write user-specified name for lattice
+    write(unit_,*) '    Name = ' // lat % name
 
-    ! Write lower-left coordinates of lattice
-    string = ""
-    do i = 1, lat % n_dimension
-      string = trim(string) // ' ' // to_str(lat % lower_left(i))
-    end do
-    write(unit_,*) '    Lower-left =' // string
+    select type(lat)
+    type is (RectLattice)
+      ! Write dimension of lattice.
+      if (lat % is_3d) then
+        write(unit_, *) '    Dimension = ' // to_str(lat % n_cells(1)) &
+             &// ' ' // to_str(lat % n_cells(2)) // ' ' &
+             &// to_str(lat % n_cells(3))
+      else
+        write(unit_, *) '    Dimension = ' // to_str(lat % n_cells(1)) &
+             &// ' ' // to_str(lat % n_cells(2))
+      end if
 
-    ! Write width of each lattice cell
-    string = ""
-    do i = 1, lat % n_dimension
-      string = trim(string) // ' ' // to_str(lat % width(i))
-    end do
-    write(unit_,*) '    Width =' // string
-    write(unit_,*)
+      ! Write lower-left coordinates of lattice.
+      if (lat % is_3d) then
+        write(unit_, *) '    Lower-left = ' // to_str(lat % lower_left(1)) &
+             &// ' ' // to_str(lat % lower_left(2)) // ' ' &
+             &// to_str(lat % lower_left(3))
+      else
+        write(unit_, *) '    Lower-left = ' // to_str(lat % lower_left(1)) &
+             &// ' ' // to_str(lat % lower_left(2))
+      end if
+
+      ! Write lattice pitch along each axis.
+      if (lat % is_3d) then
+        write(unit_, *) '    Pitch = ' // to_str(lat % pitch(1)) &
+             &// ' ' // to_str(lat % pitch(2)) // ' ' &
+             &// to_str(lat % pitch(3))
+      else
+        write(unit_, *) '    Pitch = ' // to_str(lat % pitch(1)) &
+             &// ' ' // to_str(lat % pitch(2))
+      end if
+      write(unit_,*)
+
+    type is (HexLattice)
+      ! Write dimension of lattice.
+      write(unit_,*) '    N-rings = ' // to_str(lat % n_rings)
+      if (lat % is_3d) write(unit_,*) '    N-axial = ' // to_str(lat % n_axial)
+
+      ! Write center coordinates of lattice.
+      if (lat % is_3d) then
+        write(unit_, *) '    Center = ' // to_str(lat % center(1)) &
+             &// ' ' // to_str(lat % center(2)) // ' ' &
+             &// to_str(lat % center(3))
+      else
+        write(unit_, *) '    Center = ' // to_str(lat % center(1)) &
+             &// ' ' // to_str(lat % center(2))
+      end if
+
+      ! Write lattice pitch along each axis.
+      if (lat % is_3d) then
+        write(unit_, *) '    Pitch = ' // to_str(lat % pitch(1)) &
+             &// ' ' // to_str(lat % pitch(2))
+      else
+        write(unit_, *) '    Pitch = ' // to_str(lat % pitch(1))
+      end if
+      write(unit_,*)
+    end select
+
 
   end subroutine print_lattice
 
@@ -523,6 +571,9 @@ contains
 
     ! Write user-specified id of surface
     write(unit_,*) 'Surface ' // to_str(surf % id)
+
+    ! Write user-specified name for surface
+    write(unit_,*) '    Name = ' // surf % name
 
     ! Write type of surface
     select case (surf % type)
@@ -620,6 +671,9 @@ contains
     ! Write identifier for material
     write(unit_,*) 'Material ' // to_str(mat % id)
 
+    ! Write user-specified name for material
+    write(unit_,*) '    Name = ' // mat % name
+
     ! Write total atom density in atom/b-cm
     write(unit_,*) '    Atom Density = ' // trim(to_str(mat % density)) &
          // ' atom/b-cm'
@@ -659,7 +713,7 @@ contains
     integer :: j     ! index in filters array
     integer :: id    ! user-specified id
     integer :: unit_ ! unit to write to
-    integer :: n     ! scattering order to include in name
+    integer :: n     ! moment order to include in name
     character(MAX_LINE_LEN) :: string
     character(MAX_WORD_LEN) :: pn_string
     type(Cell),           pointer :: c => null()
@@ -693,6 +747,16 @@ contains
     case(ESTIMATOR_TRACKLENGTH)
       write(unit_,*) '    Estimator: Track-length'
     end select
+
+    ! Write any cells bins if present
+    j = t % find_filter(FILTER_DISTRIBCELL)
+    if (j > 0) then
+      string = ""
+      id = t % filters(j) % int_bins(1)
+      c => cells(id)
+      string = trim(string) // ' ' // trim(to_str(c % id))
+      write(unit_, *) '    Distribcell Bins:' // trim(string)
+    end if
 
     ! Write any cells bins if present
     j = t % find_filter(FILTER_CELL)
@@ -803,7 +867,6 @@ contains
     end do
     write(unit_,*)
 
-
     ! Write score bins
     string   = ""
     j = 0
@@ -812,20 +875,63 @@ contains
       select case (t % score_bins(j))
       case (SCORE_FLUX)
         string = trim(string) // ' flux'
+      case (SCORE_FLUX_YN)
+        pn_string = ' flux'
+        string = trim(string) // pn_string
+        do n = 1, t % moment_order(j)
+          pn_string = ' flux-y' // trim(to_str(n))
+          string = trim(string) // pn_string
+        end do
+        j = j + n - 1
       case (SCORE_TOTAL)
         string = trim(string) // ' total'
+      case (SCORE_TOTAL_YN)
+        pn_string = ' total'
+        string = trim(string) // pn_string
+        do n = 1, t % moment_order(j)
+          pn_string = ' total-y' // trim(to_str(n))
+          string = trim(string) // pn_string
+        end do
+        j = j + n - 1
       case (SCORE_SCATTER)
         string = trim(string) // ' scatter'
       case (SCORE_NU_SCATTER)
         string = trim(string) // ' nu-scatter'
       case (SCORE_SCATTER_N)
-        pn_string = ' scatter-' // trim(to_str(t % scatt_order(j)))
+        pn_string = ' scatter-' // trim(to_str(t % moment_order(j)))
         string = trim(string) // pn_string
       case (SCORE_SCATTER_PN)
         pn_string = ' scatter'
         string = trim(string) // pn_string
-        do n = 1, t % scatt_order(j)
-          pn_string = ' scatter-' // trim(to_str(n))
+        do n = 1, t % moment_order(j)
+          pn_string = ' scatter-p' // trim(to_str(n))
+          string = trim(string) // pn_string
+        end do
+        j = j + n - 1
+      case (SCORE_NU_SCATTER_N)
+        pn_string = ' nu-scatter-' // trim(to_str(t % moment_order(j)))
+        string = trim(string) // pn_string
+      case (SCORE_NU_SCATTER_PN)
+        pn_string = ' nu-scatter'
+        string = trim(string) // pn_string
+        do n = 1, t % moment_order(j)
+          pn_string = ' nu-scatter-p' // trim(to_str(n))
+          string = trim(string) // pn_string
+        end do
+        j = j + n - 1
+      case (SCORE_SCATTER_YN)
+        pn_string = ' scatter'
+        string = trim(string) // pn_string
+        do n = 1, t % moment_order(j)
+          pn_string = ' scatter-y' // trim(to_str(n))
+          string = trim(string) // pn_string
+        end do
+        j = j + n - 1
+      case (SCORE_NU_SCATTER_YN)
+        pn_string = ' nu-scatter'
+        string = trim(string) // pn_string
+        do n = 1, t % moment_order(j)
+          pn_string = ' nu-scatter-y' // trim(to_str(n))
           string = trim(string) // pn_string
         end do
         j = j + n - 1
@@ -863,7 +969,7 @@ contains
     type(Surface),     pointer :: s => null()
     type(Cell),        pointer :: c => null()
     type(Universe),    pointer :: u => null()
-    type(Lattice),     pointer :: l => null()
+    class(Lattice),    pointer :: l => null()
 
     ! print summary of surfaces
     call header("SURFACE SUMMARY", unit=UNIT_SUMMARY)
@@ -890,7 +996,7 @@ contains
     if (n_lattices > 0) then
       call header("LATTICE SUMMARY", unit=UNIT_SUMMARY)
       do i = 1, n_lattices
-        l => lattices(i)
+        l => lattices(i) % obj
         call print_lattice(l, unit=UNIT_SUMMARY)
       end do
     end if
@@ -1025,8 +1131,10 @@ contains
     type(SAlphaBeta), pointer :: sab
     integer,         optional :: unit
 
-    integer :: size_sab ! memory used by S(a,b) table
-    integer :: unit_    ! unit to write to
+    integer :: size_sab   ! memory used by S(a,b) table
+    integer :: unit_      ! unit to write to
+    integer :: i          ! Loop counter for parsing through sab % zaid
+    integer :: char_count ! Counter for the number of characters on a line
 
     ! set default unit for writing information
     if (present(unit)) then
@@ -1037,7 +1145,30 @@ contains
 
     ! Basic S(a,b) table information
     write(unit_,*) 'S(a,b) Table ' // trim(sab % name)
-    write(unit_,*) '  zaid = ' // trim(to_str(sab % zaid))
+    write(unit_,'(A)',advance="no") '   zaids = '
+    ! Initialize the counter based on the above string
+    char_count = 11
+    do i = 1, sab % n_zaid
+      ! Deal with a line thats too long
+      if (char_count >= 73) then  ! 73 = 80 - (5 ZAID chars + 1 space + 1 comma)
+        ! End the line
+        write(unit_,*) ""
+        ! Add 11 leading blanks
+        write(unit_,'(A)', advance="no") "           "
+        ! reset the counter to 11
+        char_count = 11
+      end if
+      if (i < sab % n_zaid) then
+        ! Include a comma
+        write(unit_,'(A)',advance="no") trim(to_str(sab % zaid(i))) // ", "
+        char_count = char_count + len(trim(to_str(sab % zaid(i)))) + 2
+      else
+        ! Don't include a comma, since we are all done
+        write(unit_,'(A)',advance="no") trim(to_str(sab % zaid(i)))
+      end if
+
+    end do
+    write(unit_,*) "" ! Move to next line
     write(unit_,*) '  awr = ' // trim(to_str(sab % awr))
     write(unit_,*) '  kT = ' // trim(to_str(sab % kT))
 
@@ -1092,7 +1223,7 @@ contains
 
     call header("OpenMC Monte Carlo Code", unit=UNIT_SUMMARY, level=1)
     write(UNIT=UNIT_SUMMARY, FMT=*) &
-         "Copyright:     2011-2013 Massachusetts Institute of Technology"
+         "Copyright:     2011-2015 Massachusetts Institute of Technology"
     write(UNIT=UNIT_SUMMARY, FMT='(1X,A,7X,2(I1,"."),I1)') &
          "Version:", VERSION_MAJOR, VERSION_MINOR, VERSION_RELEASE
 #ifdef GIT_SHA1
@@ -1144,12 +1275,6 @@ contains
         call print_tally(t, unit=UNIT_SUMMARY)
       end do
     end if
-
-    ! print summary of unionized energy grid
-    call header("UNIONIZED ENERGY GRID", unit=UNIT_SUMMARY)
-    write(UNIT_SUMMARY,*) "Points on energy grid:  " // trim(to_str(n_grid))
-    write(UNIT_SUMMARY,*) "Extra storage required: " // trim(to_str(&
-         n_grid*n_nuclides_total*4)) // " bytes"
 
     ! print summary of variance reduction
     call header("VARIANCE REDUCTION", unit=UNIT_SUMMARY)
@@ -1221,37 +1346,40 @@ contains
 
   subroutine print_columns()
 
-    if (entropy_on) then
-      if (cmfd_run) then
-        message = " Bat./Gen.      k       Entropy         Average k          CMFD k    CMFD Ent"
-        call write_message(1)
-        message = " =========   ========   ========   ====================   ========   ========"
-        call write_message(1)
-      else
-        message = " Bat./Gen.      k       Entropy         Average k"
-        call write_message(1)
-        message = " =========   ========   ========   ===================="
-        call write_message(1)
-      end if
-    else
-      if (cmfd_run) then
-        message = " Bat./Gen.      k            Average k          CMFD k"
-        call write_message(1)
-        message = " =========   ========   ====================   ========"
-        call write_message(1)
-      else
-        message = " Bat./Gen.      k            Average k"
-        call write_message(1)
-        message = " =========   ========   ===================="
-        call write_message(1)
-      end if
+    write(UNIT=ou, FMT='(2X,A9,3X)', ADVANCE='NO') "Bat./Gen."
+    write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "   k    "
+    if (entropy_on) write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "Entropy "
+    write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') "     Average k      "
+    if (cmfd_run) then
+      write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') " CMFD k "
+      select case(trim(cmfd_display))
+        case('entropy')
+          write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "CMFD Ent"
+        case('balance')
+          write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "RMS Bal "
+        case('source')
+          write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "RMS Src "
+        case('dominance')
+          write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "Dom Rat "
+      end select
     end if
+    write(UNIT=ou, FMT=*)
+
+    write(UNIT=ou, FMT='(2X,A9,3X)', ADVANCE='NO') "========="
+    write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
+    if (entropy_on) write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
+    write(UNIT=ou, FMT='(A20,3X)', ADVANCE='NO') "===================="
+    if (cmfd_run) then
+      write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
+      if (cmfd_display /= '') &
+           write(UNIT=ou, FMT='(A8,3X)', ADVANCE='NO') "========"
+    end if
+    write(UNIT=ou, FMT=*)
 
   end subroutine print_columns
 
 !===============================================================================
-! PRINT_GENERATION displays information for a generation of neutrons. For now,
-! if the user has entropy on, it will print out the entropy
+! PRINT_GENERATION displays information for a generation of neutrons.
 !===============================================================================
 
   subroutine print_generation()
@@ -1266,7 +1394,7 @@ contains
     if (entropy_on) write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
          entropy(overall_gen)
 
-    if (overall_gen - n_inactive*gen_per_batch > 1) then 
+    if (overall_gen - n_inactive*gen_per_batch > 1) then
       write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5," +/-",F8.5)', ADVANCE='NO') &
            keff, keff_std
     end if
@@ -1294,21 +1422,32 @@ contains
          entropy(current_batch*gen_per_batch)
 
     ! write out accumulated k-effective if after first active batch
-    if (overall_gen - n_inactive*gen_per_batch > 1) then 
+    if (overall_gen - n_inactive*gen_per_batch > 1) then
       write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5," +/-",F8.5)', ADVANCE='NO') &
            keff, keff_std
     else
       write(UNIT=OUTPUT_UNIT, FMT='(23X)', ADVANCE='NO')
     end if
 
-
-    ! write out cmfd keff if it is active
-    if (cmfd_on) write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
-         cmfd % keff 
-
-    ! write out cmfd entopy
-    if (cmfd_on .and. entropy_on) write(UNIT=OUTPUT_UNIT, &
-         FMT='(3X, F8.5)', ADVANCE='NO') cmfd % entropy
+    ! write out cmfd keff if it is active and other display info
+    if (cmfd_on) then
+      write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
+           cmfd % k_cmfd(current_batch)
+      select case(trim(cmfd_display))
+        case('entropy')
+          write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
+               cmfd % entropy(current_batch)
+        case('balance')
+          write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
+               cmfd % balance(current_batch)
+        case('source')
+          write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
+               cmfd % src_cmp(current_batch)
+        case('dominance')
+          write(UNIT=OUTPUT_UNIT, FMT='(3X, F8.5)', ADVANCE='NO') &
+               cmfd % dom(current_batch)
+      end select
+    end if
 
     ! next line
     write(UNIT=OUTPUT_UNIT, FMT=*)
@@ -1332,7 +1471,13 @@ contains
 
       ! Plot id
       write(ou,100) "Plot ID:", trim(to_str(pl % id))
-      
+
+      ! Plot filename
+      write(ou,100) "Plot file:", trim(pl % path_plot)
+
+      ! Plot level
+      write(ou,100) "Universe depth:", trim(to_str(pl % level))
+
       ! Plot type
       if (pl % type == PLOT_TYPE_SLICE) then
         write(ou,100) "Plot Type:", "Slice"
@@ -1370,7 +1515,7 @@ contains
              trim(to_str(pl % pixels(2)))
       else if (pl % type == PLOT_TYPE_VOXEL) then
         write(ou,100) "Voxels:", trim(to_str(pl % pixels(1))) // " " // &
-             trim(to_str(pl % pixels(2))) // " " // trim(to_str(pl % pixels(3))) 
+             trim(to_str(pl % pixels(2))) // " " // trim(to_str(pl % pixels(3)))
       end if
 
       write(ou,*)
@@ -1399,17 +1544,20 @@ contains
     ! display time elapsed for various sections
     write(ou,100) "Total time for initialization", time_initialize % elapsed
     write(ou,100) "  Reading cross sections", time_read_xs % elapsed
-    write(ou,100) "  Unionizing energy grid", time_unionize % elapsed
     write(ou,100) "Total time in simulation", time_inactive % elapsed + &
          time_active % elapsed
     write(ou,100) "  Time in transport only", time_transport % elapsed
-    if(cmfd_run) write(ou,100) "Total CMFD time", time_cmfd % elapsed
     write(ou,100) "  Time in inactive batches", time_inactive % elapsed
     write(ou,100) "  Time in active batches", time_active % elapsed
     write(ou,100) "  Time synchronizing fission bank", time_bank % elapsed
     write(ou,100) "    Sampling source sites", time_bank_sample % elapsed
     write(ou,100) "    SEND/RECV source sites", time_bank_sendrecv % elapsed
     write(ou,100) "  Time accumulating tallies", time_tallies % elapsed
+    if (cmfd_run) write(ou,100) "  Time in CMFD", time_cmfd % elapsed
+    if (cmfd_run) write(ou,100) "    Building matrices", &
+                  time_cmfdbuild % elapsed
+    if (cmfd_run) write(ou,100) "    Solving matrices", &
+                  time_cmfdsolve % elapsed
     write(ou,100) "Total time for finalization", time_finalize % elapsed
     write(ou,100) "Total time elapsed", time_total % elapsed
 
@@ -1419,7 +1567,7 @@ contains
         speed_inactive = real(n_particles * (n_inactive - restart_batch) * &
              gen_per_batch) / time_inactive % elapsed
         speed_active = real(n_particles * n_active * gen_per_batch) / &
-           time_active % elapsed
+             time_active % elapsed
       else
         speed_inactive = ZERO
         speed_active = real(n_particles * (n_batches - restart_batch) * &
@@ -1479,22 +1627,26 @@ contains
 
     ! write global tallies
     if (n_realizations > 1) then
-      write(ou,102) "k-effective (Collision)", global_tallies(K_COLLISION) &
-           % sum, global_tallies(K_COLLISION) % sum_sq
-      write(ou,102) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH) &
-           % sum, global_tallies(K_TRACKLENGTH) % sum_sq
-      write(ou,102) "k-effective (Absorption)", global_tallies(K_ABSORPTION) &
-           % sum, global_tallies(K_ABSORPTION) % sum_sq
-      if (n_realizations > 3) write(ou,102) "Combined k-effective", k_combined
+      if (run_mode == MODE_EIGENVALUE) then
+        write(ou,102) "k-effective (Collision)", global_tallies(K_COLLISION) &
+             % sum, global_tallies(K_COLLISION) % sum_sq
+        write(ou,102) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH) &
+             % sum, global_tallies(K_TRACKLENGTH) % sum_sq
+        write(ou,102) "k-effective (Absorption)", global_tallies(K_ABSORPTION) &
+             % sum, global_tallies(K_ABSORPTION) % sum_sq
+        if (n_realizations > 3) write(ou,102) "Combined k-effective", k_combined
+      end if
       write(ou,102) "Leakage Fraction", global_tallies(LEAKAGE) % sum, &
            global_tallies(LEAKAGE) % sum_sq
     else
-      message = "Could not compute uncertainties -- only one active batch simulated!"
-      call warning()
+      if (master) call warning("Could not compute uncertainties -- only one &
+           &active batch simulated!")
 
-      write(ou,103) "k-effective (Collision)", global_tallies(K_COLLISION) % sum
-      write(ou,103) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH)  % sum
-      write(ou,103) "k-effective (Absorption)", global_tallies(K_ABSORPTION) % sum
+      if (run_mode == MODE_EIGENVALUE) then
+        write(ou,103) "k-effective (Collision)", global_tallies(K_COLLISION) % sum
+        write(ou,103) "k-effective (Track-length)", global_tallies(K_TRACKLENGTH)  % sum
+        write(ou,103) "k-effective (Absorption)", global_tallies(K_ABSORPTION) % sum
+      end if
       write(ou,103) "Leakage Fraction", global_tallies(LEAKAGE) % sum
     end if
     write(ou,*)
@@ -1518,7 +1670,7 @@ contains
 
     write(ou,100) 'Cell ID','No. Overlap Checks'
 
-    do i = 1, n_cells    
+    do i = 1, n_cells
       write(ou,101) cells(i) % id, overlap_check_cnt(i)
       if (overlap_check_cnt(i) < 10) num_sparse = num_sparse + 1
     end do
@@ -1552,19 +1704,20 @@ contains
     integer :: k            ! loop index for scoring bins
     integer :: n            ! loop index for nuclides
     integer :: l            ! loop index for user scores
-    integer :: type         ! type of tally filter        
+    integer :: type         ! type of tally filter
     integer :: indent       ! number of spaces to preceed output
     integer :: filter_index ! index in results array for filters
     integer :: score_index  ! scoring bin index
     integer :: i_nuclide    ! index in nuclides array
     integer :: i_listing    ! index in xs_listings array
-    integer :: n_order      ! loop index for scattering orders
+    integer :: n_order      ! loop index for moment orders
+    integer :: nm_order     ! loop index for Ynm moment orders
     real(8) :: t_value      ! t-values for confidence intervals
     real(8) :: alpha        ! significance level for CI
     character(MAX_FILE_LEN) :: filename                    ! name of output file
-    character(15)           :: filter_name(N_FILTER_TYPES) ! names of tally filters
-    character(27)           :: score_names(N_SCORE_TYPES)  ! names of scoring function
-    character(27)           :: score_name                  ! names of scoring function
+    character(16)           :: filter_name(N_FILTER_TYPES) ! names of tally filters
+    character(36)           :: score_names(N_SCORE_TYPES)  ! names of scoring function
+    character(36)           :: score_name                  ! names of scoring function
                                                            ! to be applied at write-time
     type(TallyObject), pointer :: t
 
@@ -1572,22 +1725,21 @@ contains
     if (n_tallies == 0) return
 
     ! Initialize names for tally filter types
-    filter_name(FILTER_UNIVERSE)  = "Universe"
-    filter_name(FILTER_MATERIAL)  = "Material"
-    filter_name(FILTER_CELL)      = "Cell"
-    filter_name(FILTER_CELLBORN)  = "Birth Cell"
-    filter_name(FILTER_SURFACE)   = "Surface"
-    filter_name(FILTER_MESH)      = "Mesh"
-    filter_name(FILTER_ENERGYIN)  = "Incoming Energy"
-    filter_name(FILTER_ENERGYOUT) = "Outgoing Energy"
+    filter_name(FILTER_UNIVERSE)    = "Universe"
+    filter_name(FILTER_MATERIAL)    = "Material"
+    filter_name(FILTER_DISTRIBCELL) = "Distributed Cell"
+    filter_name(FILTER_CELL)        = "Cell"
+    filter_name(FILTER_CELLBORN)    = "Birth Cell"
+    filter_name(FILTER_SURFACE)     = "Surface"
+    filter_name(FILTER_MESH)        = "Mesh"
+    filter_name(FILTER_ENERGYIN)    = "Incoming Energy"
+    filter_name(FILTER_ENERGYOUT)   = "Outgoing Energy"
 
     ! Initialize names for scores
     score_names(abs(SCORE_FLUX))          = "Flux"
     score_names(abs(SCORE_TOTAL))         = "Total Reaction Rate"
     score_names(abs(SCORE_SCATTER))       = "Scattering Rate"
     score_names(abs(SCORE_NU_SCATTER))    = "Scattering Production Rate"
-    score_names(abs(SCORE_SCATTER_N))     = ""
-    score_names(abs(SCORE_SCATTER_PN))    = ""
     score_names(abs(SCORE_TRANSPORT))     = "Transport Rate"
     score_names(abs(SCORE_N_1N))          = "(n,1n) Rate"
     score_names(abs(SCORE_ABSORPTION))    = "Absorption Rate"
@@ -1595,6 +1747,14 @@ contains
     score_names(abs(SCORE_NU_FISSION))    = "Nu-Fission Rate"
     score_names(abs(SCORE_KAPPA_FISSION)) = "Kappa-Fission Rate"
     score_names(abs(SCORE_EVENTS))        = "Events"
+    score_names(abs(SCORE_FLUX_YN))       = "Flux Moment"
+    score_names(abs(SCORE_TOTAL_YN))      = "Total Reaction Rate Moment"
+    score_names(abs(SCORE_SCATTER_N))     = "Scattering Rate Moment"
+    score_names(abs(SCORE_SCATTER_PN))    = "Scattering Rate Moment"
+    score_names(abs(SCORE_SCATTER_YN))    = "Scattering Rate Moment"
+    score_names(abs(SCORE_NU_SCATTER_N))  = "Scattering Prod. Rate Moment"
+    score_names(abs(SCORE_NU_SCATTER_PN)) = "Scattering Prod. Rate Moment"
+    score_names(abs(SCORE_NU_SCATTER_YN)) = "Scattering Prod. Rate Moment"
 
     ! Create filename for tally output
     filename = trim(path_output) // "tallies.out"
@@ -1623,12 +1783,12 @@ contains
       end if
 
       ! Write header block
-      if (t % label == "") then
+      if (t % name == "") then
         call header("TALLY " // trim(to_str(t % id)), unit=UNIT_TALLY, &
              level=3)
       else
         call header("TALLY " // trim(to_str(t % id)) // ": " &
-             // trim(t % label), unit=UNIT_TALLY, level=3)
+             // trim(t % name), unit=UNIT_TALLY, level=3)
       endif
 
       ! Handle surface current tallies separately
@@ -1644,7 +1804,7 @@ contains
       ! to be used for a given tally.
 
       ! Initialize bins, filter level, and indentation
-      t % matching_bins = 0
+      matching_bins(1:t%n_filters) = 0
       j = 1
       indent = 0
 
@@ -1654,16 +1814,16 @@ contains
           if (t % n_filters == 0) exit find_bin
 
           ! Increment bin combination
-          t % matching_bins(j) = t % matching_bins(j) + 1
+          matching_bins(j) = matching_bins(j) + 1
 
           ! =================================================================
           ! REACHED END OF BINS FOR THIS FILTER, MOVE TO NEXT FILTER
 
-          if (t % matching_bins(j) > t % filters(j) % n_bins) then
+          if (matching_bins(j) > t % filters(j) % n_bins) then
             ! If this is the first filter, then exit
             if (j == 1) exit print_bin
 
-            t % matching_bins(j) = 0
+            matching_bins(j) = 0
             j = j - 1
             indent = indent - 2
 
@@ -1696,7 +1856,7 @@ contains
         ! bins below the lowest filter level will be zeros
 
         if (t % n_filters > 0) then
-          filter_index = sum((max(t % matching_bins,1) - 1) * t % stride) + 1
+          filter_index = sum((max(matching_bins(1:t%n_filters),1) - 1) * t % stride) + 1
         else
           filter_index = 1
         end if
@@ -1721,44 +1881,55 @@ contains
           do l = 1, t % n_user_score_bins
             k = k + 1
             score_index = score_index + 1
-            if (t % score_bins(k) == SCORE_SCATTER_N) then
-              if (t % scatt_order(k) == 0) then
-                score_name = "Scattering Rate"
-              else
-                score_name = 'P' // trim(to_str(t % scatt_order(k))) // &
-                  ' Scattering Moment'
-              end if
-              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                repeat(" ", indent), score_name, &
-                to_str(t % results(score_index,filter_index) % sum), &
-                trim(to_str(t % results(score_index,filter_index) % sum_sq))
-            else if (t % score_bins(k) == SCORE_SCATTER_PN) then
-              score_name = "Scattering Rate"
-              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                repeat(" ", indent), score_name, &
-                to_str(t % results(score_index,filter_index) % sum), &
-                trim(to_str(t % results(score_index,filter_index) % sum_sq))
-              do n_order = 1, t % scatt_order(k)
+            select case(t % score_bins(k))
+            case (SCORE_SCATTER_N, SCORE_NU_SCATTER_N)
+              score_name = 'P' // trim(to_str(t % moment_order(k))) // " " // &
+                   score_names(abs(t % score_bins(k)))
+              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') &
+                   repeat(" ", indent), score_name, &
+                   to_str(t % results(score_index,filter_index) % sum), &
+                   trim(to_str(t % results(score_index,filter_index) % sum_sq))
+            case (SCORE_SCATTER_PN, SCORE_NU_SCATTER_PN)
+              score_index = score_index - 1
+              do n_order = 0, t % moment_order(k)
                 score_index = score_index + 1
-                score_name = 'P' // trim(to_str(n_order)) // &
-                  ' Scattering Moment'
-                write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                  repeat(" ", indent), score_name, &
-                  to_str(t % results(score_index,filter_index) % sum), &
-                  trim(to_str(t % results(score_index,filter_index) % sum_sq))
+                score_name = 'P' // trim(to_str(n_order)) //  " " //&
+                     score_names(abs(t % score_bins(k)))
+                write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') &
+                     repeat(" ", indent), score_name, &
+                     to_str(t % results(score_index,filter_index) % sum), &
+                     trim(to_str(t % results(score_index,filter_index) &
+                     % sum_sq))
               end do
-              k = k + n_order - 1
-            else
+              k = k + t % moment_order(k)
+            case (SCORE_SCATTER_YN, SCORE_NU_SCATTER_YN, SCORE_FLUX_YN, &
+                  SCORE_TOTAL_YN)
+              score_index = score_index - 1
+              do n_order = 0, t % moment_order(k)
+                do nm_order = -n_order, n_order
+                  score_index = score_index + 1
+                  score_name = 'Y' // trim(to_str(n_order)) // ',' // &
+                       trim(to_str(nm_order)) // " " &
+                       // score_names(abs(t % score_bins(k)))
+                  write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') &
+                       repeat(" ", indent), score_name, &
+                       to_str(t % results(score_index,filter_index) % sum), &
+                       trim(to_str(t % results(score_index,filter_index)&
+                       % sum_sq))
+                end do
+              end do
+              k = k + (t % moment_order(k) + 1)**2 - 1
+            case default
               if (t % score_bins(k) > 0) then
                 score_name = reaction_name(t % score_bins(k))
               else
                 score_name = score_names(abs(t % score_bins(k)))
               end if
-              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') & 
-                repeat(" ", indent), score_name, &
-                to_str(t % results(score_index,filter_index) % sum), &
-                trim(to_str(t % results(score_index,filter_index) % sum_sq))
-            end if
+              write(UNIT=UNIT_TALLY, FMT='(1X,2A,1X,A,"+/- ",A)') &
+                   repeat(" ", indent), score_name, &
+                   to_str(t % results(score_index,filter_index) % sum), &
+                   trim(to_str(t % results(score_index,filter_index) % sum_sq))
+            end select
           end do
           indent = indent - 2
 
@@ -1792,8 +1963,8 @@ contains
     integer :: i_filter_ein         ! index for incoming energy filter
     integer :: i_filter_surf        ! index for surface filter
     integer :: n                    ! number of incoming energy bins
-    integer :: len1                 ! length of string 
-    integer :: len2                 ! length of string 
+    integer :: len1                 ! length of string
+    integer :: len2                 ! length of string
     integer :: filter_index         ! index in results array for filters
     logical :: print_ebin           ! should incoming energy bin be displayed?
     character(MAX_LINE_LEN) :: string
@@ -1805,7 +1976,7 @@ contains
     m => meshes(t % filters(i_filter_mesh) % int_bins(1))
 
     ! initialize bins array
-    t % matching_bins = 1
+    matching_bins(1:t%n_filters) = 1
 
     ! determine how many energy in bins there are
     i_filter_ein = t % find_filter(FILTER_ENERGYIN)
@@ -1831,7 +2002,7 @@ contains
           do l = 1, n
             if (print_ebin) then
               ! Set incoming energy bin
-              t % matching_bins(i_filter_ein) = l
+              matching_bins(i_filter_ein) = l
 
               ! Write incoming energy bin
               write(UNIT=UNIT_TALLY, FMT='(3X,A,1X,A)') &
@@ -1839,103 +2010,103 @@ contains
             end if
 
             ! Left Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i-1, j, k /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_RIGHT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_RIGHT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Left", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_RIGHT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_RIGHT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Left", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
             ! Right Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i, j, k /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_RIGHT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_RIGHT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Right", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_RIGHT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_RIGHT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Right", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
             ! Back Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i, j-1, k /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_FRONT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_FRONT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Back", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_FRONT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_FRONT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Back", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
             ! Front Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i, j, k /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_FRONT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_FRONT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Front", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_FRONT
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_FRONT
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Front", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
             ! Bottom Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i, j, k-1 /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_TOP
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_TOP
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Bottom", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_TOP
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_TOP
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Bottom", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
             ! Top Surface
-            t % matching_bins(i_filter_mesh) = &
+            matching_bins(i_filter_mesh) = &
                  mesh_indices_to_bin(m, (/ i, j, k /) + 1, .true.)
-            t % matching_bins(i_filter_surf) = IN_TOP
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = IN_TOP
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Incoming Current from Top", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
 
-            t % matching_bins(i_filter_surf) = OUT_TOP
-            filter_index = sum((t % matching_bins - 1) * t % stride) + 1
-            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') & 
+            matching_bins(i_filter_surf) = OUT_TOP
+            filter_index = sum((matching_bins(1:t%n_filters) - 1) * t % stride) + 1
+            write(UNIT=UNIT_TALLY, FMT='(5X,A,T35,A,"+/- ",A)') &
                  "Outgoing Current to Top", &
                  to_str(t % results(1,filter_index) % sum), &
                  trim(to_str(t % results(1,filter_index) % sum_sq))
@@ -1956,16 +2127,18 @@ contains
 
     type(TallyObject), pointer :: t        ! tally object
     integer, intent(in)        :: i_filter ! index in filters array
-    character(30)              :: label    ! user-specified identifier
+    character(100)              :: label    ! user-specified identifier
 
     integer :: i      ! index in cells/surfaces/etc array
     integer :: bin
+    integer :: offset
     integer, allocatable :: ijk(:) ! indices in mesh
     real(8)              :: E0     ! lower bound for energy bin
     real(8)              :: E1     ! upper bound for energy bin
     type(StructuredMesh), pointer :: m => null()
+    type(Universe), pointer :: univ => null()
 
-    bin = t % matching_bins(i_filter)
+    bin = matching_bins(i_filter)
 
     select case(t % filters(i_filter) % type)
     case (FILTER_UNIVERSE)
@@ -1977,6 +2150,13 @@ contains
     case (FILTER_CELL, FILTER_CELLBORN)
       i = t % filters(i_filter) % int_bins(bin)
       label = to_str(cells(i) % id)
+    case (FILTER_DISTRIBCELL)
+      label = ''
+      univ => universes(BASE_UNIVERSE)
+      offset = 0
+      call find_offset(t % filters(i_filter) % offset, &
+           t % filters(i_filter) % int_bins(1), &
+           univ, bin-1, offset, label)
     case (FILTER_SURFACE)
       i = t % filters(i_filter) % int_bins(bin)
       label = to_str(surfaces(i) % id)
@@ -1998,5 +2178,269 @@ contains
     end select
 
   end function get_label
+
+!===============================================================================
+! FIND_OFFSET uses a given map number, a target cell ID, and a target offset
+! to build a string which is the path from the base universe to the target cell
+! with the given offset
+!===============================================================================
+
+  recursive subroutine find_offset(map, goal, univ, final, offset, path)
+
+    integer, intent(in) :: map                   ! Index in maps vector
+    integer, intent(in) :: goal                  ! The target cell ID
+    type(Universe), pointer, intent(in) :: univ  ! Universe to begin search
+    integer, intent(in) :: final                 ! Target offset
+    integer, intent(inout) :: offset             ! Current offset
+    character(100) :: path                       ! Path to offset
+
+    integer :: i, j                 ! Index over cells
+    integer :: k, l, m              ! Indices in lattice
+    integer :: old_k, old_l, old_m  ! Previous indices in lattice
+    integer :: n_x, n_y, n_z        ! Lattice cell array dimensions
+    integer :: n                    ! Number of cells to search
+    integer :: cell_index           ! Index in cells array
+    integer :: lat_offset           ! Offset from lattice
+    integer :: temp_offset          ! Looped sum of offsets
+    logical :: this_cell = .false.  ! Advance in this cell?
+    logical :: later_cell = .false. ! Fill cells after this one?
+    type(Cell),     pointer:: c           ! Pointer to current cell
+    type(Universe), pointer :: next_univ  ! Next universe to loop through
+    class(Lattice), pointer :: lat        ! Pointer to current lattice
+
+    n = univ % n_cells
+
+    ! Write to the geometry stack
+    if (univ%id == 0) then
+      path = trim(path) // to_str(univ%id)
+    else
+      path = trim(path) // "->" // to_str(univ%id)
+    end if
+
+    ! Look through all cells in this universe
+    do i = 1, n
+
+      cell_index = univ % cells(i)
+      c => cells(cell_index)
+
+      ! If the cell ID matches the goal and the offset matches final,
+      ! write to the geometry stack
+      if (cell_dict % get_key(c % id) == goal .AND. offset == final) then
+        path = trim(path) // "->" // to_str(c%id)
+        return
+      end if
+
+    end do
+
+    ! Find the fill cell or lattice cell that we need to enter
+    do i = 1, n
+
+      later_cell = .false.
+
+      cell_index = univ % cells(i)
+      c => cells(cell_index)
+
+      this_cell = .false.
+
+      ! If we got here, we still think the target is in this universe
+      ! or further down, but it's not this exact cell.
+      ! Compare offset to next cell to see if we should enter this cell
+      if (i /= n) then
+
+        do j = i+1, n
+
+          cell_index = univ % cells(j)
+          c => cells(cell_index)
+
+          ! Skip normal cells which do not have offsets
+          if (c % type == CELL_NORMAL) then
+            cycle
+          end if
+
+          ! Break loop once we've found the next cell with an offset
+          exit
+        end do
+
+        ! Ensure we didn't just end the loop by iteration
+        if (c % type /= CELL_NORMAL) then
+
+          ! There are more cells in this universe that it could be in
+          later_cell = .true.
+
+          ! Two cases, lattice or fill cell
+          if (c % type == CELL_FILL) then
+            temp_offset = c % offset(map)
+
+          ! Get the offset of the first lattice location
+          else
+            lat => lattices(c % fill) % obj
+            temp_offset = lat % offset(map, 1, 1, 1)
+          end if
+
+          ! If the final offset is in the range of offset - temp_offset+offset
+          ! then the goal is in this cell
+          if (final < temp_offset + offset) then
+            this_cell = .true.
+          end if
+        end if
+      end if
+
+      if (n == 1 .and. c % type /= CELL_NORMAL) then
+        this_cell = .true.
+      end if
+
+      if (.not. later_cell) then
+        this_cell = .true.
+      end if
+
+      ! Get pointer to THIS cell because target must be in this cell
+      if (this_cell) then
+
+        cell_index = univ % cells(i)
+        c => cells(cell_index)
+
+        path = trim(path) // "->" // to_str(c%id)
+
+        ! ====================================================================
+        ! CELL CONTAINS LOWER UNIVERSE, RECURSIVELY FIND CELL
+        if (c % type == CELL_FILL) then
+
+          ! Enter this cell to update the current offset
+          offset = c % offset(map) + offset
+
+          next_univ => universes(c % fill)
+          call find_offset(map, goal, next_univ, final, offset, path)
+          return
+
+        ! ====================================================================
+        ! CELL CONTAINS LATTICE, RECURSIVELY FIND CELL
+        elseif (c % type == CELL_LATTICE) then
+
+          ! Set current lattice
+          lat => lattices(c % fill) % obj
+
+          select type (lat)
+
+          ! ==================================================================
+          ! RECTANGULAR LATTICES
+          type is (RectLattice)
+
+            ! Write to the geometry stack
+            path = trim(path) // "->" // to_str(lat%id)
+
+            n_x = lat % n_cells(1)
+            n_y = lat % n_cells(2)
+            n_z = lat % n_cells(3)
+            old_m = 1
+            old_l = 1
+            old_k = 1
+
+            ! Loop over lattice coordinates
+            do k = 1, n_x
+              do l = 1, n_y
+                do m = 1, n_z
+
+                  if (final >= lat % offset(map, k, l, m) + offset) then
+                    if (k == n_x .and. l == n_y .and. m == n_z) then
+                      ! This is last lattice cell, so target must be here
+                      lat_offset = lat % offset(map, k, l, m)
+                      offset = offset + lat_offset
+                      next_univ => universes(lat % universes(k, l, m))
+                      path = trim(path) // "(" // trim(to_str(k)) // &
+                           "," // trim(to_str(l)) // "," // &
+                           trim(to_str(m)) // ")"
+                      call find_offset(map, goal, next_univ, final, offset, path)
+                      return
+                    else
+                      old_m = m
+                      old_l = l
+                      old_k = k
+                      cycle
+                    end if
+                  else
+                    ! Target is at this lattice position
+                    lat_offset = lat % offset(map, old_k, old_l, old_m)
+                    offset = offset + lat_offset
+                    next_univ => universes(lat % universes(old_k, old_l, old_m))
+                    path = trim(path) // "(" // trim(to_str(old_k)) // &
+                         "," // trim(to_str(old_l)) // "," // &
+                         trim(to_str(old_m)) // ")"
+                    call find_offset(map, goal, next_univ, final, offset, path)
+                    return
+                  end if
+
+                end do
+              end do
+            end do
+
+          ! ==================================================================
+          ! HEXAGONAL LATTICES
+          type is (HexLattice)
+
+            ! Write to the geometry stack
+            path = trim(path) // "->" // to_str(lat%id)
+
+            n_z = lat % n_axial
+            n_y = 2 * lat % n_rings - 1
+            n_x = 2 * lat % n_rings - 1
+            old_m = 1
+            old_l = 1
+            old_k = 1
+
+            ! Loop over lattice coordinates
+            do m = 1, n_z
+              do l = 1, n_y
+                do k = 1, n_x
+
+                  ! This array position is never used
+                  if (k + l < lat % n_rings + 1) then
+                    cycle
+                  ! This array position is never used
+                  else if (k + l > 3*lat % n_rings - 1) then
+                    cycle
+                  end if
+
+                  if (final >= lat % offset(map, k, l, m) + offset) then
+                    if (k == lat % n_rings .and. l == n_y .and. m == n_z) then
+                      ! This is last lattice cell, so target must be here
+                      lat_offset = lat % offset(map, k, l, m)
+                      offset = offset + lat_offset
+                      next_univ => universes(lat % universes(k, l, m))
+                      path = trim(path) // "(" // &
+                           trim(to_str(k - lat % n_rings)) // "," // &
+                           trim(to_str(l - lat % n_rings)) // "," // &
+                           trim(to_str(m)) // ")"
+                      call find_offset(map, goal, next_univ, final, offset, &
+                                       path)
+                      return
+                    else
+                      old_m = m
+                      old_l = l
+                      old_k = k
+                      cycle
+                    end if
+                  else
+                    ! Target is at this lattice position
+                    lat_offset = lat % offset(map, old_k, old_l, old_m)
+                    offset = offset + lat_offset
+                    next_univ => universes(lat % universes(old_k, old_l, old_m))
+                    path = trim(path) // "(" // &
+                         trim(to_str(old_k - lat % n_rings)) // "," // &
+                         trim(to_str(old_l - lat % n_rings)) // "," // &
+                         trim(to_str(old_m)) // ")"
+                    call find_offset(map, goal, next_univ, final, offset, path)
+                    return
+                  end if
+
+                end do
+              end do
+            end do
+
+          end select
+
+        end if
+      end if
+    end do
+  end subroutine find_offset
 
 end module output

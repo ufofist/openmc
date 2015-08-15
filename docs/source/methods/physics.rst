@@ -682,17 +682,20 @@ nuclear temperature, which is a function of the incoming energy of the
 neutron. The ACE format contains a list of nuclear temperatures versus incoming
 energies. The nuclear temperature is interpolated between neighboring incoming
 energies using a specified interpolation law. Once the temperature :math:`T` is
-determined, we then calculate a candidate outgoing energy based on rule C45 in
-the `Monte Carlo Sampler`_:
+determined, we then calculate a candidate outgoing energy based on the algorithm
+given in LA-UR-14-27694_:
 
 .. math::
     :label: evaporation-E
 
-    E' = -T \log (\xi_1 \xi_2)
+    E' = -T \log ((1 - g\xi_1)(1 - g\xi_2))
 
-where :math:`\xi_1, \xi_2` are random numbers sampled on the unit
-interval. The outgoing energy is only accepted according to a specified
-restriction energy as in equation :eq:`maxwell-restriction`.
+where :math:`g = 1 - e^{-w}`, :math:`w = (E - U)/T`, :math:`U` is the
+restriction energy, and :math:`\xi_1, \xi_2` are random numbers sampled on the
+unit interval. The outgoing energy is only accepted according to the restriction
+energy as in equation :eq:`maxwell-restriction`. This algorithm has a much
+higher rejection efficiency than the standard technique, i.e. rule C45 in the
+`Monte Carlo Sampler`_.
 
 ACE Law 11 - Energy-Dependent Watt Spectrum
 +++++++++++++++++++++++++++++++++++++++++++
@@ -790,6 +793,7 @@ outgoing angle is
 
     \mu = \frac{1}{A} \ln \left ( \xi_4 e^A + (1 - \xi_4) e^{-A} \right ).
 
+.. _ace-law-61:
 
 ACE Law 61 - Correlated Energy and Angle Distribution
 +++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -952,7 +956,7 @@ as
 
     v_n \bar{\sigma} (v_n, T) = \int d\mathbf{v}_T v_r \sigma(v_r)
     M (\mathbf{v}_T)
-    
+
 where :math:`v_n` is the magnitude of the velocity of the neutron,
 :math:`\bar{\sigma}` is an effective cross section, :math:`T` is the temperature
 of the target material, :math:`\mathbf{v}_T` is the velocity of the target
@@ -1321,7 +1325,7 @@ given analytically by
 
     \mu = 1 - \frac{E_i}{E}
 
-where :math:`E_i` is the energy of the Bragg edge that scattered the neutron. 
+where :math:`E_i` is the energy of the Bragg edge that scattered the neutron.
 
 Outgoing Angle for Incoherent Elastic Scattering
 ------------------------------------------------
@@ -1348,18 +1352,24 @@ where the interpolation factor is defined as
 Outgoing Energy and Angle for Inelastic Scattering
 --------------------------------------------------
 
-On each |sab| table, there is a correlated angle-energy secondary distribution
-for neutron thermal inelastic scattering. While the documentation for the ACE
-format implies that there are a series of equiprobable outgoing energies, the
-outgoing energies may have non-uniform probability distribution. In particular,
-if the thermal data were processed with :math:`iwt = 0` in NJOY, then the first
-and last outgoing energies have a relative probability of 1, the second and
-second to last energies have a relative probability of 4, and all other energies
-have a relative probability of 10. The procedure to determine the outgoing
-energy and angle is as such. First, the interpolation factor is determined from
-equation :eq:`sab-interpolation-factor`. Then, an outgoing energy bin is sampled
-either from a uniform distribution or from the aforementioned skewed
-distribution. The outgoing energy is then interpolated between values
+Each |sab| table provides a correlated angle-energy secondary distribution for
+neutron thermal inelastic scattering.  There are three representations used
+in the ACE thermal scattering data: equiprobable discrete outgoing
+energies, non-uniform yet still discrete outgoing energies, and continuous
+outgoing energies with corresponding probability and cumulative distribution
+functions provided in tabular format.  These three representations all
+represent the angular distribution in a common format, using a series of
+discrete equiprobable outgoing cosines.
+
+Equi-Probable Outgoing Energies
++++++++++++++++++++++++++++++++
+
+If the thermal data was processed with :math:`iwt = 1` in NJOY, then the
+outgoing energy spectra is represented in the ACE data as a set of discrete and
+equiprobable outgoing energies.  The procedure to determine the outgoing energy
+and angle is as such. First, the interpolation factor is determined from
+equation :eq:`sab-interpolation-factor`.  Then, an outgoing energy bin is
+sampled from a uniform distribution and then interpolated between values
 corresponding to neighboring incoming energies:
 
 .. math::
@@ -1379,6 +1389,37 @@ uniformly and then the final cosine is interpolated on the incoming energy grid:
 
 where :math:`\mu_{i,j,k}` is the k-th outgoing cosine corresponding to the j-th
 outgoing energy and the i-th incoming energy.
+
+Skewed Equi-Probable Outgoing Energies
+++++++++++++++++++++++++++++++++++++++
+
+If the thermal data was processed with :math:`iwt=0` in NJOY, then the
+outgoing energy spectra is represented in the ACE data according to the
+following: the first and last outgoing energies have a relative probability of
+1, the second and second-to-last energies have a relative probability of 4, and
+all other energies have a relative probability of 10.  The procedure to
+determine the outgoing energy and angle is similar to the method discussed
+above, except that the sampled probability distribution is now skewed
+accordingly.
+
+Continuous Outgoing Energies
+++++++++++++++++++++++++++++
+
+If the thermal data was processed with :math:`iwt=2` in NJOY, then the
+outgoing energy spectra is represented by a continuous outgoing energy spectra
+in tabular form with linear-linear interpolation.  The sampling of the outgoing
+energy portion of this format is very similar to :ref:`ACE Law 61<ace-law-61>`,
+but the sampling of the correlated angle is performed as it was in the other
+two representations discussed in this sub-section.  In the Law 61 algorithm,
+we found an interpolation factor :math:`f`, statistically sampled an incoming
+energy bin :math:`\ell`, and sampled an outgoing energy bin :math:`j` based on
+the tabulated cumulative distribution function. Once the outgoing energy has
+been determined with equation :eq:`ace-law-4-energy`, we then need to decide
+which angular distribution data to use.  Like the linear-linear interpolation
+case in Law 61, the angular distribution closest to the sampled value of the
+cumulative distribution function for the outgoing energy is utilized.  The
+actual algorithm utilized to sample the outgoing angle is shown in equation
+:eq:`inelastic-angle`.
 
 .. _probability_tables:
 
@@ -1511,9 +1552,9 @@ default, the cutoff weight in OpenMC is :math:`w_c = 0.25` and the survival
 weight is :math:`w_s = 1.0`. These parameters vary from one Monte Carlo code to
 another.
 
-----------
-References
-----------
+.. only:: html
+
+   .. rubric:: References
 
 .. [Doyas] Richard J. Doyas and Sterrett T. Perkins, "Interpolation of Tabular
    Secondary Neutron and Photon Energy Distributions," *Nucl. Sci. Eng.*,
@@ -1552,6 +1593,8 @@ References
 .. _ENDF-6 Format: http://www-nds.iaea.org/ndspub/documents/endf/endf102/endf102.pdf
 
 .. _Monte Carlo Sampler: https://laws.lanl.gov/vhosts/mcnp.lanl.gov/pdf_files/la-9721_3rdmcsampler.pdf
+
+.. _LA-UR-14-27694: http://permalink.lanl.gov/object/tr?what=info:lanl-repo/lareport/LA-UR-14-27694
 
 .. _MC21: http://www.osti.gov/bridge/servlets/purl/903083-HT5p1o/903083.pdf
 

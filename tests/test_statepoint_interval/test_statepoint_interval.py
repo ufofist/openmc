@@ -1,57 +1,26 @@
 #!/usr/bin/env python
 
-import os
-import glob
-from subprocess import Popen, STDOUT, PIPE, call
-import filecmp
-from nose_mpi import NoseMPI
-import glob
+import sys
+sys.path.insert(0, '..')
+from testing_harness import *
 
-pwd = os.path.dirname(__file__)
 
-def setup(): 
-    os.putenv('PWD', pwd)
-    os.chdir(pwd)
+class StatepointTestHarness(TestHarness):
+    def __init__(self):
+        self._sp_name = None
+        self._tallies = False
+        self._opts = None
+        self._args = None
 
-def test_run():
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
+    def _test_output_created(self):
+        """Make sure statepoint files have been created."""
+        sps = ('statepoint.02.*', 'statepoint.04.*', 'statepoint.06.*',
+               'statepoint.08.*', 'statepoint.10.*')
+        for sp in sps:
+            self._sp_name = sp
+            TestHarness._test_output_created(self)
 
-def test_statepoints_exist():
-    statepoint = glob.glob(pwd + '/statepoint.2.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-    statepoint = glob.glob(pwd + '/statepoint.4.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-    statepoint = glob.glob(pwd + '/statepoint.6.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-    statepoint = glob.glob(pwd + '/statepoint.8.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
 
-def test_results():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
-
-def teardown():
-    output = glob.glob(pwd + '/statepoint.*')
-    output.append(pwd + '/results_test.dat')
-    for f in output:
-        if os.path.exists(f):
-            os.remove(f)
+if __name__ == '__main__':
+    harness = StatepointTestHarness()
+    harness.main()

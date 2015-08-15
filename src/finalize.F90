@@ -1,15 +1,12 @@
 module finalize
 
-# ifdef PETSC
-  use cmfd_output,    only: finalize_cmfd
-# endif
   use global
   use output,         only: print_runtime, print_results, &
                             print_overlap_check, write_tallies
   use tally,          only: tally_statistics
 
 #ifdef MPI
-  use mpi
+  use message_passing
 #endif
 
 #ifdef HDF5
@@ -41,12 +38,7 @@ contains
       if (check_overlaps) call reduce_overlap_count()
     end if
 
-#ifdef PETSC
-    ! finalize cmfd
-    if (cmfd_run) call finalize_cmfd()
-#endif
-
-    ! stop timers and show timing statistics
+    ! Stop timers and show timing statistics
     call time_finalize % stop()
     call time_total % stop()
     if (master .and. (run_mode /= MODE_PLOTTING .and. &
@@ -56,7 +48,7 @@ contains
       if (check_overlaps) call print_overlap_check()
     end if
 
-    ! deallocate arrays
+    ! Deallocate arrays
     call free_memory()
 
 #ifdef HDF5

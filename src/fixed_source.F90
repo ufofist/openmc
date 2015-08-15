@@ -1,6 +1,10 @@
 module fixed_source
 
-  use constants,       only: ZERO
+#ifdef MPI
+  use message_passing
+#endif
+
+  use constants,       only: ZERO, MAX_LINE_LEN
   use global
   use output,          only: write_message, header
   use particle_header, only: Particle
@@ -9,9 +13,10 @@ module fixed_source
   use state_point,     only: write_state_point
   use string,          only: to_str
   use tally,           only: synchronize_tallies, setup_active_usertallies
+  use trigger,         only: check_triggers
   use tracking,        only: transport
 
-  type(Bank), pointer :: source_site => null()
+  implicit none
 
 contains
 
@@ -23,16 +28,20 @@ contains
     if (master) call header("FIXED SOURCE TRANSPORT SIMULATION", level=1)
 
     ! Allocate particle and dummy source site
+!$omp parallel
     allocate(source_site)
+!$omp end parallel
 
     ! Turn timer and tallies on
     tallies_on = .true.
+!$omp parallel
     call setup_active_usertallies()
+!$omp end parallel
     call time_active % start()
 
     ! ==========================================================================
     ! LOOP OVER BATCHES
-    BATCH_LOOP: do current_batch = 1, n_batches
+    BATCH_LOOP: do current_batch = 1, n_max_batches
 
       ! In a restart run, skip any batches that have already been simulated
       if (restart_run .and. current_batch <= restart_batch) then
@@ -47,15 +56,16 @@ contains
 
       ! =======================================================================
       ! LOOP OVER PARTICLES
+!$omp parallel do schedule(static) firstprivate(p)
       PARTICLE_LOOP: do i = 1, work
 
         ! Set unique particle ID
-        p % id = (current_batch - 1)*n_particles + bank_first + i - 1
+        p % id = (current_batch - 1)*n_particles + work_index(rank) + i
 
         ! set particle trace
         trace = .false.
         if (current_batch == trace_batch .and. current_gen == trace_gen .and. &
-             bank_first + i - 1 == trace_particle) trace = .true.
+             work_index(rank) + i == trace_particle) trace = .true.
 
         ! set random number seed
         call set_particle_seed(p % id)
@@ -67,11 +77,14 @@ contains
         call transport(p)
 
       end do PARTICLE_LOOP
+!$omp end parallel do
 
       ! Accumulate time for transport
       call time_transport % stop()
 
       call finalize_batch()
+
+      if (satisfy_triggers) exit BATCH_LOOP
 
     end do BATCH_LOOP
 
@@ -90,8 +103,8 @@ contains
 
   subroutine initialize_batch()
 
-    message = "Simulating batch " // trim(to_str(current_batch)) // "..."
-    call write_message(1)
+    call write_message("Simulating batch " // trim(to_str(current_batch)) &
+         &// "...", 1)
 
     ! Reset total starting particle weight used for normalizing tallies
     total_weight = ZERO
@@ -104,10 +117,32 @@ contains
 
   subroutine finalize_batch()
 
+! Update global tallies with the omp private accumulation variables
+!$omp parallel
+!$omp critical
+    global_tallies(LEAKAGE) % value = &
+         global_tallies(LEAKAGE) % value + global_tally_leakage
+!$omp end critical
+
+    ! reset private tallies
+    global_tally_leakage = ZERO
+!$omp end parallel
+
     ! Collect and accumulate tallies
     call time_tallies % start()
     call synchronize_tallies()
     call time_tallies % stop()
+
+    ! Check_triggers
+    if (master) call check_triggers()
+#ifdef MPI
+    call MPI_BCAST(satisfy_triggers, 1, MPI_LOGICAL, 0, &
+         MPI_COMM_WORLD, mpi_err)
+#endif
+    if (satisfy_triggers .or. &
+         (trigger_on .and. current_batch == n_max_batches)) then
+      call statepoint_batch % add(current_batch)
+    end if
 
     ! Write out state point if it's been specified for this batch
     if (statepoint_batch % contains(current_batch)) then
@@ -132,6 +167,9 @@ contains
 
     ! Copy source attributes to the particle
     call copy_source_attributes(p, source_site)
+
+    ! Determine whether to create track file
+    if (write_all_tracks) p % write_track = .true.
 
   end subroutine sample_source_particle
 

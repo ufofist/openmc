@@ -41,7 +41,7 @@ for the geometry, materials, and settings. Additionally, there are three optiona
 input files. The first is a tallies XML file that specifies physical quantities
 to be tallied. The second is a plots XML file that specifies regions of geometry
 which should be plotted. The third is a CMFD XML file that specifies coarse mesh
-acceleration geometry and execution parameters. OpenMC expects that these 
+acceleration geometry and execution parameters. OpenMC expects that these
 files are called:
 
 * ``geometry.xml``
@@ -50,6 +50,43 @@ files are called:
 * ``tallies.xml``
 * ``plots.xml``
 * ``cmfd.xml``
+
+--------------------
+Validating XML Files
+--------------------
+
+Input files can be checked before executing OpenMC using the
+``openmc-validate-xml`` script which is installed alongside the Python API. Two
+command line arguments can be set when running ``openmc-validate-xml``:
+
+* ``-i``, ``--input-path`` - Location of OpenMC input files.
+  *Default*: current working directory
+* ``-r``, ``--relaxng-path`` - Location of OpenMC RelaxNG files.
+  *Default*: None
+
+If the RelaxNG path is not set, the script will search for these files because
+it expects that the user is either running the script located in the install
+directory ``bin`` folder or in ``src/utils``. Once executed, it will match
+OpenMC XML files with their RelaxNG schema and check if they are valid.  Below
+is a table of the messages that will be printed after each file is checked.
+
+========================  ===================================
+Message                   Description
+========================  ===================================
+[XML ERROR]               Cannot parse XML file.
+[NO RELAXNG FOUND]        No RelaxNG file found for XML file.
+[NOT VALID]               XML file does not match RelaxNG.
+[VALID]                   XML file matches RelaxNG.
+========================  ===================================
+
+As an example, if OpenMC is installed in the directory
+``/opt/openmc/0.6.2`` and the current working directory is where
+OpenMC XML input files are located, they can be validated using
+the following command:
+
+.. code-block:: bash
+
+   /opt/openmc/0.6.2/bin/xml_validate
 
 --------------------------------------
 Settings Specification -- settings.xml
@@ -99,13 +136,15 @@ default. This element has the following attributes/sub-elements:
 
     *Default*: 1.0
 
+.. _eigenvalue:
+
 ``<eigenvalue>`` Element
 ------------------------
 
 The ``<eigenvalue>`` element indicates that a :math:`k`-eigenvalue calculation
 should be performed. It has the following attributes/sub-elements:
 
-  :batches: 
+  :batches:
     The total number of batches, where each batch corresponds to multiple
     fission source iterations. Batching is done to eliminate correlation between
     realizations of random variables.
@@ -130,17 +169,51 @@ should be performed. It has the following attributes/sub-elements:
 
     *Default*: None
 
+  :keff_trigger:
+    This tag specifies a precision trigger on the combined :math:`k_{eff}`. The
+    trigger is a convergence criterion on the uncertainty of the estimated
+    eigenvalue. It has the following attributes/sub-elements:
+
+    :type:
+      The type of precision trigger. Accepted options are "variance", "std_dev",
+      and "rel_err".
+
+      :variance:
+       Variance of the batch mean :math:`\sigma^2`
+
+      :std_dev:
+        Standard deviation of the batch mean :math:`\sigma`
+
+      :rel_err:
+        Relative error of the batch mean :math:`\frac{\sigma}{\mu}`
+
+      *Default*: None
+
+    :threshold:
+      The precision trigger's convergence criterion for the
+      combined :math:`k_{eff}`.
+
+      *Default*: None
+
+  .. note:: See section on the :ref:`trigger` for more information.
+
 ``<energy_grid>`` Element
 -------------------------
 
 The ``<energy_grid>`` element determines the treatment of the energy grid during
-a simulation. Setting this element to "nuclide" will cause OpenMC to use a
+a simulation. The valid options are "nuclide", "logarithm", and
+"material-union". Setting this element to "nuclide" will cause OpenMC to use a
 nuclide's energy grid when determining what points to interpolate between for
-determining cross sections (i.e. non-unionized energy grid). To use a unionized
-energy grid, set this element to "union". Note that the unionized energy grid
-treatment is slightly different than that employed in Serpent.
+determining cross sections (i.e. non-unionized energy grid). Setting this
+element to "logarithm" causes OpenMC to use a logarithmic mapping technique
+described in LA-UR-14-24530_. Setting this element to "material-union" will
+cause OpenMC to create energy grids that are unionized material-by-material and
+use these grids when determining the energy-cross section pairs to interpolate
+cross section values between.
 
-  *Default*: union
+  *Default*: logarithm
+
+.. _LA-UR-14-24530: https://laws.lanl.gov/vhosts/mcnp.lanl.gov/pdf_files/la-ur-14-24530.pdf
 
 ``<entropy>`` Element
 ---------------------
@@ -168,10 +241,10 @@ problem. It has the following attributes/sub-elements:
 ``<fixed_source>`` Element
 --------------------------
 
-The ``<fixed_source>`` element indicates that a fixed source calculation should be
-performed. It has the following attributes/sub-elements:
+The ``<fixed_source>`` element indicates that a fixed source calculation should
+be performed. It has the following attributes/sub-elements:
 
-  :batches: 
+  :batches:
     The total number of batches. For fixed source calculations, each batch
     represents a realization of random variables for tallies.
 
@@ -181,6 +254,39 @@ performed. It has the following attributes/sub-elements:
     The number of particles to simulate per batch.
 
     *Default*: None
+
+``<log_grid_bins>`` Element
+---------------------------
+
+The ``<log_grid_bins>`` element indicates the number of bins to use for the
+logarithmic-mapped energy grid. Using more bins will result in energy grid
+searches over a smaller range at the expense of more memory. The default is
+based on the recommended value in LA-UR-14-24530_.
+
+  *Default*: 8000
+
+.. _natural_elements:
+
+``<natural_elements>`` Element
+------------------------------
+
+The ``<natural_elements>`` element indicates to OpenMC what nuclides are
+available in the cross section library when expanding an ``<element>`` into
+separate isotopes (see :ref:`material`). The accepted values are:
+
+  - ENDF/B-VII.0
+  - ENDF/B-VII.1
+  - JEFF-3.1.1
+  - JEFF-3.1.2
+  - JEFF-3.2
+  - JENDL-3.2
+  - JENDL-3.3
+  - JENDL-4.0
+
+Note that the value is case-insensitive, so "ENDF/B-VII.1" is equivalent to
+"endf/b-vii.1".
+
+  *Default*: ENDF/B-VII.1
 
 ``<no_reduce>`` Element
 -----------------------
@@ -198,19 +304,27 @@ tally data, this option can significantly improve the parallel efficiency.
 --------------------
 
 The ``<output>`` element determines what output files should be written to disk
-during the run. This element has no attributes or sub-elements and should be set
-to a list of strings separated by spaces. Valid options are "summary",
-"cross-sections", and "tallies". For example, if you want the summary and cross
-sections summary file to be written, this element should be given as:
+during the run. The sub-elements are described below, where "true" will write
+out the file and "false" will not.
 
-  .. code-block:: xml
+  :cross_sections:
+    Writes out an ASCII summary file of the cross sections that were read in.
 
-      <output>summary cross_sections</output>
+    *Default*: false
 
-  .. note:: The tally results will be written to a binary/HDF5 state point file by
-            default.
+  :summary:
+    Writes out an ASCII summary file describing all of the user input files that
+    were read in.
 
-  *Default*: "tallies"
+    *Default*: false
+
+  :tallies:
+    Write out an ASCII file of tally results.
+
+    *Default*: true
+
+  .. note:: The tally results will always be written to a binary/HDF5 state
+            point file.
 
 ``<output_path>`` Element
 -------------------------
@@ -229,6 +343,65 @@ in the unresolved resonance range if available. This element has no attributes
 or sub-elements and can be set to either "false" or "true".
 
   *Default*: true
+
+``<resonance_scattering>`` Element
+----------------------------------
+
+The ``resonance_scattering`` element can contain one or more of the following
+attributes or sub-elements:
+
+  :scatterer:
+    An element with attributes/sub-elements called ``nuclide``, ``method``,
+    ``xs_label``, ``xs_label_0K``, ``E_min``, and ``E_max``. The ``nuclide``
+    attribute is the name, as given by the ``name`` attribute within the
+    ``nuclide`` sub-element of the ``material`` element in ``materials.xml``,
+    of the nuclide to which a resonance scattering treatment is to be applied.
+    The ``method`` attribute gives the type of resonance scattering treatment
+    that is to be applied to the ``nuclide``.  Acceptable inputs - none of
+    which are case-sensitive - for the ``method`` attribute are ``ARES``,
+    ``CXS``, ``WCM``, and ``DBRC``.  Descriptions of each of these methods
+    are documented here_.  The ``xs_label`` attribute gives the label for the
+    cross section data of the ``nuclide`` at a given temperature.  The
+    ``xs_label_0K`` gives the label for the 0 K cross section data for the
+    ``nuclide``.  The ``E_min`` attribute gives the minimum energy above
+    which the ``method`` is applied.  The ``E_max`` attribute gives the
+    maximum energy below which the ``method`` is applied.  One example would
+    be as follows:
+
+    .. _here: http://dx.doi.org/10.1016/j.anucene.2014.01.017
+
+    .. code-block:: xml
+
+        <resonance_scattering>
+          <scatterer>
+            <nuclide>U-238</nuclide>
+            <method>ARES</method>
+            <xs_label>92238.72c</xs_label>
+            <xs_label_0K>92238.00c</xs_label_0K>
+            <E_min>5.0e-6</E_min>
+            <E_max>40.0e-6</E_max>
+         </scatterer>
+         <scatterer>
+            <nuclide>Pu-239</nuclide>
+            <method>dbrc</method>
+            <xs_label>94239.72c</xs_label>
+            <xs_label_0K>94239.00c</xs_label_0K>
+            <E_min>0.01e-6</E_min>
+            <E_max>210.0e-6</E_max>
+          </scatterer>
+        </resonance_scattering>
+
+    .. note:: If the ``resonance_scattering`` element is not given, the free gas,
+              constant cross section (``cxs``) scattering model, which has
+              historically been used by Monte Carlo codes to sample target
+              velocities, is used to treat the target motion of all nuclides.  If
+              ``resonance_scattering`` is present, the ``cxs`` method is applied
+              below ``E_min`` and the target-at-rest (asymptotic) kernel is used
+              above ``E_max``.  An arbitrary number of ``scatterer`` elements may
+              be specified, each corresponding to a single nuclide at a single
+              temperature.
+
+    *Defaults*: None (scatterer), ARES (method), 0.01 eV (E_min), 1.0 keV (E_max)
 
 ``<run_cmfd>`` Element
 ----------------------
@@ -257,7 +430,9 @@ attributes/sub-elements:
 
   :file:
     If this attribute is given, it indicates that the source is to be read from
-    a binary source file whose path is given by the value of this element
+    a binary source file whose path is given by the value of this element. Note,
+    the number of source sites needs to be the same as the number of particles
+    simulated in a fission source generation.
 
     *Default*: None
 
@@ -265,19 +440,23 @@ attributes/sub-elements:
     An element specifying the spatial distribution of source sites. This element
     has the following attributes:
 
-    :type: 
-      The type of spatial distribution. Valid options are "box" and "point". A
-      "box" spatial distribution has coordinates sampled uniformly in a
-      parallelepiped. A "point" spatial distribution has coordinates specified
-      by a triplet.
+    :type:
+
+      The type of spatial distribution. Valid options are "box", "fission", and
+      "point". A "box" spatial distribution has coordinates sampled uniformly in
+      a parallelepiped. A "fission" spatial distribution samples locations from
+      a "box" distribution but only locations in fissionable materials are
+      accepted. A "point" spatial distribution has coordinates specified by a
+      triplet.
 
       *Default*: None
 
     :parameters:
-      For a "box" spatial distribution, ``parameters`` should be given as six
-      real numbers, the first three of which specify the lower-left corner of a
-      parallelepiped and the last three of which specify the upper-right
-      corner. Source sites are sampled uniformly through that parallelepiped.
+      For a "box" or "fission" spatial distribution, ``parameters`` should be
+      given as six real numbers, the first three of which specify the lower-left
+      corner of a parallelepiped and the last three of which specify the
+      upper-right corner. Source sites are sampled uniformly through that
+      parallelepiped.
 
       For a "point" spatial distribution, ``parameters`` should be given as
       three real numbers which specify the (x,y,z) location of an isotropic
@@ -289,7 +468,7 @@ attributes/sub-elements:
     An element specifying the angular distribution of source sites. This element
     has the following attributes:
 
-    :type: 
+    :type:
       The type of angular distribution. Valid options are "isotropic" and
       "monodirectional". The angle of the particle emitted from a source site is
       isotropic if the "isotropic" option is given. The angle of the particle
@@ -300,7 +479,7 @@ attributes/sub-elements:
 
     :parameters:
       For an "isotropic" angular distribution, ``parameters`` should not be
-      specified
+      specified.
 
       For a "monodirectional" angular distribution, ``parameters`` should be
       given as three real numbers which specify the angular cosines with respect
@@ -312,13 +491,13 @@ attributes/sub-elements:
     An element specifying the energy distribution of source sites. This element
     has the following attributes:
 
-    :type: 
+    :type:
 
       The type of energy distribution. Valid options are "monoenergetic",
       "watt", and "maxwell". The "monoenergetic" option produces source sites at
       a single energy. The "watt" option produces source sites whose energy is
       sampled from a Watt fission spectrum. The "maxwell" option produce source
-      sites whose energy is sampled from a Maxwell fission spectrum
+      sites whose energy is sampled from a Maxwell fission spectrum.
 
       *Default*: watt
 
@@ -336,13 +515,22 @@ attributes/sub-elements:
 
       *Default*: 0.988 2.249
 
+  :write_initial:
+    An element specifying whether to write out the initial source bank used at
+    the beginning of the first batch. The output file is named
+    "initial_source.binary(h5)"
+
+      *Default*: false
+
 ``<state_point>`` Element
 -------------------------
 
 The ``<state_point>`` element indicates at what batches a state point file
 should be written. A state point file can be used to restart a run or to get
-tally results at any batch. This element has the following
-attributes/sub-elements:
+tally results at any batch. The default behavior when using this tag is to
+write out the source bank in the state_point file. This behavior can be
+customized by using the ``<source_point>`` element. This element has the
+following attributes/sub-elements:
 
   :batches:
     A list of integers separated by spaces indicating at what batches a state
@@ -357,18 +545,54 @@ attributes/sub-elements:
 
     *Default*: None
 
-  :source_separate:
-    If this element is set to "true", a separate binary source file will be
-    written. Otherwise, the source sites will be written in the state point
+``<source_point>`` Element
+--------------------------
+
+The ``<source_point>`` element indicates at what batches the source bank
+should be written. The source bank can be either written out within a state
+point file or separately in a source point file. This element has the following
+attributes/sub-elements:
+
+  :batches:
+    A list of integers separated by spaces indicating at what batches a state
+    point file should be written. It should be noted that if the ``separate``
+    attribute is not set to "true", this list must be a subset of state point
+    batches.
+
+    *Default*: Last batch only
+
+  :interval:
+    A single integer :math:`n` indicating that a state point should be written
+    every :math:`n` batches. This option can be given in lieu of listing batches
+    explicitly. It should be noted that if the ``separate`` attribute is not set
+    to "true", this value should produce a list of batches that is a subset of
+    state point batches.
+
+    *Default*: None
+
+  :separate:
+    If this element is set to "true", a separate binary source point file will
+    be written. Otherwise, the source sites will be written in the state point
     directly.
 
     *Default*: false
 
-  :source_write: If this element is set to "false", source sites are not written
-    to the state point file. This can substantially reduce the size of state
-    points if large numbers of particles per batch are used.
+  :source_write:
+    If this element is set to "false", source sites are not written
+    to the state point or source point file. This can substantially reduce the
+    size of state points if large numbers of particles per batch are used.
 
     *Default*: true
+
+  :overwrite_latest:
+    If this element is set to "true", a source point file containing
+    the source bank will be written out to a separate file named
+    ``source.binary`` or ``source.h5`` depending on if HDF5 is enabled.
+    This file will be overwritten at every single batch so that the latest
+    source bank will be available. It should be noted that a user can set both
+    this element to "true" and specify batches to write a permanent source bank.
+
+    *Default*: false
 
 ``<survival_biasing>`` Element
 ------------------------------
@@ -378,6 +602,14 @@ of "true" or "false". If set to "true", this option will enable the use of
 survival biasing, otherwise known as implicit capture or absorption.
 
   *Default*: false
+
+``<threads>`` Element
+---------------------
+
+The ``<threads>`` element indicates the number of OpenMP threads to be used for
+a simulation. It has no attributes and accepts a positive integer value.
+
+  *Default*: None (Determined by environment variable :envvar:`OMP_NUM_THREADS`)
 
 .. _trace:
 
@@ -389,6 +621,61 @@ single particle during a simulation. This element should be followed by three
 integers: the batch number, generation number, and particle number.
 
   *Default*: None
+
+.. _track:
+
+``<track>`` Element
+-------------------
+
+The ``<track>`` element specifies particles for which OpenMC will output binary
+files describing particle position at every step of its transport. This element
+should be followed by triplets of integers.  Each triplet describes one
+particle. The integers in each triplet specify the batch number, generation
+number, and particle number, respectively.
+
+  *Default*: None
+
+.. _trigger:
+
+``<trigger>`` Element
+-------------------------
+
+OpenMC includes tally precision triggers which allow the user to define
+uncertainty thresholds on :math:`k_{eff}` in the ``<eigenvalue>`` subelement of
+``settings.xml``, and/or tallies in ``tallies.xml``. When using triggers,
+OpenMC will run until it completes as many batches as defined by ``<batches>``.
+At this point, the uncertainties on all tallied values are computed and
+compared with their corresponding trigger thresholds. If any triggers have not
+been met, OpenMC will continue until either all trigger thresholds have been
+satisfied or ``<max_batches>`` has been reached.
+
+The ``<trigger>`` element provides an active "toggle switch" for tally
+precision trigger(s), the maximum number of batches and the batch interval. It
+has the following attributes/sub-elements:
+
+  :active:
+    This determines whether or not to use trigger(s). Trigger(s) are used when
+    this tag is set to "true".
+
+  :max_batches:
+    This describes the maximum number of batches allowed when using trigger(s).
+
+    .. note:: When max_batches is set, the number of ``batches`` shown in
+              ``<eigenvalue>`` element represents minimum number of batches to
+              simulate when using the trigger(s).
+
+  :batch_interval:
+    This tag describes the number of  batches in between convergence checks.
+    OpenMC will check if the trigger has been reached at each batch defined
+    by ``batch_interval`` after the minimum number of batches is reached.
+
+    .. note:: If this tag is not present, the ``batch_interval`` is predicted
+              dynamically by OpenMC for each convergence check. The predictive
+              model assumes no correlation between fission sources
+              distributions from batch-to-batch. This assumption is reasonable
+              for fixed source and small criticality calculations, but is very
+              optimistic for highly coupled full-core reactor problems.
+
 
 ``<uniform_fs>`` Element
 ------------------------
@@ -493,6 +780,12 @@ Each ``<surface>`` element can have the following attributes or sub-elements:
 
     *Default*: None
 
+  :name:
+    An optional string name to identify the surface in summary output
+    files. This string is limited to 52 characters for formatting purposes.
+
+    *Default*: ""
+
   :type:
     The type of the surfaces. This can be "x-plane", "y-plane", "z-plane",
     "plane", "x-cylinder", "y-cylinder", "z-cylinder", or "sphere".
@@ -569,9 +862,15 @@ The following quadratic surfaces can be modeled:
 Each ``<cell>`` element can have the following attributes or sub-elements:
 
   :id:
-    A unique integer that can be used to identify the surface.
+    A unique integer that can be used to identify the cell.
 
     *Default*: None
+
+  :name:
+    An optional string name to identify the cell in summary output files.
+    This string is limmited to 52 characters for formatting purposes.
+
+    *Default*: ""
 
   :universe:
     The ``id`` of the universe that this cell is contained in.
@@ -598,7 +897,10 @@ Each ``<cell>`` element can have the following attributes or sub-elements:
     is on the negative side of surface 3 and the positive side of surface 5, the
     bounding surfaces would be given as "-3 5".
 
-    *Default*: None
+    .. note:: The surface attribute/element can be omitted to make a cell fill
+              its entire universe.
+
+    *Default*: No surfaces
 
   :rotation:
     If the cell is filled with a universe, this element specifies the angles in
@@ -628,45 +930,142 @@ Each ``<cell>`` element can have the following attributes or sub-elements:
 ---------------------
 
 The ``<lattice>`` can be used to represent repeating structures (e.g. fuel pins
-in an assembly) or other geometry which naturally fits into a two-dimensional
-structured mesh. Each cell within the lattice is filled with a specified
-universe. A ``<lattice>`` accepts the following attributes or sub-elements:
+in an assembly) or other geometry which fits onto a rectilinear grid. Each cell
+within the lattice is filled with a specified universe. A ``<lattice>`` accepts
+the following attributes or sub-elements:
 
   :id:
-    A unique integer that can be used to identify the surface.
+    A unique integer that can be used to identify the lattice.
 
-  :type:
-    A string indicating the arrangement of lattice cells. Currently, the only
-    accepted option is "rectangular".
+  :name:
+    An optional string name to identify the lattice in summary output
+    files. This string is limited to 52 characters for formatting purposes.
 
-    *Default*: rectangular
+    *Default*: ""
 
   :dimension:
-    Two integers representing the number of lattice cells in the x- and y-
-    directions, respectively.
+    Two or three integers representing the number of lattice cells in the x- and
+    y- (and z-) directions, respectively.
 
     *Default*: None
 
   :lower_left:
-    The coordinates of the lower-left corner of the lattice.
+    The coordinates of the lower-left corner of the lattice. If the lattice is
+    two-dimensional, only the x- and y-coordinates are specified.
 
     *Default*: None
 
-  :width:
-    The width of the lattice cell in the x- and y- directions.
+  :pitch:
+    If the lattice is 3D, then three real numbers that express the distance
+    between the centers of lattice cells in the x-, y-, and z- directions.  If
+    the lattice is 2D, then omit the third value.
 
     *Default*: None
 
-  :outside:
-    The unique integer identifier of a material that is to be used to fill all
-    space outside of the lattice. This element is optional.
+  :outer:
+    The unique integer identifier of a universe that will be used to fill all
+    space outside of the lattice.  The universe will be tiled repeatedly as if
+    it were placed in a lattice of infinite size.  This element is optional.
 
-    *Default*: The region outside the defined lattice is treated as void.
+    *Default*: An error will be raised if a particle leaves a lattice with no
+    outer universe.
 
   :universes:
     A list of the universe numbers that fill each cell of the lattice.
 
     *Default*: None
+
+Here is an example of a properly defined 2d rectangular lattice:
+
+.. code-block:: xml
+
+    <lattice id="10" dimension="3 3" outer="1">
+        <lower_left> -1.5 -1.5 </lower_left>
+        <pitch> 1.0 1.0 </pitch>
+        <universes>
+          2 2 2
+          2 1 2
+          2 2 2
+        </universes>
+    </lattice>
+
+``<hex_lattice>`` Element
+-------------------------
+
+The ``<hex_lattice>`` can be used to represent repeating structures (e.g. fuel
+pins in an assembly) or other geometry which naturally fits onto a hexagonal
+grid or hexagonal prism grid. Each cell within the lattice is filled with a
+specified universe. This lattice uses the "flat-topped hexagon" scheme where two
+of the six edges are perpendicular to the y-axis.  A ``<hex_lattice>`` accepts
+the following attributes or sub-elements:
+
+  :id:
+    A unique integer that can be used to identify the lattice.
+
+  :name:
+    An optional string name to identify the hex_lattice in summary output
+    files. This string is limited to 52 characters for formatting purposes.
+
+    *Default*: ""
+
+  :n_rings:
+    An integer representing the number of radial ring positions in the xy-plane.
+    Note that this number includes the degenerate center ring which only has one
+    element.
+
+    *Default*: None
+
+  :n_axial:
+    An integer representing the number of positions along the z-axis.  This
+    element is optional.
+
+    *Default*: None
+
+  :center:
+    The coordinates of the center of the lattice. If the lattice does not have
+    axial sections then only the x- and y-coordinates are specified.
+
+    *Default*: None
+
+  :pitch:
+    If the lattice is 3D, then two real numbers that express the distance
+    between the centers of lattice cells in the xy-plane and along the z-axis,
+    respectively.  If the lattice is 2D, then omit the second value.
+
+    *Default*: None
+
+  :outer:
+    The unique integer identifier of a universe that will be used to fill all
+    space outside of the lattice.  The universe will be tiled repeatedly as if
+    it were placed in a lattice of infinite size.  This element is optional.
+
+    *Default*: An error will be raised if a particle leaves a lattice with no
+    outer universe.
+
+  :universes:
+    A list of the universe numbers that fill each cell of the lattice.
+
+    *Default*: None
+
+Here is an example of a properly defined 2d hexagonal lattice:
+
+.. code-block:: xml
+
+    <hex_lattice id="10" n_rings="3" outer="1">
+        <center> 0.0 0.0 </center>
+        <pitch> 1.0 </pitch>
+        <universes>
+                  202
+               202   202
+            202   202   202
+               202   202
+            202   101   202
+               202   202
+            202   202   202
+               202   202
+                  202
+        </universes>
+    </hex_lattice>
 
 .. _constructive solid geometry: http://en.wikipedia.org/wiki/Constructive_solid_geometry
 
@@ -676,6 +1075,8 @@ universe. A ``<lattice>`` accepts the following attributes or sub-elements:
 Materials Specification -- materials.xml
 ----------------------------------------
 
+.. _material:
+
 ``<material>`` Element
 ----------------------
 
@@ -683,6 +1084,12 @@ Each ``material`` element can have the following attributes or sub-elements:
 
   :id:
     A unique integer that can be used to identify the material.
+
+  :name:
+    An optional string name to identify the material in summary output
+    files. This string is limited to 52 characters for formatting purposes.
+
+    *Default*: ""
 
   :density:
     An element with attributes/sub-elements called ``value`` and ``units``. The
@@ -715,12 +1122,13 @@ Each ``material`` element can have the following attributes or sub-elements:
   :element:
 
     Specifies that a natural element is present in the material. The natural
-    element is split up into individual isotopes based on IUPAC Isotopic
-    Compositions of the Elements 1997. This element has attributes/sub-elements
-    called ``name``, ``xs``, and ``ao``. The ``name`` attribute is the atomic
-    symbol of the element while the ``xs`` attribute is the cross-section
-    identifier. Finally, the ``ao`` attribute specifies the atom percent of the
-    element within the material, respectively. One example would be as follows:
+    element is split up into individual isotopes based on `IUPAC Isotopic
+    Compositions of the Elements 2009`_. This element has
+    attributes/sub-elements called ``name``, ``xs``, and ``ao``. The ``name``
+    attribute is the atomic symbol of the element while the ``xs`` attribute is
+    the cross-section identifier. Finally, the ``ao`` attribute specifies the
+    atom percent of the element within the material, respectively. One example
+    would be as follows:
 
     .. code-block:: xml
 
@@ -728,6 +1136,10 @@ Each ``material`` element can have the following attributes or sub-elements:
         <element name="Mg" ao="1.5498e-04" />
         <element name="Mn" ao="2.7426e-05" />
         <element name="Cu" ao="1.6993e-04" />
+
+    In some cross section libraries, certain naturally occurring isotopes do not
+    have cross sections. The :ref:`natural_elements` option determines how a
+    natural element is split into isotopes in these cases.
 
     *Default*: None
 
@@ -739,6 +1151,9 @@ Each ``material`` element can have the following attributes or sub-elements:
     and ``xs`` is the cross-section identifier for the table.
 
     *Default*: None
+
+.. _IUPAC Isotopic Compositions of the Elements 2009:
+    http://pac.iupac.org/publications/pac/pdf/2011/pdf/8302x0397.pdf
 
 ``<default_xs>`` Element
 ------------------------
@@ -773,15 +1188,18 @@ post-collision energy, and an arbitrary structured mesh.
 The three valid elements in the tallies.xml file are ``<tally>``, ``<mesh>``,
 and ``<assume_separate>``.
 
+.. _tally:
+
 ``<tally>`` Element
 -------------------
 
 The ``<tally>`` element accepts the following sub-elements:
 
-  :label:
-    This is an optional sub-element specifying the name of this tally to be used
-    for output purposes. This string is limited to 52 characters for formatting 
-    purposes.
+  :name:
+    An optional string name to identify the tally in summary output
+    files. This string is limited to 52 characters for formatting purposes.
+
+    *Default*: ""
 
   :filter:
     Specify a filter that restricts contributions to the tally to particles
@@ -795,11 +1213,13 @@ The ``<tally>`` element accepts the following sub-elements:
     The ``filter`` element has the following attributes/sub-elements:
 
       :type:
-        The type of the filter. Accepted options are "cell", "cellborn", "material",
-        "universe", "energy", "energyout", and "mesh".
+        The type of the filter. Accepted options are "cell", "cellborn",
+        "material", "universe", "energy", "energyout", "mesh", and
+        "distribcell".
 
       :bins:
-        For each filter type, the corresponding ``bins`` entry is given as follows:
+        For each filter type, the corresponding ``bins`` entry is given as
+        follows:
 
         :cell:
           A list of cells in which the tally should be accumulated.
@@ -834,6 +1254,15 @@ The ``<tally>`` element accepts the following sub-elements:
         :mesh:
           The ``id`` of a structured mesh to be tallied over.
 
+        :distribcell:
+          The single cell which should be tallied uniquely for all instances.
+
+          .. note::
+              The distribcell filter will take a single cell ID and will tally
+              each unique occurrence of that cell separately. This filter will
+              not accept more than one cell ID. It is not recommended to combine
+              this filter with a cell or mesh filter.
+
   :nuclides:
     If specified, the scores listed will be for particular nuclides, not the
     summation of reactions from all nuclides. The format for nuclides should be
@@ -848,51 +1277,45 @@ The ``<tally>`` element accepts the following sub-elements:
 
     *Default*: total
 
+  :estimator:
+    The estimator element is used to force the use of either ``analog`` or
+    ``tracklength`` tally estimation.  ''analog'' is generally less efficient
+    though it can be used with every score type.  ''tracklength'' is generally
+    the most efficient, though its usage is restricted to tallies that do not
+    score particle information which requires a collision to have occured, such
+    as a scattering tally which utilizes outgoing energy filters.
+
+    *Default*: ``tracklength`` but will revert to analog if necessary.
+
   :scores:
     A space-separated list of the desired responses to be accumulated. Accepted
-    options are "flux", "total", "scatter", "nu-scatter", "scatter-N",
-    "scatter-PN", "absorption", "fission", "nu-fission", "kappa-fission",
-    "current", and "events". These corresponding to the following physical
-    quantities.
+    options are "flux", "total", "scatter", "absorption", "fission",
+    "nu-fission", "kappa-fission", "nu-scatter", "scatter-N", "scatter-PN",
+    "scatter-YN", "nu-scatter-N", "nu-scatter-PN", "nu-scatter-YN", "flux-YN",
+    "total-YN", "current", and "events". These corresponding to the following
+    physical quantities:
 
     :flux:
-      Total flux
+      Total flux in particle-cm per source particle.
 
     :total:
-      Total reaction rate
+      Total reaction rate in reactions per source particle.
 
     :scatter:
       Total scattering rate. Can also be identified with the ``scatter-0``
-      response type.
+      response type. Units are reactions per source particle.
 
-    :nu-scatter:
-      Total production of neutrons due to scattering. This accounts for
-      multiplicity from (n,2n), (n,3n), and (n,4n) reactions and should be
-      slightly higher than the scattering rate.
-
-    :scatter-N:
-      Tally the N\ :sup:`th` \ scattering moment, where N is the Legendre
-      expansion order.  N must be between 0 and 10. As an example, tallying the
-      2\ :sup:`nd` \ scattering moment would be specified as ``<scores>
-      scatter-2 </scores>``.
-  
-    :scatter-PN:
-      Tally all of the scattering moments from order 0 to N, where N is the
-      Legendre expansion order.  That is, ``scatter-P1`` is equivalent to
-      requesting tallies of ``scatter-0`` and ``scatter-1``.  N must be between
-      0 and 10. As an example, tallying up to the 2\ :sup:`nd` \ scattering
-      moment would be specified as ``<scores> scatter-P2 </scores>``.
-    
     :absorption:
       Total absorption rate. This accounts for all reactions which do not
-      produce secondary neutrons.
+      produce secondary neutrons. Units are reactions per source particle.
 
     :fission:
-      Total fission rate
+      Total fission rate in reactions per source particle.
 
     :nu-fission:
-      Total production of neutrons due to fission
-    
+      Total production of neutrons due to fission. Units are neutrons produced
+      per source neutron.
+
     :kappa-fission:
       The recoverable energy production rate due to fission. The recoverable
       energy is defined as the fission product kinetic energy, prompt and
@@ -900,10 +1323,55 @@ The ``<tally>`` element accepts the following sub-elements:
       total energies, and the total energy released by the delayed :math:`\beta`
       particles. The neutrino energy does not contribute to this response. The
       prompt and delayed :math:`\gamma`-rays are assumed to deposit their energy
-      locally.
+      locally. Units are MeV per source particle.
+
+    :scatter-N:
+      Tally the N\ :sup:`th` \ scattering moment, where N is the Legendre
+      expansion order of the change in particle angle :math:`\left(\mu\right)`.
+      N must be between 0 and 10. As an example, tallying the 2\ :sup:`nd` \
+      scattering moment would be specified as ``<scores> scatter-2
+      </scores>``. Units are reactions per source particle.
+
+    :scatter-PN:
+      Tally all of the scattering moments from order 0 to N, where N is the
+      Legendre expansion order of the change in particle angle
+      :math:`\left(\mu\right)`. That is, ``scatter-P1`` is equivalent to
+      requesting tallies of ``scatter-0`` and ``scatter-1``.  Like for
+      ``scatter-N``, N must be between 0 and 10. As an example, tallying up to
+      the 2\ :sup:`nd` \ scattering moment would be specified as ``<scores>
+      scatter-P2 </scores>``. Units are reactions per source particle.
+
+    :scatter-YN:
+      ``scatter-YN`` is similar to ``scatter-PN`` except an additional expansion
+      is performed for the incoming particle direction
+      :math:`\left(\Omega\right)` using the real spherical harmonics.  This is
+      useful for performing angular flux moment weighting of the scattering
+      moments. Like ``scatter-PN``, ``scatter-YN`` will tally all of the moments
+      from order 0 to N; N again must be between 0 and 10. Units are reactions
+      per source particle.
+
+    :nu-scatter, nu-scatter-N, nu-scatter-PN, nu-scatter-YN:
+      These scores are similar in functionality to their ``scatter*``
+      equivalents except the total production of neutrons due to scattering is
+      scored vice simply the scattering rate. This accounts for multiplicity
+      from (n,2n), (n,3n), and (n,4n) reactions. Units are neutrons produced per
+      source particle.
+
+    :flux-YN:
+      Spherical harmonic expansion of the direction of motion
+      :math:`\left(\Omega\right)` of the total flux.  This score will tally all
+      of the harmonic moments of order 0 to N.  N must be between 0
+      and 10. Units are particle-cm per source particle.
+
+    :total-YN:
+      The total reaction rate expanded via spherical harmonics about the
+      direction of motion of the neutron, :math:`\Omega`.
+      This score will tally all of the harmonic moments of order 0 to N.  N must
+      be between 0 and 10. Units are reactions per source particle.
 
     :current:
-      Partial currents on the boundaries of each cell in a mesh.
+      Partial currents on the boundaries of each cell in a mesh. Units are
+      particles per source particle.
 
       .. note::
           This score can only be used if a mesh filter has been
@@ -911,7 +1379,41 @@ The ``<tally>`` element accepts the following sub-elements:
           other score.
 
     :events:
-      Number of scoring events
+      Number of scoring events. Units are events per source particle.
+
+  :trigger:
+    Precision trigger applied to all filter bins and nuclides for this tally.
+    It must specify the trigger's type, threshold and scores to which it will
+    be applied. It has the following attributes/sub-elements:
+
+   :type:
+     The type of the trigger. Accepted options are "variance", "std_dev",
+     and "rel_err".
+
+     :variance:
+       Variance of the batch mean :math:`\sigma^2`
+
+     :std_dev:
+       Standard deviation of the batch mean :math:`\sigma`
+
+     :rel_err:
+       Relative error of the batch mean :math:`\frac{\sigma}{\mu}`
+
+     *Default*: None
+
+   :threshold:
+     The precision trigger's convergence criterion for tallied values.
+
+     *Default*: None
+
+   :scores:
+     The score(s) in this tally to which the trigger should be applied.
+
+     .. note:: The ``scores`` in ``trigger`` must have been defined in
+               ``scores`` in ``tally``. An optional "all" may be used to
+               select all scores in this tally.
+
+     *Default*: "all"
 
 ``<mesh>`` Element
 ------------------
@@ -951,8 +1453,8 @@ overhead. The effect of assuming all tallies are spatially separate is that once
 one tally is scored to, the same event is assumed not to score to any other
 tallies. This element should be followed by "true" or "false".
 
-  .. warning:: If used incorrectly, the assumption that all tallies are spatially
-    separate can lead to incorrect results.
+  .. warning:: If used incorrectly, the assumption that all tallies are
+               spatially separate can lead to incorrect results.
 
   *Default*: false
 
@@ -968,14 +1470,16 @@ element of the plots.xml is simply ``<plots>`` and any number output plots can
 be defined with ``<plot>`` sub-elements.  Two plot types are currently
 implemented in openMC:
 
-* ``slice``  2D pixel plot along one of the major axes. Produces a PPM image file.
-* ``voxel``  3D voxel data dump. Produces a binary file containing voxel xyz position and cell or material id.
+* ``slice``  2D pixel plot along one of the major axes. Produces a PPM image
+  file.
+* ``voxel``  3D voxel data dump. Produces a binary file containing voxel xyz
+  position and cell or material id.
 
 
 ``<plot>`` Element
 ------------------
 
-Each plot must contain a combination of the following attributes or
+Each plot is specified by a combination of the following attributes or
 sub-elements:
 
   :id:
@@ -995,6 +1499,18 @@ sub-elements:
     position.
 
     *Default*: ``cell``
+
+  :level:
+    Universe depth to plot at (optional).  This parameter controls how many
+    universe levels deep to pull cell and material ids from when setting plot
+    colors.  If a given location does not have as many levels as specified,
+    colors will be taken from the lowest level at that location. For example, if
+    ``level`` is set to zero colors will be taken from top-level (universe zero)
+    cells only.  However, if ``level`` is set to 1 colors will be taken from
+    cells in universes that fill top-level fill-cells, and from top-level cells
+    that contain materials.
+
+    *Default*: Whatever the deepest universe is in the model
 
   :origin:
     Specifies the (x,y,z) coordinate of the center of the plot.  Should be three
@@ -1026,7 +1542,7 @@ sub-elements:
               the PNG format can often times reduce the file size by orders of
               magnitude without any loss of image quality. Likewise,
               high-resolution voxel files produced by OpenMC can be quite large,
-              but the equivalent SILO files will by significantly smaller.
+              but the equivalent SILO files will be significantly smaller.
 
     *Default*: "slice"
 
@@ -1034,7 +1550,7 @@ sub-elements:
 attribute or sub-element:
 
   :pixels:
-    Specifies the number of pixes or voxels to be used along each of the basis
+    Specifies the number of pixels or voxels to be used along each of the basis
     directions for "slice" and "voxel" plots, respectively. Should be two or
     three integers separated by spaces.
 
@@ -1066,13 +1582,13 @@ attributes or sub-elements.  These are not used in "voxel" plots:
     Specifies the RGB color of the regions where no OpenMC cell can be found.
     Should be three integers separated by spaces.
 
-    *Default*: 0 0 0 (white)
+    *Default*: 0 0 0 (black)
 
   :col_spec:
     Any number of this optional tag may be included in each ``<plot>`` element,
     which can override the default random colors for cells or materials. Each
     ``col_spec`` element must contain ``id`` and ``rgb`` sub-elements.
-  
+
     :id:
       Specifies the cell or material unique id for the color specification.
 
@@ -1106,23 +1622,45 @@ attributes or sub-elements.  These are not used in "voxel" plots:
 
     *Default*: None
 
+  :meshlines:
+    The ``meshlines`` sub-element allows for plotting the boundaries of
+    a tally mesh on top of a plot. Only one ``meshlines`` element is allowed per
+    ``plot`` element, and it must contain as attributes or sub-elements a mesh
+    type and a linewidth.  Optionally, a color may be specified for the overlay:
+
+    :meshtype:
+      The type of the mesh to be plotted. Valid options are "tally", "entropy",
+      "ufs", and "cmfd".  If plotting "tally" meshes, the id of the mesh to plot
+      must be specified with the ``id`` sub-element.
+
+    :id:
+      A single integer id number for the mesh specified on ``tallies.xml`` that
+      should be plotted. This element is only required for ``meshtype="tally"``.
+
+    :linewidth:
+      A single integer number of pixels of linewidth to specify for the mesh
+      boundaries. Specifying this as 0 indicates that lines will be 1 pixel
+      thick, specifying 1 indicates 3 pixels thick, specifying 2 indicates
+      5 pixels thick, etc.
+
+    :color:
+      Specifies the custom color for the meshlines boundaries. Should be 3
+      integers separated by whitespace.  This element is optional.
+
+      *Default*: 0 0 0 (black)
+
+    *Default*: None
+
+.. _usersguide_cmfd:
+
 ------------------------------
 CMFD Specification -- cmfd.xml
 ------------------------------
-    
-Coarse mesh finite difference acceleration method has been implemented in OpenMC.
-Currently, it allows users to accelerate fission source convergence during 
-inactive neutron batches. To run CMFD, the ``<run_cmfd>`` element in 
+
+Coarse mesh finite difference acceleration method has been implemented in
+OpenMC. Currently, it allows users to accelerate fission source convergence
+during inactive neutron batches. To run CMFD, the ``<run_cmfd>`` element in
 ``settings.xml`` should be set to "true".
-
-``<active_flush>`` Element
---------------------------
-
-The ``<active_flush>`` element controls the batch where CMFD tallies should be
-reset. CMFD tallies should be reset before active batches so they are accumulated 
-without bias.
-
-  *Default*: 0 
 
 ``<begin>`` Element
 -------------------
@@ -1130,6 +1668,40 @@ without bias.
 The ``<begin>`` element controls what batch CMFD calculations should begin.
 
   *Default*: 1
+
+``<dhat_reset>`` Element
+------------------------
+
+The ``<dhat_reset>`` element controls whether :math:`\widehat{D}` nonlinear
+CMFD parameters should be reset to zero before solving CMFD eigenproblem.
+It can be turned on with "true" and off with "false".
+
+  *Default*: false
+
+``<display>`` Element
+---------------------
+
+The ``<display>`` element sets one additional CMFD output column. Options are:
+
+* "balance" - prints the RMS [%] of the resdiual from the neutron balance
+  equation on CMFD tallies.
+* "dominance" - prints the estimated dominance ratio from the CMFD iterations.
+  **This will only work for power iteration eigensolver**.
+* "entropy" - prints the *entropy* of the CMFD predicted fission source.
+  **Can only be used if OpenMC entropy is active as well**.
+* "source" - prints the RMS [%] between the OpenMC fission source and CMFD
+  fission source.
+
+  *Default*: balance
+
+``<downscatter>`` Element
+-------------------------
+
+The ``<downscatter>`` element controls whether an effective downscatter cross
+section should be used when using 2-group CMFD. It can be turned on with "true"
+and off with "false".
+
+  *Default*: false
 
 ``<feedback>`` Element
 ----------------------
@@ -1140,51 +1712,36 @@ It can be turned on with "true" and off with "false".
 
   *Default*: false
 
-``<inactive>`` Element
-----------------------
+``<gauss_seidel_tolerance>`` Element
+------------------------------------
 
-The ``<inactive>`` element controls if cmfd tallies should be accumulated 
-during inactive batches. For some applications, CMFD tallies may not be 
-needed until the start of active batches. This option can be turned on 
-with "true" and off with "false"
+The ``<gauss_seidel_tolerance>`` element specifies two parameters. The first is
+the absolute inner tolerance for Gauss-Seidel iterations when performing CMFD
+and the second is the relative inner tolerance for Gauss-Seidel iterations
+for CMFD calculations.
 
-  *Default*: true
+  *Default*: 1.e-10 1.e-5
 
-``<keff_tol>`` Element
-----------------------
+``<ktol>`` Element
+--------------------
 
-The ``<keff_tol>`` element specifies acceptance criteria of a CMFD eigenvalue.
-If the CMFD eigenvalue and OpenMC batch eigenvalue are within this tolerance, 
-CMFD is allowed to modify source neutron weights. 
+The ``<ktol>`` element specifies the tolerance on the eigenvalue when performing
+CMFD power iteration.
 
-  *Default*: 0.005
-
-``<ksp_monitor>`` Element
--------------------------
-
-The ``<ksp_monitor>`` element is used to view the convergence of linear GMRES 
-iterations in PETSc. This option can be turned on with "true" and turned off 
-with "false".
-
-
-  *Default*: false 
+  *Default*: 1.e-8
 
 ``<mesh>`` Element
 ------------------
 
-If a structured mesh is desired as a filter for a tally, it must be specified in
-a separate element with the tag name ``<mesh>``. This element has the following
+The CMFD mesh is a structured Cartesian mesh. This element has the following
 attributes/sub-elements:
 
-  :type:
-    The type of structured mesh. Only "rectangular" is currently supported.
-
   :lower_left:
-    The lower-left corner of the structured mesh. If only two coordinate are
+    The lower-left corner of the structured mesh. If only two coordinates are
     given, it is assumed that the mesh is an x-y mesh.
 
   :upper_right:
-    The upper-right corner of the structrued mesh. If only two coordinate are 
+    The upper-right corner of the structrued mesh. If only two coordinates are
     given, it is assumed that the mesh is an x-y mesh.
 
   :dimension:
@@ -1195,8 +1752,8 @@ attributes/sub-elements:
 
   :energy:
     Energy bins [in MeV], listed in ascending order (e.g. 0.0 0.625e-7 20.0)
-    for CMFD tallies and acceleration. If no energy bins are listed, OpenMC 
-    automatically assumes a one energy group calculation over the entire 
+    for CMFD tallies and acceleration. If no energy bins are listed, OpenMC
+    automatically assumes a one energy group calculation over the entire
     energy range.
 
   :albedo:
@@ -1206,10 +1763,10 @@ attributes/sub-elements:
     *Default*: 1.0 1.0 1.0 1.0 1.0 1.0
 
   :map:
-    An optional acceleration map can be specified to overlay on the coarse 
-    mesh spatial grid. If this option is used a ``1`` is used for a 
+    An optional acceleration map can be specified to overlay on the coarse
+    mesh spatial grid. If this option is used, a ``1`` is used for a
     non-accelerated region and a ``2`` is used for an accelerated region.
-    For a simple 4x4 coarse mesh with a 2x2 fuel lattice surrounded by 
+    For a simple 4x4 coarse mesh with a 2x2 fuel lattice surrounded by
     reflector, the map is:
 
       ``1 1 1 1``
@@ -1220,69 +1777,94 @@ attributes/sub-elements:
 
       ``1 1 1 1``
 
-    Therefore a 2x2 system of equations is solved rather than a 4x4. This 
-    is extremely important to use in reflectors as neutrons will not 
+    Therefore a 2x2 system of equations is solved rather than a 4x4. This
+    is extremely important to use in reflectors as neutrons will not
     contribute to any tallies far away from fission source neutron regions.
     A ``2`` must be used to identify any fission source region.
 
-    .. note:: Only two of the following three sub-elements are needed: 
-              ``lower_left``, ``upper_right`` and ``width``. Any combination 
+    .. note:: Only two of the following three sub-elements are needed:
+              ``lower_left``, ``upper_right`` and ``width``. Any combination
               of two of these will yield the third.
 
 ``<norm>`` Element
 ------------------
 
-The ``<norm>`` element is used to normalize the CMFD fission source distribution 
-to a particular value. For example, if a fission source is calculated for a 
-17 x 17 lattice of pins, the fission source may be normalized to the number of 
-fission source regions, in this case 289. This is useful when visualizing this 
-distribution as the average peaking factor will be unity. This parameter will 
-not impact the calculation. 
+The ``<norm>`` element is used to normalize the CMFD fission source distribution
+to a particular value. For example, if a fission source is calculated for a
+17 x 17 lattice of pins, the fission source may be normalized to the number of
+fission source regions, in this case 289. This is useful when visualizing this
+distribution as the average peaking factor will be unity. This parameter will
+not impact the calculation.
 
   *Default*: 1.0
-
-``<n_procs_cmfd>`` Element
---------------------------
-
-The ``<n_procs_cmfd>`` element is used to set the number of processors used 
-for CMFD calculation. It should be less than or equal to the number of 
-processors used during OpenMC. 
-
-  *Default*: 1
 
 ``<power_monitor>`` Element
 ---------------------------
 
-The ``<power_monitor>`` element is used to view the convergence of power iteration. 
-This option can be turned on with "true" and turned off with "false".
-
-
-  *Default*: false
-
-``<write_balance>`` Element
----------------------------
-
-The ``<write_balance>`` element is used to view the balance of OpenMC tally
-residuals for every coarse mesh region and energy group. This option can be 
-turned on with "true" and off with "false". 
-
+The ``<power_monitor>`` element is used to view the convergence of power
+iteration. This option can be turned on with "true" and turned off with "false".
 
   *Default*: false
 
-``<write_hdf5>`` Element
-------------------------
+``<run_adjoint>`` Element
+-------------------------
 
-The ``<write_hdf5>`` element can be turned on with "true" to get an 
-HDF5 output file of CMFD results. 
+The ``<run_adjoint>`` element can be turned on with "true" to have an adjoint
+calculation be performed on the last batch when CMFD is active.
 
   *Default*: false
+
+``<shift>`` Element
+--------------------
+
+The ``<shift>`` element specifies an optional Wielandt shift parameter for
+accelerating power iterations. It is by default very large so the impact of the
+shift is effectively zero.
+
+  *Default*: 1e6
+
+``<spectral>`` Element
+----------------------
+
+The ``<spectral>`` element specifies an optional spectral radius that can be set to
+accelerate the convergence of Gauss-Seidel iterations during CMFD power iteration
+solve.
+
+  *Default*: 0.0
+
+``<stol>`` Element
+------------------
+
+The ``<stol>`` element specifies the tolerance on the fission source when performing
+CMFD power iteration.
+
+  *Default*: 1.e-8
+
+``<tally_reset>`` Element
+-------------------------
+
+The ``<tally_reset>`` element contains a list of batch numbers in which CMFD tallies
+should be reset.
+
+  *Default*: None
 
 ``<write_matrices>`` Element
 ----------------------------
 
-The ``<write_matrices>`` element is used to view the PETSc sparse matrices
-created when solving CMFD equations. These binary output files can be imported
-into MATLAB using PETSc-MATLAB utilities. This option can be
-turned on with "true" and off with "false".
+The ``<write_matrices>`` element is used to write the sparse matrices created
+when solving CMFD equations. This option can be turned on with "true" and off
+with "false".
 
   *Default*: false
+
+------------------------------------
+ERSN-OpenMC Graphical User Interface
+------------------------------------
+
+A third-party Java-based user-friendly graphical user interface for creating XML
+input files called ERSN-OpenMC_ is developed and maintained by members of the
+Radiation and Nuclear Systems Group at the Faculty of Sciences Tetouan, Morocco.
+The GUI also allows one to automatically download prerequisites for installing and
+running OpenMC.
+
+.. _ERSN-OpenMC: https://github.com/EL-Bakkali-Jaafar/ERSN-OpenMC

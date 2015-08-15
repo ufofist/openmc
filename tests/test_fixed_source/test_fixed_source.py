@@ -1,48 +1,40 @@
 #!/usr/bin/env python
 
-import os
-from subprocess import Popen, STDOUT, PIPE, call
-import filecmp
-from nose_mpi import NoseMPI
-import glob
+import sys
+sys.path.insert(0, '..')
+from testing_harness import *
 
-pwd = os.path.dirname(__file__)
 
-def setup():
-    os.putenv('PWD', pwd)
-    os.chdir(pwd)
+class FixedSourceTestHarness(TestHarness):
+    def _get_results(self):
+        """Digest info in the statepoint and return as a string."""
+        # Read the statepoint file.
+        statepoint = glob.glob(os.path.join(os.getcwd(), self._sp_name))[0]
+        sp = StatePoint(statepoint)
+        sp.read_results()
 
-def test_run():
-    openmc_path = pwd + '/../../src/openmc'
-    if int(NoseMPI.mpi_np) > 0:
-        proc = Popen([NoseMPI.mpi_exec, '-np', NoseMPI.mpi_np, openmc_path],
-               stderr=STDOUT, stdout=PIPE)
-    else:
-        proc = Popen([openmc_path], stderr=STDOUT, stdout=PIPE)
-    returncode = proc.wait()
-    print(proc.communicate()[0])
-    assert returncode == 0
+        # Write out tally data.
+        outstr = ''
+        if self._tallies:
+            tally_num = 1
+            for tally_ind in sp._tallies:
+                tally = sp._tallies[tally_ind]
+                results = np.zeros((tally._sum.size*2, ))
+                results[0::2] = tally._sum.ravel()
+                results[1::2] = tally._sum_sq.ravel()
+                results = ['{0:12.6E}'.format(x) for x in results]
 
-def test_created_statepoint():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    assert len(statepoint) == 1
-    assert statepoint[0].endswith('binary') or statepoint[0].endswith('h5')
+                outstr += 'tally ' + str(tally_num) + ':\n'
+                outstr += '\n'.join(results) + '\n'
+                tally_num += 1
 
-def test_output_exists():
-    assert os.path.exists(pwd + '/tallies.out')
+        outstr += 'leakage:\n'
+        outstr += '{0:12.6E}'.format(sp._global_tallies[3][0]) + '\n'
+        outstr += '{0:12.6E}'.format(sp._global_tallies[3][1]) + '\n'
 
-def test_results():
-    statepoint = glob.glob(pwd + '/statepoint.10.*')
-    call(['python', 'results.py', statepoint[0]])
-    compare = filecmp.cmp('results_test.dat', 'results_true.dat')
-    if not compare:
-      os.rename('results_test.dat', 'results_error.dat')
-    assert compare
+        return outstr
 
-def teardown():
-    output = glob.glob(pwd + '/statepoint.10.*')
-    output.append(pwd + '/tallies.out')
-    output.append(pwd + '/results_test.dat')
-    for f in output:
-        if os.path.exists(f):
-            os.remove(f)
+
+if __name__ == '__main__':
+    harness = FixedSourceTestHarness('statepoint.10.*', True)
+    harness.main()

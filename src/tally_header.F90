@@ -1,6 +1,7 @@
 module tally_header
 
-  use constants, only: NONE, N_FILTER_TYPES
+  use constants,          only: NONE, N_FILTER_TYPES
+  use trigger_header,     only: TriggerObject
 
   implicit none
 
@@ -47,15 +48,16 @@ module tally_header
 !===============================================================================
 ! TALLYFILTER describes a filter that limits what events score to a tally. For
 ! example, a cell filter indicates that only particles in a specified cell
-! should score to the tally. 
+! should score to the tally.
 !===============================================================================
 
   type TallyFilter
     integer :: type = NONE
     integer :: n_bins = 0
+    integer :: offset = 0 ! Only used for distribcell filters
     integer, allocatable :: int_bins(:)
     real(8), allocatable :: real_bins(:) ! Only used for energy filters
-    
+
     ! Type-Bound procedures
     contains
       procedure :: clear => tallyfilter_clear ! Deallocates TallyFilter
@@ -71,7 +73,7 @@ module tally_header
     ! Basic data
 
     integer :: id                   ! user-defined identifier
-    character(len=52) :: label = "" ! user-defined label
+    character(len=52) :: name = "" ! user-defined name
     integer :: type                 ! volume, surface current
     integer :: estimator            ! collision, track-length
     real(8) :: volume               ! volume of region
@@ -86,7 +88,6 @@ module tally_header
     ! mapped onto one dimension in the results array, the stride attribute gives
     ! the stride for a given filter type within the results array
 
-    integer, allocatable :: matching_bins(:)
     integer, allocatable :: stride(:)
 
     ! This array provides a way to lookup what index in the filters array a
@@ -106,7 +107,7 @@ module tally_header
     ! scattering response.
     integer              :: n_score_bins = 0
     integer, allocatable :: score_bins(:)
-    integer, allocatable :: scatt_order(:)
+    integer, allocatable :: moment_order(:)
     integer              :: n_user_score_bins = 0
 
     ! Results for each bin -- the first dimension of the array is for scores
@@ -123,14 +124,18 @@ module tally_header
 
     ! Number of realizations of tally random variables
     integer :: n_realizations = 0
-    
+
+    ! Tally precision triggers
+    integer                           :: n_triggers = 0  ! # of triggers
+    type(TriggerObject),  allocatable :: triggers(:)     ! Array of triggers
+
     ! Type-Bound procedures
     contains
       procedure :: clear => tallyobject_clear ! Deallocates TallyObject
   end type TallyObject
-  
+
   contains
-  
+
 !===============================================================================
 ! TALLYFILTER_CLEAR deallocates a TallyFilter element and sets it to its as
 ! initialized state.
@@ -138,16 +143,16 @@ module tally_header
 
     subroutine tallyfilter_clear(this)
       class(TallyFilter), intent(inout) :: this ! The TallyFilter to be cleared
-      
+
       this % type = NONE
       this % n_bins = 0
       if (allocated(this % int_bins)) &
            deallocate(this % int_bins)
       if (allocated(this % real_bins)) &
            deallocate(this % real_bins)
-      
+
     end subroutine tallyfilter_clear
-    
+
 !===============================================================================
 ! TALLYOBJECT_CLEAR deallocates a TallyObject element and sets it to its as
 ! initialized state.
@@ -155,46 +160,49 @@ module tally_header
 
     subroutine tallyobject_clear(this)
       class(TallyObject), intent(inout) :: this ! The TallyObject to be cleared
-      
+
       integer :: i  ! Loop Index
-      
+
       ! This routine will go through each item in TallyObject and set the value
       ! to its default, as-initialized values, including deallocations.
-      this % label = ""
-      
+      this % name = ""
+
       if (allocated(this % filters)) then
         do i = 1, size(this % filters)
           call this % filters(i) % clear()
         end do
         deallocate(this % filters)
       end if
-      
-      if (allocated(this % matching_bins)) &
-           deallocate(this % matching_bins)
+
       if (allocated(this % stride)) &
            deallocate(this % stride)
-      
+
       this % find_filter = 0
-      
+
       this % n_nuclide_bins = 0
       if (allocated(this % nuclide_bins)) &
            deallocate(this % nuclide_bins)
       this % all_nuclides = .false.
-      
+
       this % n_score_bins = 0
       if (allocated(this % score_bins)) &
            deallocate(this % score_bins)
-      if (allocated(this % scatt_order)) &
-           deallocate(this % scatt_order)
+      if (allocated(this % moment_order)) &
+           deallocate(this % moment_order)
       this % n_user_score_bins = 0
-      
+
       if (allocated(this % results)) &
            deallocate(this % results)
-      
+
       this % reset = .false.
-      
+
       this % n_realizations = 0
-      
+
+      if (allocated(this % triggers)) &
+           deallocate (this % triggers)
+
+      this % n_triggers = 0
+
     end subroutine tallyobject_clear
 
 end module tally_header
