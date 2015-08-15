@@ -31,8 +31,7 @@ contains
     ! Check that file exists
     inquire(FILE=filename, EXIST=file_exists)
     if (.not. file_exists) then
-      message = "ENDF file " // trim(filename) // " does not exist!"
-      call fatal_error()
+      call fatal_error("ENDF file " // trim(filename) // " does not exist!")
     end if
 
     ! open ENDF file
@@ -106,8 +105,7 @@ contains
     ! Check that file exists
     inquire(FILE=filename, EXIST=file_exists)
     if (.not. file_exists) then
-      message = "ENDF file " // trim(filename) // " does not exist!"
-      call fatal_error()
+      call fatal_error("ENDF file " // trim(filename) // " does not exist!")
     end if
 
     ! open ENDF file
@@ -196,9 +194,8 @@ contains
 
       ! Check for end-of-file
       if (is_iostat_end(ioError)) then
-        message = "Could not find MF=" // trim(to_str(MF)) // ", MT=" // &
-             trim(to_str(MT)) // " in ENDF file."
-        call fatal_error()
+        call fatal_error("Could not find MF=" // trim(to_str(MF)) // &
+             ", MT=" // trim(to_str(MT)) // " in ENDF file.")
       end if
 
       ! Check for matching MF, MT

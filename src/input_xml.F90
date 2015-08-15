@@ -165,13 +165,6 @@ contains
 !!$      end do
 !!$    end if
 
-    ! Make sure that either criticality or fixed source was specified
-    if (eigenvalue_ % batches == 0 .and. fixed_source_ % batches == 0 &
-         .and. criticality_ % batches == 0) then
-      message = "Number of batches on <eigenvalue> or <fixed_source> &
-           &tag was zero."
-      call fatal_error()
-
     ! Check for a trigger node and get trigger information
     if (check_for_node(doc, "trigger")) then
       call get_node_ptr(doc, "trigger", node_trigger)
