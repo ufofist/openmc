@@ -172,7 +172,7 @@ contains
       i_Omega = 0
 
       ! Set the vector 'a' to zero
-      a = 0
+      a(:) = 0
 
       ! number of non-zeros in column j of matrix A
       n_nonzero = matrix % row_ptr(j+1) - matrix % row_ptr(j)
@@ -365,7 +365,7 @@ contains
             if (j < k) then
               fill_jk = fill % columns(i_val2)
               v(k) = v(k) - frac*fill_jk
-            end if             
+            end if
           end do COL_IN_ROW_J
         end if
 
