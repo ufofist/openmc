@@ -7,9 +7,9 @@ module sparse_header
 !===============================================================================
 ! SRARSECSRCOMPLEX stores indices and values of a sparse matrix stored in
 ! compressed sparse row (CSR) format. This format has the non-zeros of the
-! matrix stored in contiguous memory locations. The 'columns' array stores the
+! matrix stored in contiguous memory locations. The 'indices' array stores the
 ! column indices of the elements of the non-zero array and the 'row_ptr' array
-! stores stores the indices in the columns and values arrays corresponding to
+! stores stores the indices in the indices and data arrays corresponding to
 ! beginning of each row. The total number of elements required is 2*n_nonzero +
 ! n + 1.
 !===============================================================================
@@ -18,12 +18,12 @@ module sparse_header
     ! Information about size of matrix
     integer :: m         ! number of rows
     integer :: n         ! number of columns
-    integer :: n_nonzero ! number of non-zero elements
+    integer :: nnz ! number of non-zero elements
 
     ! Storage of locations and values
-    integer,    allocatable :: row_ptr(:) ! indices within values array
-    integer,    allocatable :: columns(:) ! column indices with non-zeros
-    complex(8), allocatable :: values(:)  ! non-zero values in matrix
+    integer,    allocatable :: indptr(:) ! indices within values array
+    integer,    allocatable :: indices(:) ! column indices with non-zeros
+    complex(8), allocatable :: data(:)  ! non-zero values in matrix
   contains
     procedure :: init => sparse_csr_init_complex
     procedure :: expand => sparse_csr_expand_complex
@@ -36,32 +36,32 @@ contains
 ! of the matrix and the expected number of non-zeros.
 !===============================================================================
 
-  subroutine sparse_csr_init_complex(A, m, n, n_nonzero)
+  subroutine sparse_csr_init_complex(A, m, n, nnz)
 
     class(SparseCsrComplex) :: A
     integer, intent(in)     :: m
     integer, intent(in)     :: n
-    integer, intent(in)     :: n_nonzero
+    integer, intent(in)     :: nnz
 
     ! Set integer constants
     A % m = m
     A % n = n
-    A % n_nonzero = n_nonzero
+    A % nnz = nnz
 
     ! If any components are already allocated, remove that allocation
-    if (allocated(A % row_ptr)) deallocate(A % row_ptr)
-    if (allocated(A % columns)) deallocate(A % columns)
-    if (allocated(A % values)) deallocate(A % values)
+    if (allocated(A % indptr)) deallocate(A % indptr)
+    if (allocated(A % indices)) deallocate(A % indices)
+    if (allocated(A % data)) deallocate(A % data)
 
     ! Allocate components
-    allocate(A % row_ptr(m + 1))
-    allocate(A % columns(n_nonzero))
-    allocate(A % values(n_nonzero))
+    allocate(A % indptr(m + 1))
+    allocate(A % indices(nnz))
+    allocate(A % data(nnz))
 
     ! Initialize component arrays
-    A % row_ptr = 0
-    A % columns = NULL_COLUMN
-    A % values = ZERO
+    A % indptr = 0
+    A % indices = NULL_COLUMN
+    A % data = ZERO
 
   end subroutine sparse_csr_init_complex
 
@@ -76,48 +76,48 @@ contains
     integer, intent(in)     :: i     ! row to expand
     integer, intent(in)     :: space ! number of items to add
 
-    integer :: n      ! original size of A%columns
-    integer :: i_val  ! index in columns/values
-    integer :: i_val2 ! another index in columns/values
-    integer,    allocatable :: columns(:) ! expanded copy of columns
-    complex(8), allocatable :: values(:)  ! expanded copy of values
+    integer :: n      ! original size of A%indices
+    integer :: i_val  ! index in indices/data
+    integer :: i_val2 ! another index in indices/data
+    integer,    allocatable :: indices(:) ! expanded copy of indices
+    complex(8), allocatable :: data(:)  ! expanded copy of data
 
-    ! Get original size of columns
-    n = size(A % columns)
+    ! Get original size of indices
+    n = size(A % indices)
 
     ! Allocate temporary arrays
-    allocate(columns(n + space))
-    allocate(values(n + space))
+    allocate(indices(n + space))
+    allocate(data(n + space))
 
     ! Get pointers to start of rows i and i+1
-    i_val = A % row_ptr(i)
-    i_val2 = A % row_ptr(i+1)
+    i_val = A % indptr(i)
+    i_val2 = A % indptr(i+1)
 
     ! Copy rows 1, i-1
-    columns(1 : i_val-1) = A % columns(1 : i_val-1)
-    values(1 : i_val-1)  = A % values(1 : i_val-1)
+    indices(1 : i_val-1) = A % indices(1 : i_val-1)
+    data(1 : i_val-1)  = A % data(1 : i_val-1)
 
     ! Copy row i
-    columns(i_val : i_val2-1) = A % columns(i_val : i_val2-1)
-    values(i_val : i_val2-1)  = A % values(i_val : i_val2-1)
+    indices(i_val : i_val2-1) = A % indices(i_val : i_val2-1)
+    data(i_val : i_val2-1)  = A % data(i_val : i_val2-1)
 
     ! Initialize extra space in row i
-    columns(i_val2 : i_val2+space-1) = -1
-    values(i_val2 : i_val2+space-1)   = ZERO
+    indices(i_val2 : i_val2+space-1) = -1
+    data(i_val2 : i_val2+space-1)   = ZERO
 
     ! Copy rows i+1, n
-    columns(i_val2+space:) = A % columns(i_val2:)
-    values(i_val2+space:)  = A % values(i_val2:)
+    indices(i_val2+space:) = A % indices(i_val2:)
+    data(i_val2+space:)  = A % data(i_val2:)
 
     ! Move allocation back
-    call move_alloc(FROM=columns, TO=A%columns)
-    call move_alloc(FROM=values, TO=A%values)
+    call move_alloc(FROM=indices, TO=A%indices)
+    call move_alloc(FROM=data, TO=A%data)
 
     ! Adjust row pointers
-    A % row_ptr(i+1:) = A % row_ptr(i+1:) + space
+    A % indptr(i+1:) = A % indptr(i+1:) + space
 
     ! Increase number of non-zeros
-    A % n_nonzero = A % n_nonzero + space
+    A % nnz = A % nnz + space
 
   end subroutine sparse_csr_expand_complex
 
