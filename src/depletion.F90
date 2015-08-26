@@ -150,10 +150,8 @@ contains
       ! Copy non-zero rows and values from A into F
       i_val  = fill%indptr(i)
       i_val2 = matrix%indptr(i)
-      fill%indices(i_val  : i_val+nnz-1) = &
-           matrix%indices(i_val2 : i_val2+nnz-1)
-      fill%data(i_val : i_val+nnz-1) = &
-           matrix%data(i_val2 : i_val2+nnz-1)
+      fill%indices(i_val : i_val+nnz-1) = matrix%indices(i_val2 : i_val2+nnz-1)
+      fill%data(i_val : i_val+nnz-1) = matrix%data(i_val2 : i_val2+nnz-1)
 
       ! Initialize extra values that were allocated -- the extra non-zero rows
       ! are set to -1 to indicate that they haven't been used yet
@@ -174,8 +172,8 @@ contains
       ! Set the vector 'a' to zero
       a(:) = 0
 
-      ! number of non-zeros in column j of matrix A
-      nnz = matrix%indptr(j+1) - matrix%indptr(j)
+      ! number of non-zeros in row i of matrix A
+      nnz = matrix%indptr(i+1) - matrix%indptr(i)
 
       ! ========================================================================
       ! Find non-zeros in row i in lower triangular part of original matrix
@@ -190,7 +188,7 @@ contains
         ! If non-zero is in upper triangular part, add it to Omega
         if (j < i) then
           i_Omega = i_Omega + 1
-          Omega(i_Omega) = i
+          Omega(i_Omega) = j
         end if
       end do COLUMNS_IN_ROW_I
 
@@ -220,7 +218,7 @@ contains
             ! Check if enough extra space exists -- if not, add extra space
             if (i_val2 >= fill%indptr(i+1)) call fill%expand(i, extra)
 
-            ! Add (k,j) to fill-in matrix
+            ! Add (i,k) to fill-in matrix
             fill%indices(i_val2) = k
             nnz = nnz + 1
 

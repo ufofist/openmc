@@ -59,9 +59,9 @@ contains
     allocate(A%data(nnz))
 
     ! Initialize component arrays
-    A%indptr = 0
-    A%indices = NULL_COLUMN
-    A%data = ZERO
+    A%indptr(:) = 0
+    A%indices(:) = NULL_COLUMN
+    A%data(:) = ZERO
 
   end subroutine sparse_csr_init_complex
 
