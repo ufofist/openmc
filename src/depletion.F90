@@ -60,7 +60,7 @@ contains
     call symbolic_factorization(A, fill)
 
     ! Multiply elements in LU by time interval
-    fill % data = cmplx(real(fill % data) * t, aimag(fill % data))
+    fill%data = cmplx(real(fill%data) * t, aimag(fill%data))
 
     ! Compute first term of solution
     x = CRAM_ALPHA0 * x0
@@ -74,12 +74,12 @@ contains
 
       ! Subtract theta on diagonal terms
       ROWS: do i = 1, n
-        COLUMNS: do i_val = lu % indptr(i), lu % indptr(i+1) - 1
+        COLUMNS: do i_val = lu%indptr(i), lu%indptr(i+1) - 1
           ! Get index of column
-          j = lu % indices(i_val)
+          j = lu%indices(i_val)
 
           ! Subtract theta from diagonal term
-          if (i == j) lu % data(i_val) = lu % data(i_val) - CRAM_THETA(k)
+          if (i == j) lu%data(i_val) = lu%data(i_val) - CRAM_THETA(k)
         end do COLUMNS
       end do ROWS
 
@@ -128,7 +128,7 @@ contains
     ! ==========================================================================
     ! Initialize fill-in matrix
 
-    n = matrix % n ! Copy size of matrix
+    n = matrix%n ! Copy size of matrix
 
     ! Allocate Omega and fill_row
     allocate(a(n))
@@ -136,33 +136,33 @@ contains
 
     ! Allocate F with 10% more non-zero values
     extra = int(EXTRA_SPACE_FRAC*n)
-    nnz = matrix % nnz + n*extra
-    call fill % init(n, n, nnz)
+    nnz = matrix%nnz + n*extra
+    call fill%init(n, n, nnz)
 
     ! Copy existing values from A into F
     do i = 1, n
       ! Get original number of non-zeros in column
-      nnz = matrix % indptr(i+1) - matrix % indptr(i)
+      nnz = matrix%indptr(i+1) - matrix%indptr(i)
 
       ! Set column pointers for F matrix (with extra space)
-      fill % indptr(i) = matrix % indptr(i) + (i-1)*extra
+      fill%indptr(i) = matrix%indptr(i) + (i-1)*extra
 
       ! Copy non-zero rows and values from A into F
-      i_val  = fill % indptr(i)
-      i_val2 = matrix % indptr(i)
-      fill % indices(i_val  : i_val+nnz-1) = &
-           matrix % indices(i_val2 : i_val2+nnz-1)
-      fill % data(i_val : i_val+nnz-1) = &
-           matrix % data(i_val2 : i_val2+nnz-1)
+      i_val  = fill%indptr(i)
+      i_val2 = matrix%indptr(i)
+      fill%indices(i_val  : i_val+nnz-1) = &
+           matrix%indices(i_val2 : i_val2+nnz-1)
+      fill%data(i_val : i_val+nnz-1) = &
+           matrix%data(i_val2 : i_val2+nnz-1)
 
       ! Initialize extra values that were allocated -- the extra non-zero rows
       ! are set to -1 to indicate that they haven't been used yet
-      fill % indices(i_val+nnz : i_val+nnz+extra-1) = -1
-      fill % data(i_val+nnz : i_val+nnz+extra-1) = ZERO
+      fill%indices(i_val+nnz : i_val+nnz+extra-1) = -1
+      fill%data(i_val+nnz : i_val+nnz+extra-1) = ZERO
     end do
 
     ! Set final column ptr
-    fill % indptr(n+1) = fill % nnz + 1
+    fill%indptr(n+1) = fill%nnz + 1
 
     ! ==========================================================================
     ! SYMBOLIC DECOMPOSITION
@@ -175,14 +175,14 @@ contains
       a(:) = 0
 
       ! number of non-zeros in column j of matrix A
-      nnz = matrix % indptr(j+1) - matrix % indptr(j)
+      nnz = matrix%indptr(j+1) - matrix%indptr(j)
 
       ! ========================================================================
       ! Find non-zeros in row i in lower triangular part of original matrix
 
-      COLUMNS_IN_ROW_I: do i_val = matrix % indptr(i), matrix % indptr(i+1) - 1
+      COLUMNS_IN_ROW_I: do i_val = matrix%indptr(i), matrix%indptr(i+1) - 1
         ! Get index of column
-        j = matrix % indices(i_val)
+        j = matrix%indices(i_val)
 
         ! Save positions of non-zero index
         a(j) = 1
@@ -204,9 +204,9 @@ contains
         i_Omega = i_Omega - 1
 
         ! Now loop over the columns in row j
-        COLUMNS_IN_ROW_J: do i_val = fill % indptr(j), fill % indptr(j+1) - 1
+        COLUMNS_IN_ROW_J: do i_val = fill%indptr(j), fill%indptr(j+1) - 1
           ! Get index of column
-          k = fill % indices(i_val)
+          k = fill%indices(i_val)
 
           ! Check for end of non-zero columns in this row
           if (k == NULL_COLUMN) exit
@@ -215,13 +215,13 @@ contains
           ! is a zero entry, then (i,k) should be added to the fill-in
           if (j < k .and. a(k) == 0) then
             ! Index in columns for new entry in row j
-            i_val2 = fill % indptr(i) + nnz
+            i_val2 = fill%indptr(i) + nnz
 
             ! Check if enough extra space exists -- if not, add extra space
-            if (i_val2 >= fill % indptr(i+1)) call fill % expand(i, extra)
+            if (i_val2 >= fill%indptr(i+1)) call fill%expand(i, extra)
 
             ! Add (k,j) to fill-in matrix
-            fill % indices(i_val2) = k
+            fill%indices(i_val2) = k
             nnz = nnz + 1
 
             ! Save k to temporary fill list
@@ -247,34 +247,34 @@ contains
     ! SORT LIST OF NON-ZERO COLUMNS FOR EACH ROW
 
     do i = 1, n
-      do i_val = fill % indptr(i) + 1, fill % indptr(i+1) - 1
+      do i_val = fill%indptr(i) + 1, fill%indptr(i+1) - 1
         ! Get index of column
-        j = fill % indices(i_val)
+        j = fill%indices(i_val)
 
         ! Check for end of non-zero columns in this row
         if (j == NULL_COLUMN) exit
 
         ! Save value to move
         k = i_val
-        tmpcol = fill % indices(i_val)
-        tmpval = fill % data(i_val)
+        tmpcol = fill%indices(i_val)
+        tmpval = fill%data(i_val)
 
         do
           ! Check if insertion value is greater than (k-1)th value
-          if (tmpcol >= fill % indices(k-1)) exit
+          if (tmpcol >= fill%indices(k-1)) exit
 
           ! Move values over until hitting one that's not larger
-          fill % indices(k) = fill % indices(k-1)
-          fill % data(k)  = fill % data(k-1)
+          fill%indices(k) = fill%indices(k-1)
+          fill%data(k)  = fill%data(k-1)
           k = k - 1
 
           ! Exit if we've reached the beginning of this row
-          if (k == fill % indptr(i)) exit
+          if (k == fill%indptr(i)) exit
         end do
 
         ! Put the original value into its new position
-        fill % indices(k) = tmpcol
-        fill % data(k)  = tmpval
+        fill%indices(k) = tmpcol
+        fill%data(k)  = tmpval
       end do
     end do
 
@@ -312,7 +312,7 @@ contains
     complex(8), allocatable :: diag(:)
 
     ! Size of matrix
-    n = fill % n
+    n = fill%n
 
     ! Allocate arrays for storing a single row and the diagonal
     allocate(v(n))
@@ -325,21 +325,21 @@ contains
     ROWS: do i = 2, n
 
       ! Copy row i to vector v and save diagonal
-      do i_val = fill % indptr(i), fill % indptr(i+1) - 1
-        j = fill % indices(i_val)
+      do i_val = fill%indptr(i), fill%indptr(i+1) - 1
+        j = fill%indices(i_val)
 
         ! Check for end of non-zero columns in this row
         if (j == NULL_COLUMN) exit
 
         ! Copy value into v vector
-        v(j) = fill % data(i_val)
+        v(j) = fill%data(i_val)
 
         ! Save diagonal
         if (i == j) diag(j) = v(j)
       end do
 
-      COL_IN_ROW_I: do i_val = fill % indptr(i), fill % indptr(i+1) - 1
-        j = fill % indices(i_val)
+      COL_IN_ROW_I: do i_val = fill%indptr(i), fill%indptr(i+1) - 1
+        j = fill%indices(i_val)
 
         ! Check for end of non-zero columns in this row
         if (j == NULL_COLUMN) exit
@@ -355,15 +355,15 @@ contains
           b(i) = b(i) - frac*b(j)
 
           ! Update matrix elements
-          COL_IN_ROW_J: do i_val2 = fill % indptr(j), fill % indptr(j+1) - 1
-            k = fill % indices(i_val2)
+          COL_IN_ROW_J: do i_val2 = fill%indptr(j), fill%indptr(j+1) - 1
+            k = fill%indices(i_val2)
 
             ! Check for end of non-zero columns in this row
             if (k == NULL_COLUMN) exit
 
             ! We only need to update the terms
             if (j < k) then
-              fill_jk = fill % indices(i_val2)
+              fill_jk = fill%indices(i_val2)
               v(k) = v(k) - frac*fill_jk
             end if
           end do COL_IN_ROW_J
@@ -374,14 +374,14 @@ contains
       ! ========================================================================
       ! UPDATE ROW I
 
-      do i_val = fill % indptr(i), fill % indptr(i+1) - 1
-        j = fill % indices(i_val)
+      do i_val = fill%indptr(i), fill%indptr(i+1) - 1
+        j = fill%indices(i_val)
 
         ! Update diagonal
         if (i == j) diag(j) = v(j)
 
         ! Update element (i,j)
-        fill % data(i_val) = v(j)
+        fill%data(i_val) = v(j)
       end do
 
     end do ROWS
@@ -393,15 +393,15 @@ contains
       ! Initialize sum
       sum = ZERO
 
-      do i_val = fill % indptr(i), fill % indptr(i+1) - 1
+      do i_val = fill%indptr(i), fill%indptr(i+1) - 1
         ! Get index of column
-        j = fill % indices(i_val)
+        j = fill%indices(i_val)
 
         ! Check for end of non-zero columns in this row
         if (j == NULL_COLUMN) exit
 
         ! Add A_ij * x_j to the sum -- only use upper triangular portion
-        if (j > i) sum = sum + fill % data(i_val) * x(j)
+        if (j > i) sum = sum + fill%data(i_val) * x(j)
       end do
 
       ! TODO: check norm of diagonal
