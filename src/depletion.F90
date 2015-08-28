@@ -4,8 +4,11 @@ module depletion
   use depletion_header
   use eigenvalue,       only: run_eigenvalue
   use global
+  use matrix_csr_header, only: MatrixCSRComplex
+  use matrix_coo_header, only: MatrixCOOComplex
   use output,           only: header
   use sparse_header,    only: SparseCsrComplex
+  use stl_vector, only: VectorInt
 
 contains
 
@@ -122,6 +125,7 @@ contains
     complex(8) :: tmpval ! saved value used during sorting
     integer, allocatable :: Omega(:) ! list of rows to check
     integer, allocatable :: a(:)     ! temporary fill list (one row)
+    type(VectorInt) :: Omega(:)
 
     real(8), parameter :: EXTRA_SPACE_FRAC = 0.1
 
@@ -132,7 +136,7 @@ contains
 
     ! Allocate Omega and fill_row
     allocate(a(n))
-    allocate(Omega(n))
+    call Omega%reserve(n)
 
     ! Allocate F with 10% more non-zero values
     extra = int(EXTRA_SPACE_FRAC*n)
@@ -167,7 +171,7 @@ contains
 
     ROWS: do i = 2, n
       ! Indicate that the Omega set is empty
-      i_Omega = 0
+      call Omega%clear()
 
       ! Set the vector 'a' to zero
       a(:) = 0
@@ -186,20 +190,17 @@ contains
         a(j) = 1
 
         ! If non-zero is in upper triangular part, add it to Omega
-        if (j < i) then
-          i_Omega = i_Omega + 1
-          Omega(i_Omega) = j
-        end if
+        if (j < i) call Omega%push_back(j)
       end do COLUMNS_IN_ROW_I
 
       ! ========================================================================
       ! Add fill-in where necessary
 
       ! Loop while the list of neighbor rows is empty
-      NEIGHBOR_LIST: do while (i_Omega > 0)
+      NEIGHBOR_LIST: do while (Omega%size() > 0)
         ! Get last item on Omega list
-        j = Omega(i_Omega)
-        i_Omega = i_Omega - 1
+        j = Omega%data(Omega%size())
+        call Omega%pop_back()
 
         ! Now loop over the columns in row j
         COLUMNS_IN_ROW_J: do i_val = fill%indptr(j), fill%indptr(j+1) - 1
@@ -228,10 +229,7 @@ contains
             ! If j < k < i, there is a prospect for a longer path to node i
             ! through the nodes j and k, and therefore the node k should be
             ! added to Omega
-            if (k < i) then
-              i_Omega = i_Omega + 1
-              Omega(i_Omega) = k
-            end if
+            if (k < i) call Omega%push_back(k)
           end if
         end do COLUMNS_IN_ROW_J
       end do NEIGHBOR_LIST
@@ -239,7 +237,6 @@ contains
 
     ! Free space from the arrays a and Omega
     deallocate(a)
-    deallocate(Omega)
 
     ! ==========================================================================
     ! SORT LIST OF NON-ZERO COLUMNS FOR EACH ROW

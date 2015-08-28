@@ -18,6 +18,7 @@ module stl_vector
     generic :: initialize => &
          initialize_fill_int
     procedure, private :: initialize_fill_int
+    procedure :: pop_back => pop_back_int
     procedure :: push_back => push_back_int
     procedure :: reserve => reserve_int
     procedure :: resize => resize_int
@@ -35,6 +36,7 @@ module stl_vector
     generic :: initialize => &
          initialize_fill_real
     procedure, private :: initialize_fill_real
+    procedure :: pop_back => pop_back_real
     procedure :: push_back => push_back_real
     procedure :: reserve => reserve_real
     procedure :: resize => resize_real
@@ -83,6 +85,11 @@ contains
     this%size_ = n
     this%capacity_ = n
   end subroutine initialize_fill_int
+
+  subroutine pop_back_int(this)
+    class(VectorInt), intent(inout) :: this
+    if (this%size_ > 0) this%size_ = this%size_ - 1
+  end subroutine pop_back_int
 
   subroutine push_back_int(this, val)
     class(VectorInt), intent(inout) :: this
@@ -213,6 +220,11 @@ contains
     this%size_ = n
     this%capacity_ = n
   end subroutine initialize_fill_real
+
+  subroutine pop_back_real(this)
+    class(VectorReal), intent(inout) :: this
+    if (this%size_ > 0) this%size_ = this%size_ - 1
+  end subroutine pop_back_real
 
   subroutine push_back_real(this, val)
     class(VectorReal), intent(inout) :: this
