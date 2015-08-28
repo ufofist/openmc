@@ -1,48 +1,40 @@
 module matrix_coo_header
 
-  use list_header, only: ListInt, ListReal
+  use matrix_csr_header, only: MatrixCSRReal
+  use stl_vector, only: VectorInt, VectorReal
 
   implicit none
   private
 
-  type, public :: CooMatrix
-    integer :: m            ! number of rows
-    integer :: n            ! number of columns
-    integer :: nnz = 0      ! number of non-zeros
-    type(ListInt) :: row_   ! temp list to construct matrix 1 value at a time
-    type(ListInt) :: col_   ! temp list to construct matrix 1 value at a time
-    type(ListReal) :: data_ ! temp list to construct matrix 1 value at a time
-    integer, allocatable :: row(:)  ! row indices
-    integer, allocatable :: col(:)  ! column indices
-    real(8), allocatable :: data(:) ! value of matrix at (row, col)
-    logical :: frozen = .false.     ! whether the matrix has been frozen
+  type, public :: MatrixCOOReal
+    integer :: m             ! number of rows
+    integer :: n             ! number of columns
+    integer :: nnz = 0       ! number of non-zeros
+    type(VectorInt) :: row   ! row indices
+    type(VectorInt) :: col   ! column indices
+    type(VectorReal) :: data ! value of matrix at (row, col)
   contains
-    procedure :: initialize => coo_matrix_initialize
-    procedure :: set => coo_matrix_set
-    procedure :: freeze => coo_matrix_freeze
-    procedure :: to_dense => coo_matrix_to_dense
-    procedure :: to_csr => coo_matrix_to_csr
-  end type CooMatrix
+    generic :: initialize => &
+         initialize_arrays_real, &
+         initialize_dense_real, &
+         initialize_empty_real
+    procedure, private :: initialize_arrays_real
+    procedure, private :: initialize_dense_real
+    procedure, private :: initialize_empty_real
+    procedure :: set => set_real
+    procedure :: sort => sort_real
+    procedure :: to_dense => to_dense_real
+    procedure :: to_csr => to_csr_real
+  end type MatrixCOOReal
 
 contains
 
 !===============================================================================
-! COO_MATRIX_SET
+! Implementation of MatrixCOOReal
 !===============================================================================
 
-  subroutine coo_matrix_set(this, row, col, data)
-    class(CooMatrix), intent(inout) :: this
-    integer, intent(in) :: row
-    integer, intent(in) :: col
-    real(8), intent(in) :: data
-
-    call this%row_%append(row)
-    call this%col_%append(col)
-    call this%data_%append(data)
-  end subroutine coo_matrix_set
-
-  subroutine coo_matrix_initialize(this, row, col, data, dims)
-    class(CooMatrix), intent(inout) :: this
+  subroutine initialize_arrays_real(this, row, col, data, dims)
+    class(MatrixCOOReal), intent(inout) :: this
     real(8), allocatable, intent(in) :: row(:)
     real(8), allocatable, intent(in) :: col(:)
     real(8), allocatable, intent(in) :: data(:)
@@ -52,66 +44,179 @@ contains
     this%m = dims(1)
     this%n = dims(2)
 
+    ! Clear existing data
+    call this%row%clear()
+    call this%row%shrink_to_fit()
+    call this%col%clear()
+    call this%col%shrink_to_fit()
+    call this%data%clear()
+    call this%data%shrink_to_fit()
+
     ! Allocate arrays for storing data
     this%nnz = size(row)
-    allocate(this%row(this%nnz))
-    allocate(this%col(this%nnz))
-    allocate(this%data(this%nnz))
+    call this%row%reserve(this%nnz)
+    call this%col%reserve(this%nnz)
+    call this%data%reserve(this%nnz)
 
     ! Copy data
-    this%row(:) = row
-    this%col(:) = col
-    this%data(:) = data
+    this%row%data(:) = row
+    this%col%data(:) = col
+    this%data%data(:) = data
+  end subroutine initialize_arrays_real
 
-    ! Freeze the matrix
-    this%frozen = .true.
-  end subroutine coo_matrix_initialize
-
-  subroutine coo_matrix_freeze(this, dims)
-    class(CooMatrix), intent(inout) :: this
-    integer, intent(in) :: dims(2)
+  subroutine initialize_dense_real(this, matrix)
+    class(MatrixCOOReal), intent(inout) :: this
+    real(8), intent(in), allocatable :: matrix(:,:)
 
     integer :: i
+    integer :: j
+
+    this%m = size(matrix, 1)
+    this%n = size(matrix, 2)
+
+    do i = 1, this%m
+      do j = 1, this%n
+        if (abs(matrix(i,j)) > 0.0_8) then
+          call this%set(i, j, matrix(i,j))
+        end if
+      end do
+    end do
+  end subroutine initialize_dense_real
+
+  subroutine initialize_empty_real(this, m, n)
+    class(MatrixCOOReal), intent(inout) :: this
+    integer, intent(in) :: m
+    integer, intent(in) :: n
 
     ! Set dimensions of matrix
-    this%m = dims(1)
-    this%n = dims(2)
+    this%m = m
+    this%n = n
+  end subroutine initialize_empty_real
 
-    ! Allocate arrays for storing data
-    this%nnz = this%row_%size()
-    allocate(this%row(this%nnz))
-    allocate(this%col(this%nnz))
-    allocate(this%data(this%nnz))
+  subroutine set_real(this, row, col, data)
+    class(MatrixCOOReal), intent(inout) :: this
+    integer, intent(in) :: row
+    integer, intent(in) :: col
+    real(8), intent(in) :: data
 
-    ! Copy from lists to arrays
-    do i = 1, this%nnz
-      this%row(i) = this%row_%get_item(i)
-      this%col(i) = this%row_%get_item(i)
-      this%data(i) = this%row_%get_item(i)
+    call this%row%push_back(row)
+    call this%col%push_back(col)
+    call this%data%push_back(data)
+    this%nnz = this%nnz + 1
+  end subroutine set_real
+
+  subroutine sort_real(this)
+    class(MatrixCOOReal), intent(inout) :: this
+
+    if (this%nnz > 0) call quicksort_real(this, 1, this%nnz)
+  end subroutine sort_real
+
+  recursive subroutine quicksort_real(this, lo, hi)
+    class(MatrixCOOReal), intent(inout) :: this
+    integer, intent(in) :: lo
+    integer, intent(in) :: hi
+
+    integer :: p
+
+    if (lo < hi) then
+      p = partition_real(this, lo, hi)
+      call quicksort_real(this, lo, p)
+      call quicksort_real(this, p + 1, hi)
+    end if
+  end subroutine quicksort_real
+
+  function partition_real(this, lo, hi) result(j)
+    class(MatrixCOOReal), intent(inout) :: this
+    integer, intent(in) :: lo
+    integer, intent(in) :: hi
+    integer :: j
+
+    integer :: i
+    integer :: pivot
+    integer :: test
+    integer :: tmp_row, tmp_col
+    real(8) :: tmp_data
+
+    ! Since we need to sort both rows and columns, we can use the value (row*N +
+    ! col) where N is the number of columns as the basis for sorting
+
+    pivot = this%row%data(lo)*this%n + this%col%data(lo)
+    i = lo - 1
+    j = hi + 1
+    do
+      do
+        j = j - 1
+        test = this%row%data(j)*this%n + this%col%data(j)
+        if (test <= pivot) exit
+      end do
+      do
+        i = i + 1
+        test = this%row%data(i)*this%n + this%col%data(i)
+        if (test >= pivot) exit
+      end do
+      if (i < j) then
+        ! Swap i with j
+        tmp_row = this%row%data(j)
+        tmp_col = this%col%data(j)
+        tmp_data = this%data%data(j)
+        this%row%data(j) = this%row%data(i)
+        this%col%data(j) = this%col%data(i)
+        this%data%data(j) = this%data%data(i)
+        this%row%data(i) = tmp_row
+        this%col%data(i) = tmp_col
+        this%data%data(i) = tmp_data
+      else
+        exit
+      end if
     end do
+  end function partition_real
 
-    ! Clear lists
-    call this%row_%clear()
-    call this%col_%clear()
-    call this%data_%clear()
-
-    ! Freeze the matrix
-    this%frozen = .true.
-  end subroutine coo_matrix_freeze
-
-  subroutine coo_matrix_to_dense(this, matrix)
-    class(CooMatrix), intent(inout) :: this
-    real(8), allocatable, intent(inout) :: matrix(:,:)
+  subroutine to_dense_real(this, matrix)
+    class(MatrixCOOReal), intent(inout) :: this
+    real(8), allocatable, intent(out) :: matrix(:,:)
 
     integer :: i
 
     do i = 1, this%nnz
-      matrix(this%row(i), this%col(i)) = this%data(i)
+      matrix(this%row%data(i), this%col%data(i)) = this%data%data(i)
     end do
-  end subroutine coo_matrix_to_dense
+  end subroutine to_dense_real
 
-  subroutine coo_matrix_to_csr(this)
-    class(CooMatrix), intent(inout) :: this
-  end subroutine coo_matrix_to_csr
+  subroutine to_csr_real(this, csr)
+    class(MatrixCOOReal), intent(inout) :: this
+    class(MatrixCSRReal), intent(out) :: csr
+
+    integer :: i
+    integer :: row
+
+    ! Make sure COO data is sorted
+    call this%sort()
+
+    ! Set dimensions and number of non-zeros
+    csr%m = this%m
+    csr%n = this%n
+    csr%nnz = this%nnz
+
+    ! Allocate arrays for CSR
+    allocate(csr%indptr(this%m + 1))
+    allocate(csr%indices(this%nnz))
+    allocate(csr%data(this%nnz))
+
+    ! Create indptr array
+    i = 1
+    do row = 1, this%m
+      do while (this%row%data(i) < row)
+        i = i + 1
+      end do
+      csr%indptr(row) = i
+    end do
+    csr%indptr(this%m + 1) = this%nnz + 1
+
+    ! Since columns are already sorted, we can directly copy values for indices
+    ! and data
+    csr%indices(:) = this%col%data(1:this%nnz)
+    csr%data(:) = this%data%data(1:this%nnz)
+
+  end subroutine to_csr_real
 
 end module matrix_coo_header

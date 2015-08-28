@@ -11,15 +11,15 @@ module matrix_csr_header
     integer, allocatable :: indices(:) ! column indices
     real(8), allocatable :: data(:)    ! matrix value vector
   contains
-    generic :: initialize => csrreal_initialize_from_dense, &
-         csrreal_initialize_from_arrays
-    procedure, private :: csrreal_initialize_from_dense
-    procedure, private :: csrreal_initialize_from_arrays
+    generic :: initialize => initialize_dense_real, &
+         initialize_arrays_real
+    procedure, private :: initialize_dense_real
+    procedure, private :: initialize_arrays_real
   end type MatrixCSRReal
 
 contains
 
-  subroutine csrreal_initialize_from_dense(this, matrix)
+  subroutine initialize_dense_real(this, matrix)
     class(MatrixCSRReal), intent(inout) :: this
     real(8), allocatable :: matrix(:,:)
 
@@ -55,11 +55,11 @@ contains
         end if
       end do
     end do
-    this%indptr(i) = innz
+    this%indptr(m + 1) = innz + 1
 
-  end subroutine csrreal_initialize_from_dense
+  end subroutine initialize_dense_real
 
-  subroutine csrreal_initialize_from_arrays(this, indptr, indices, data, dims)
+  subroutine initialize_arrays_real(this, indptr, indices, data, dims)
     class(MatrixCSRReal), intent(inout) :: this
     integer, allocatable :: indptr(:)
     integer, allocatable :: indices(:)
@@ -75,6 +75,6 @@ contains
     allocate(this%indices(this%nnz), SOURCE=indices)
     allocate(this%data(this%nnz), SOURCE=data)
 
-  end subroutine csrreal_initialize_from_arrays
+  end subroutine initialize_arrays_real
 
 end module matrix_csr_header
