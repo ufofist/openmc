@@ -16,9 +16,11 @@ module matrix_coo_header
   contains
     generic :: initialize => &
          initialize_arrays_real, &
+         initialize_csr_real, &
          initialize_dense_real, &
          initialize_empty_real
     procedure, private :: initialize_arrays_real
+    procedure, private :: initialize_csr_real
     procedure, private :: initialize_dense_real
     procedure, private :: initialize_empty_real
     procedure :: set => set_real
@@ -63,6 +65,30 @@ contains
     this%col%data(:) = col
     this%data%data(:) = data
   end subroutine initialize_arrays_real
+
+  subroutine initialize_csr_real(this, csr)
+    class(MatrixCOOReal), intent(inout) :: this
+    type(MatrixCSRReal), intent(in) :: csr
+
+    integer :: i, j, k
+
+    ! Set size of matrix
+    this%m = csr%m
+    this%n = csr%n
+
+    ! Preallocate arrays
+    call this%row%reserve(csr%nnz)
+    call this%col%reserve(csr%nnz)
+    call this%data%reserve(csr%nnz)
+
+    ! Copy data from CSR matrix
+    do i = 1, csr%m
+      do k = csr%indptr(i), csr%indptr(i+1) - 1
+        j = csr%indices(k)
+        call this%set(i, j, csr%data(k))
+      end do
+    end do
+  end subroutine initialize_csr_real
 
   subroutine initialize_dense_real(this, matrix)
     class(MatrixCOOReal), intent(inout) :: this
@@ -184,7 +210,7 @@ contains
 
   subroutine to_csr_real(this, csr)
     class(MatrixCOOReal), intent(inout) :: this
-    class(MatrixCSRReal), intent(out) :: csr
+    type(MatrixCSRReal), intent(out) :: csr
 
     integer :: i
     integer :: row

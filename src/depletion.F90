@@ -2,13 +2,13 @@ module depletion
 
   use constants
   use depletion_header
-  use eigenvalue,       only: run_eigenvalue
+  use eigenvalue,        only: run_eigenvalue
   use global
-  use matrix_csr_header, only: MatrixCSRComplex
-  use matrix_coo_header, only: MatrixCOOComplex
-  use output,           only: header
-  use sparse_header,    only: SparseCsrComplex
-  use stl_vector, only: VectorInt
+  use matrix_csr_header, only: MatrixCSRReal, MatrixCSRComplex
+  use matrix_lil_header, only: MatrixLILReal
+  use output,            only: header
+  use sparse_header,     only: SparseCsrComplex
+  use stl_vector,        only: VectorInt
 
 contains
 
@@ -39,7 +39,7 @@ contains
 
   subroutine solve_cram(A, x0, x, t)
 
-    type(SparseCsrComplex), intent(in) :: A ! burnup matrix
+    type(MatrixCSRReal), intent(in) :: A    ! burnup matrix
     complex(8), intent(in)  :: x0(:)        ! starting concentration vector
     complex(8), intent(out) :: x(:)         ! end-of-step concentration vector
     real(8),    intent(in)  :: t            ! time interval
@@ -51,8 +51,8 @@ contains
     integer :: n     ! size of solution vector
     complex(8), allocatable :: b(:) ! right-hand side
     complex(8), allocatable :: y(:) ! solution to linear system
-    type(SparseCsrComplex) :: fill  ! fill-in matrix
-    type(SparseCsrComplex) :: lu    ! matrix used during LU decomposition
+    type(MatrixCSRReal)    :: fill  ! fill-in matrix
+    type(MatrixCSRComplex) :: lu    ! matrix used during LU decomposition
 
     ! Allocate arrays
     n = size(x0)
@@ -63,7 +63,7 @@ contains
     call symbolic_factorization(A, fill)
 
     ! Multiply elements in LU by time interval
-    fill%data = cmplx(real(fill%data) * t, aimag(fill%data))
+    fill%data(:) = fill%data(:) * t
 
     ! Compute first term of solution
     x = CRAM_ALPHA0 * x0
@@ -93,10 +93,6 @@ contains
       x = x + TWO * y
     end do
 
-    ! Free space for temporary arrays
-    deallocate(b)
-    deallocate(y)
-
   end subroutine solve_cram
 
 !===============================================================================
@@ -109,28 +105,17 @@ contains
 
   subroutine symbolic_factorization(matrix, fill)
 
-    type(SparseCsrComplex), intent(in)    :: matrix
-    type(SparseCsrComplex), intent(inout) :: fill
+    type(MatrixCSRReal), intent(in)    :: matrix
+    type(MatrixCSRReal), intent(inout) :: fill
 
     integer :: i         ! row index
     integer :: i_val     ! index in indices/data
-    integer :: i_val2    ! another index in indices/data
     integer :: j         ! column index
     integer :: k         ! another column index
     integer :: n         ! number of columns
-    integer :: nnz       ! number of non-zeros
-    integer :: extra     ! number of extra elements on each row
-    integer :: i_Omega   ! length of Omega
-    integer :: tmpcol    ! saved column used during sorting
-    complex(8) :: tmpval ! saved value used during sorting
-    integer, allocatable :: Omega(:) ! list of rows to check
-    integer, allocatable :: a(:)     ! temporary fill list (one row)
-    type(VectorInt) :: Omega(:)
-
-    real(8), parameter :: EXTRA_SPACE_FRAC = 0.1
-
-    ! ==========================================================================
-    ! Initialize fill-in matrix
+    integer, allocatable :: a(:) ! temporary fill list (one row)
+    type(VectorInt) :: Omega
+    type(MatrixLILReal) :: fill_
 
     n = matrix%n ! Copy size of matrix
 
@@ -138,33 +123,8 @@ contains
     allocate(a(n))
     call Omega%reserve(n)
 
-    ! Allocate F with 10% more non-zero values
-    extra = int(EXTRA_SPACE_FRAC*n)
-    nnz = matrix%nnz + n*extra
-    call fill%init(n, n, nnz)
-
-    ! Copy existing values from A into F
-    do i = 1, n
-      ! Get original number of non-zeros in column
-      nnz = matrix%indptr(i+1) - matrix%indptr(i)
-
-      ! Set column pointers for F matrix (with extra space)
-      fill%indptr(i) = matrix%indptr(i) + (i-1)*extra
-
-      ! Copy non-zero rows and values from A into F
-      i_val  = fill%indptr(i)
-      i_val2 = matrix%indptr(i)
-      fill%indices(i_val : i_val+nnz-1) = matrix%indices(i_val2 : i_val2+nnz-1)
-      fill%data(i_val : i_val+nnz-1) = matrix%data(i_val2 : i_val2+nnz-1)
-
-      ! Initialize extra values that were allocated -- the extra non-zero rows
-      ! are set to -1 to indicate that they haven't been used yet
-      fill%indices(i_val+nnz : i_val+nnz+extra-1) = -1
-      fill%data(i_val+nnz : i_val+nnz+extra-1) = ZERO
-    end do
-
-    ! Set final column ptr
-    fill%indptr(n+1) = fill%nnz + 1
+    ! Create LIL sparse matrix using data from the burnup matrix
+    call fill_%initialize(matrix)
 
     ! ==========================================================================
     ! SYMBOLIC DECOMPOSITION
@@ -176,9 +136,6 @@ contains
       ! Set the vector 'a' to zero
       a(:) = 0
 
-      ! number of non-zeros in row i of matrix A
-      nnz = matrix%indptr(i+1) - matrix%indptr(i)
-
       ! ========================================================================
       ! Find non-zeros in row i in lower triangular part of original matrix
 
@@ -189,7 +146,7 @@ contains
         ! Save positions of non-zero index
         a(j) = 1
 
-        ! If non-zero is in upper triangular part, add it to Omega
+        ! If non-zero is in lower triangular part, add it to Omega
         if (j < i) call Omega%push_back(j)
       end do COLUMNS_IN_ROW_I
 
@@ -203,25 +160,15 @@ contains
         call Omega%pop_back()
 
         ! Now loop over the columns in row j
-        COLUMNS_IN_ROW_J: do i_val = fill%indptr(j), fill%indptr(j+1) - 1
+        COLUMNS_IN_ROW_J: do i_val = 1, fill_%rows(j)%size() ! fill%indptr(j), fill%indptr(j+1) - 1
           ! Get index of column
-          k = fill%indices(i_val)
+          k = fill_%rows(j)%data(i_val)
 
-          ! Check for end of non-zero columns in this row
-          if (k == NULL_COLUMN) exit
-
-          ! If column k is in lower triangular part and the k-th column in row i
+          ! If column k is in upper triangular part and the k-th column in row i
           ! is a zero entry, then (i,k) should be added to the fill-in
           if (j < k .and. a(k) == 0) then
-            ! Index in columns for new entry in row j
-            i_val2 = fill%indptr(i) + nnz
-
-            ! Check if enough extra space exists -- if not, add extra space
-            if (i_val2 >= fill%indptr(i+1)) call fill%expand(i, extra)
-
             ! Add (i,k) to fill-in matrix
-            fill%indices(i_val2) = k
-            nnz = nnz + 1
+            call fill_%set(i, k, ZERO)
 
             ! Save k to temporary fill list
             a(k) = 1
@@ -235,43 +182,8 @@ contains
       end do NEIGHBOR_LIST
     end do ROWS
 
-    ! Free space from the arrays a and Omega
-    deallocate(a)
-
-    ! ==========================================================================
-    ! SORT LIST OF NON-ZERO COLUMNS FOR EACH ROW
-
-    do i = 1, n
-      do i_val = fill%indptr(i) + 1, fill%indptr(i+1) - 1
-        ! Get index of column
-        j = fill%indices(i_val)
-
-        ! Check for end of non-zero columns in this row
-        if (j == NULL_COLUMN) exit
-
-        ! Save value to move
-        k = i_val
-        tmpcol = fill%indices(i_val)
-        tmpval = fill%data(i_val)
-
-        do
-          ! Check if insertion value is greater than (k-1)th value
-          if (tmpcol >= fill%indices(k-1)) exit
-
-          ! Move values over until hitting one that's not larger
-          fill%indices(k) = fill%indices(k-1)
-          fill%data(k)  = fill%data(k-1)
-          k = k - 1
-
-          ! Exit if we've reached the beginning of this row
-          if (k == fill%indptr(i)) exit
-        end do
-
-        ! Put the original value into its new position
-        fill%indices(k) = tmpcol
-        fill%data(k)  = tmpval
-      end do
-    end do
+    ! Convert to CSR format
+    call fill_%to_csr(fill)
 
   end subroutine symbolic_factorization
 
@@ -288,7 +200,7 @@ contains
 
   subroutine numerical_elimination(fill, b, x)
 
-    type(SparseCsrComplex), intent(inout) :: fill ! fill matrix
+    type(MatrixCSRComplex), intent(inout) :: fill ! fill matrix
     complex(8),         intent(inout) :: b(:) ! right-hand side
     complex(8),         intent(out)   :: x(:) ! solution
 
@@ -314,17 +226,18 @@ contains
     allocate(diag(n))
 
     ! Initialize v and diag
-    v = ZERO
-    diag = ZERO
+    v(:) = ZERO
+    diag(:) = ZERO
+
+    ! Since diag(1) is not set below (loop only covers rows 2 and above),
+    ! manually set it here
+    if (fill%indices(1) == 1) diag(1) = fill%data(1)
 
     ROWS: do i = 2, n
 
       ! Copy row i to vector v and save diagonal
       do i_val = fill%indptr(i), fill%indptr(i+1) - 1
         j = fill%indices(i_val)
-
-        ! Check for end of non-zero columns in this row
-        if (j == NULL_COLUMN) exit
 
         ! Copy value into v vector
         v(j) = fill%data(i_val)
@@ -335,9 +248,6 @@ contains
 
       COL_IN_ROW_I: do i_val = fill%indptr(i), fill%indptr(i+1) - 1
         j = fill%indices(i_val)
-
-        ! Check for end of non-zero columns in this row
-        if (j == NULL_COLUMN) exit
 
         if (j < i) then
           fill_ij = v(j)
@@ -352,9 +262,6 @@ contains
           ! Update matrix elements
           COL_IN_ROW_J: do i_val2 = fill%indptr(j), fill%indptr(j+1) - 1
             k = fill%indices(i_val2)
-
-            ! Check for end of non-zero columns in this row
-            if (k == NULL_COLUMN) exit
 
             ! We only need to update the terms
             if (j < k) then
@@ -392,9 +299,6 @@ contains
         ! Get index of column
         j = fill%indices(i_val)
 
-        ! Check for end of non-zero columns in this row
-        if (j == NULL_COLUMN) exit
-
         ! Add A_ij * x_j to the sum -- only use upper triangular portion
         if (j > i) sum = sum + fill%data(i_val) * x(j)
       end do
@@ -404,10 +308,6 @@ contains
       ! Calculate i-th element of solution
       x(i) = (b(i) - sum)/diag(i)
     end do
-
-    ! Free up space from arrays
-    deallocate(v)
-    deallocate(diag)
 
   end subroutine numerical_elimination
 
