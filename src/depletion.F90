@@ -265,7 +265,7 @@ contains
 
             ! We only need to update the terms
             if (j < k) then
-              fill_jk = fill%indices(i_val2)
+              fill_jk = fill%data(i_val2)
               v(k) = v(k) - frac*fill_jk
             end if
           end do COL_IN_ROW_J
