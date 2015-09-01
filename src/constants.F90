@@ -451,9 +451,6 @@ module constants
        (+5.6231425727459771248_8, +1.1940690463439669766_8), &
        (+2.2697838292311127097_8, +8.4617379730402214019_8) /)
 
-  ! Indicate a blank column in sparse matrix
-  integer, parameter :: NULL_COLUMN = -1
-
   ! Depletion step units
   integer, parameter :: &
        DEPLETION_STEP_DAY   = 1, & ! Step in days

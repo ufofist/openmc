@@ -7,7 +7,6 @@ module depletion
   use matrix_csr_header, only: MatrixCSRReal, MatrixCSRComplex
   use matrix_lil_header, only: MatrixLILReal
   use output,            only: header
-  use sparse_header,     only: SparseCsrComplex
   use stl_vector,        only: VectorInt
 
 contains
