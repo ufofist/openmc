@@ -7,5 +7,5 @@ set -ev
 if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
   ./run_tests.py -C "^hdf5-debug$|^omp-hdf5-debug|^mpi-hdf5-debug|^phdf5-debug$|^phdf5-omp-debug$" -j 2 -s
 else
-  ./run_tests.py -C "^hdf5-debug$" -j 2
+  ./run_tests.py -C "^phdf5-omp-debug$" -j 2 -s
 fi
