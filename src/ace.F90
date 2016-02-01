@@ -467,6 +467,7 @@ contains
     else ! read in non-0K data
       nuc % n_grid = NE
       allocate(nuc % energy(NE))
+      allocate(nuc % sqrtE(NE))
       allocate(nuc % total(NE))
       allocate(nuc % elastic(NE))
       allocate(nuc % fission(NE))
@@ -486,6 +487,7 @@ contains
 
       XSS_index = 1
       nuc % energy = get_real(NE)
+      nuc % sqrtE(:) = sqrt(nuc % energy)
 
       ! Skip total and absorption
       XSS_index = XSS_index + 2*NE

@@ -64,6 +64,7 @@ module ace_header
     integer :: n_grid                     ! # of nuclide grid points
     integer, allocatable :: grid_index(:) ! log grid mapping indices
     real(8), allocatable :: energy(:)     ! energy values corresponding to xs
+    real(8), allocatable :: sqrtE(:)      ! sqrt(E) for each energy in grid
 
     ! Microscopic cross sections
     real(8), allocatable :: total(:)      ! total cross section

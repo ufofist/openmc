@@ -140,6 +140,8 @@ module geometry_header
     integer :: distribcell_index           ! Index corresponding to this cell in
                                            !  distribcell arrays
 
+    real(8) :: temperature ! Temperature in MeV (kT)
+
     ! Rotation matrix and translation vector
     real(8), allocatable :: translation(:)
     real(8), allocatable :: rotation(:)

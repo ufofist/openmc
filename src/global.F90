@@ -88,6 +88,10 @@ module global
   ! Default xs identifier (e.g. 70c)
   character(3):: default_xs
 
+  ! Abscissae/weights of Gauss-Hermite quadrature
+  real(8) :: gh_abscissa(N_GAUSS_HERMITE)
+  real(8) :: gh_weight(N_GAUSS_HERMITE)
+
   ! What to assume for expanding natural elements
   integer :: default_expand = ENDF_BVII1
 

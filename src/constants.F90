@@ -230,6 +230,12 @@ module constants
   ! Maximum number of partial fission reactions
   integer, parameter :: PARTIAL_FISSION_MAX = 4
 
+  ! Default temperature flag
+  real(8), parameter :: DEFAULT_TEMPERATURE = -huge(0.0_8)
+
+  ! Number of points on Gauss-Hermite quadrature
+  integer, parameter :: N_GAUSS_HERMITE = 15
+
   ! Major cross section libraries
   integer, parameter :: &
        ENDF_BVII0 = 1, &

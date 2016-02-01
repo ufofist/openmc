@@ -145,6 +145,9 @@ contains
       ! If this is a restart run, load the state point data and binary source
       ! file
       if (restart_run) call load_state_point()
+
+      ! Calculate Gauss-Hermite quadrature
+      call initialize_gauss_hermite()
     end if
 
     if (master) then
@@ -1119,5 +1122,69 @@ contains
     call cell_list % clear()
 
   end subroutine allocate_offsets
+
+!===============================================================================
+! INITIALIZE_GAUSS_HERMITE
+!===============================================================================
+
+  subroutine initialize_gauss_hermite()
+    integer, parameter :: MAX_ITERATIONS = 10   ! Max # of iterations for finding roots
+    real(8), parameter :: EPS = 1.0e-14_8      ! Convergence criteria for roots
+    real(8), parameter :: PIM4 = 0.7511255444649425_8 ! 1/pi^0.25
+
+    integer :: m, it, i, j, n
+    real(8) :: p1, p2, p3, pp, z, z1
+
+    n = N_GAUSS_HERMITE
+    m = (n + 1)/2 ! Roots are symmetric about 0.0 so only solve for half of them
+
+    do i = 1, m
+      select case (i)
+      case (1)
+        z = sqrt(TWO*n + ONE) - 1.85575_8*(TWO*n + ONE)**(-0.16667_8)
+      case (2)
+        z = z - 1.14_8*n**0.426/z
+      case (3)
+        z = 1.86_8*z - 0.86_8*gh_abscissa(n)
+      case (4)
+        z = 1.91_8*z - 0.91_8*gh_abscissa(n-1)
+      case default
+        z = TWO*z - gh_abscissa(n-i+3)
+      end select
+
+      z1 = ZERO
+      it = 1
+      do while (abs(z - z1) > eps)
+        p1 = PIM4
+        p2 = ZERO
+
+        do j = 1, n
+          p3 = p2
+          p2 = p1
+          p1 = z*sqrt(TWO/j)*p2 - sqrt(real(j-1,8)/real(j,8))*p3
+        end do
+
+        ! Now p1 is the desired Hermite poly. Next compute the derivative, pp,
+        ! by using the relation given in Num. Rec. (4.5.21) and p2, the poly of
+        ! one lower order.
+
+        pp = sqrt(TWO*n)*p2
+        z1 = z
+        z  = z1 - p1/pp
+
+        it = it + 1
+        if (it > MAX_ITERATIONS) then
+          call fatal_error("Exceeded max iterations when calculating &
+               &Gauss-Hemirte quadrature.")
+        end if
+      end do
+
+      gh_abscissa(i)     = -z           ! Store the root
+      gh_abscissa(n+1-i) = z            ! Store the -root
+      gh_weight(i)       = TWO/(pp*pp)  ! Store the weight
+      gh_weight(n+1-i)   = gh_weight(i) ! and its symmetric counterpart
+    end do
+
+  end subroutine initialize_gauss_hermite
 
 end module initialize
