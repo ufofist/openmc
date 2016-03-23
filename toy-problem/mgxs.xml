@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<library>
+  <groups>1</groups>
+  <group_structure>0. 20.</group_structure>
+  <xsdata>
+    <name>toy.71c</name>
+    <alias>toy.71c</alias>
+    <kT>2.53e-8</kT>
+    <order>0</order>
+    <fissionable>true</fissionable>
+    <representation>isotropic</representation>
+    <total>0.3</total>
+    <absorption>0.03</absorption>
+    <nu_fission>0.0294</nu_fission>
+    <chi>1.0</chi>
+    <fission>0.012</fission>
+    <scatter>0.27</scatter>
+    <multiplicity>1.0</multiplicity>
+  </xsdata>
+</library>

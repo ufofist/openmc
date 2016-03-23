@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<geometry>
+  <surface id="1" type="x-plane" coeffs="-200." boundary="reflective" />
+  <surface id="2" type="x-plane" coeffs="200." boundary="reflective" />
+  <surface id="3" type="x-plane" coeffs="-200." boundary="reflective" />
+  <surface id="4" type="x-plane" coeffs="200." boundary="reflective" />
+  <surface id="5" type="x-plane" coeffs="-200." boundary="reflective" />
+  <surface id="6" type="x-plane" coeffs="200." boundary="reflective" />
+  <cell id="1" material="1" region="1 -2 3 -4 5 -6" />
+</geometry>
