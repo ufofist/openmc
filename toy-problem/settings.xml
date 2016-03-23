@@ -2,8 +2,8 @@
 <settings>
   <eigenvalue>
     <particles>100000</particles>
-    <batches>25</batches>
-    <inactive>5</inactive>
+    <batches>100</batches>
+    <inactive>10</inactive>
   </eigenvalue>
   <source strength="1.0">
     <space type="box">
