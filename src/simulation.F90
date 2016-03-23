@@ -355,7 +355,7 @@ contains
       if (master) call print_batch_keff()
 
       ! Calculate combined estimate of k-effective
-      if (master) call calculate_combined_keff()
+      ! if (master) call calculate_combined_keff()
     end if
 
     ! Check_triggers
@@ -384,7 +384,7 @@ contains
          run_mode == MODE_EIGENVALUE) then
       ! Make sure combined estimate of k-effective is calculated at the last
       ! batch in case no state point is written
-      call calculate_combined_keff()
+      ! call calculate_combined_keff()
     end if
 
   end subroutine finalize_batch

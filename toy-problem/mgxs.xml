@@ -11,7 +11,7 @@
     <representation>isotropic</representation>
     <total>0.3</total>
     <absorption>0.03</absorption>
-    <nu_fission>0.0294</nu_fission>
+    <nu_fission>0.03</nu_fission>
     <chi>1.0</chi>
     <fission>0.012</fission>
     <scatter>0.27</scatter>
