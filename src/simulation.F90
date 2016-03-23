@@ -10,6 +10,7 @@ module simulation
                              calculate_combined_keff, calculate_generation_keff, &
                              shannon_entropy, synchronize_bank, keff_generation
 #ifdef _OPENMP
+  use omp_lib
   use eigenvalue,      only: join_bank_from_threads
 #endif
   use global
@@ -130,6 +131,15 @@ contains
     integer(8) :: particle_seed  ! unique index for particle
     integer :: i
 
+    local_push_pointer = bank_push_pointer
+#ifdef _OPENMP
+    if(0 == thread_id) then
+      local_push_pointer = bank_push_pointer
+    else
+      local_push_pointer = bank_push_pointer/n_threads
+    endif
+#endif
+
     ! set defaults
     call p % initialize_from_source(source_bank(index_source), run_CE, &
          energy_bin_avg)
@@ -177,7 +187,25 @@ contains
     ! Reset total starting particle weight used for normalizing tallies
     total_weight = ZERO
 
-    if (current_batch == n_inactive + 1) then
+    if (current_batch == n_inactive  + 1) then
+      inactive_batches = .false.
+      intermediate_batches = .true.
+    endif
+
+    if (current_batch == n_inactive + n_delay + 1) then
+      intermediate_batches = .false.
+      active_batches = .true.
+    endif
+
+    if (inactive_batches) then
+      current_delay = 0;
+    else
+      current_delay = mod(current_batch - n_inactive , n_delay)
+    endif
+
+
+
+    if (current_batch == n_inactive + n_delay + 1) then
       ! Switch from inactive batch timer to active batch timer
       call time_inactive % stop()
       call time_active % start()
@@ -207,6 +235,31 @@ contains
 
     ! set overall generation number
     overall_gen = gen_per_batch*(current_batch - 1) + current_gen
+
+    ! Set pointers for fission bank push/pull
+    ! Inactive batches
+    if (inactive_batches) then
+      bank_push_pointer = current_delay * work * 3
+      bank_pull_pointer = current_delay * work * 3
+    endif
+    ! Intermediate batches
+    if (intermediate_batches) then
+      bank_push_pointer = current_delay * work * 3
+      if (current_batch == n_inactive + n_delay .and. current_gen == gen_per_batch) then
+        bank_pull_pointer = mod(current_delay + 1,n_delay) * work * 3
+      else
+        bank_pull_pointer = current_delay * work * 3
+      endif
+    endif
+    ! Active batches
+    if (active_batches) then
+      bank_push_pointer = current_delay * work * 3
+      if (current_gen == gen_per_batch) then
+        bank_pull_pointer = mod(current_delay + 1,n_delay) * work * 3
+      else
+        bank_pull_pointer = current_delay * work * 3
+      endif
+    endif
 
     if (run_mode == MODE_EIGENVALUE) then
       ! Reset number of fission bank sites

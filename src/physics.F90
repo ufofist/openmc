@@ -1114,7 +1114,7 @@ contains
     ! Check for bank size getting hit. For fixed source calculations, this is a
     ! fatal error. For eigenvalue calculations, it just means that k-effective
     ! was too high for a single batch.
-    if (size_bank + nu > size(bank_array)) then
+    if (size_bank + nu > size(bank_array)/n_delay) then
       if (run_mode == MODE_FIXEDSOURCE) then
         call fatal_error("Secondary particle bank size limit reached. If you &
              &are running a subcritical multiplication problem, k-effective &
@@ -1127,26 +1127,26 @@ contains
     end if
 
     ! Bank source neutrons
-    if (nu == 0 .or. size_bank == size(bank_array)) return
+    if (nu == 0 .or. size_bank == size(bank_array)/n_delay) return
 
     ! Initialize counter of delayed neutrons encountered for each delayed group
     ! to zero.
     nu_d(:) = 0
 
     p % fission = .true. ! Fission neutrons will be banked
-    do i = int(size_bank,4) + 1, int(min(size_bank + nu, int(size(bank_array),8)),4)
+    do i = int(size_bank,4) + 1, int(min(size_bank + nu, int(size(bank_array)/n_delay,8)),4)
       ! Bank source neutrons by copying particle data
-      bank_array(i) % xyz = p % coord(1) % xyz
+      bank_array(local_push_pointer + i) % xyz = p % coord(1) % xyz
 
       ! Set weight of fission bank site
-      bank_array(i) % wgt = ONE/weight
+      bank_array(local_push_pointer + i) % wgt = ONE/weight
 
       ! Sample delayed group and angle/energy for fission reaction
       call sample_fission_neutron(nuc, nuc % reactions(i_reaction), &
-           p % E, bank_array(i))
+           p % E, bank_array(local_push_pointer + i))
 
       ! Set delayed group on particle too
-      p % delayed_group = bank_array(i) % delayed_group
+      p % delayed_group = bank_array(local_push_pointer + i) % delayed_group
 
       ! Increment the number of neutrons born delayed
       if (p % delayed_group > 0) then
@@ -1155,7 +1155,7 @@ contains
     end do
 
     ! increment number of bank sites
-    size_bank = min(size_bank + nu, int(size(bank_array),8))
+    size_bank = min(size_bank + nu, int(size(bank_array)/n_delay,8))
 
     ! Store total and delayed weight banked for analog fission tallies
     p % n_bank   = nu
