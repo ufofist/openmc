@@ -1,4 +1,5 @@
 from collections import OrderedDict, Iterable
+from copy import deepcopy
 from math import cos, sin, pi
 from numbers import Real, Integral
 from xml.etree import ElementTree as ET
@@ -126,6 +127,19 @@ class Cell(object):
 
     def __hash__(self):
         return hash(repr(self))
+
+    def __deepcopy__(self, memo):
+        if id(self) in memo:
+            return memo[id(self)]
+        else:
+            clone = type(self).__new__(type(self))
+            memo[id(self)] = clone
+
+            for k, v in self.__dict__.items():
+                setattr(clone, k, deepcopy(v, memo))
+            clone.id = None
+
+            return clone
 
     def __repr__(self):
         string = 'Cell\n'

@@ -547,7 +547,7 @@ class Library(object):
                        [self.energy_groups.group_edges[0]])
 
         # Clone this Library to initialize the condensed version
-        condensed_library = copy.deepcopy(self)
+        condensed_library = copy.copy(self)
         condensed_library.energy_groups = coarse_groups
 
         # Condense the MGXS for each domain and mgxs type
@@ -591,7 +591,7 @@ class Library(object):
             raise ValueError(msg)
 
         # Clone this Library to initialize the subdomain-averaged version
-        subdomain_avg_library = copy.deepcopy(self)
+        subdomain_avg_library = copy.copy(self)
 
         if subdomain_avg_library.domain_type == 'distribcell':
             subdomain_avg_library.domain_type = 'cell'

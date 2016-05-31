@@ -130,49 +130,17 @@ class Tally(object):
         self._results_read = False
 
     def __deepcopy__(self, memo):
-        existing = memo.get(id(self))
-
-        # If this is the first time we have tried to copy this object, create a copy
-        if existing is None:
+        if id(self) in memo:
+            return memo[id(self)]
+        else:
             clone = type(self).__new__(type(self))
-            clone.id = self.id
-            clone.name = self.name
-            clone.estimator = self.estimator
-            clone.num_realizations = self.num_realizations
-            clone._sum = copy.deepcopy(self._sum, memo)
-            clone._sum_sq = copy.deepcopy(self._sum_sq, memo)
-            clone._mean = copy.deepcopy(self._mean, memo)
-            clone._std_dev = copy.deepcopy(self._std_dev, memo)
-            clone._with_summary = self.with_summary
-            clone._with_batch_statistics = self.with_batch_statistics
-            clone._derived = self.derived
-            clone._sparse = self.sparse
-            clone._sp_filename = self._sp_filename
-            clone._results_read = self._results_read
-
-            clone._filters = []
-            for self_filter in self.filters:
-                clone.filters.append(copy.deepcopy(self_filter, memo))
-
-            clone._nuclides = []
-            for nuclide in self.nuclides:
-                clone.nuclides.append(copy.deepcopy(nuclide, memo))
-
-            clone._scores = []
-            for score in self.scores:
-                clone.scores.append(score)
-
-            clone._triggers = []
-            for trigger in self.triggers:
-                clone.triggers.append(trigger)
-
             memo[id(self)] = clone
 
-            return clone
+            for k, v in self.__dict__.items():
+                setattr(clone, k, copy.deepcopy(v, memo))
+            clone.id = None
 
-        # If this object has been copied before, return the first copy made
-        else:
-            return existing
+            return clone
 
     def __eq__(self, other):
         if not isinstance(other, Tally):
@@ -918,9 +886,6 @@ class Tally(object):
 
         # Create deep copy of tally to return as merged tally
         merged_tally = copy.deepcopy(self)
-
-        # Differentiate Tally with a new auto-generated Tally ID
-        merged_tally.id = None
 
         # If the two tallies are equal, simply return copy
         if self == other:
@@ -2875,7 +2840,7 @@ class Tally(object):
 
         return other * self**-1
 
-    def __pos__(self):
+    def __abs__(self):
         """The absolute value of this tally.
 
         Returns
@@ -2956,9 +2921,6 @@ class Tally(object):
         # Create deep copy of tally to return as sliced tally
         new_tally = copy.deepcopy(self)
         new_tally._derived = True
-
-        # Differentiate Tally with a new auto-generated Tally ID
-        new_tally.id = None
 
         new_tally.sparse = False
 

@@ -155,29 +155,17 @@ class Material(object):
         return string
 
     def __deepcopy__(self, memo):
-        existing = memo.get(id(self))
-
-        if existing is None:
-            # If this is the first time we have tried to copy this object, create a copy
+        if id(self) in memo:
+            return memo[id(self)]
+        else:
             clone = type(self).__new__(type(self))
-            clone._id = self._id
-            clone._name = self._name
-            clone._density = self._density
-            clone._density_units = self._density_units
-            clone._nuclides = deepcopy(self._nuclides, memo)
-            clone._macroscopic = self._macroscopic
-            clone._elements = deepcopy(self._elements, memo)
-            clone._sab = deepcopy(self._sab, memo)
-            clone._convert_to_distrib_comps = self._convert_to_distrib_comps
-            clone._distrib_otf_file = self._distrib_otf_file
-
             memo[id(self)] = clone
 
-            return clone
+            for k, v in self.__dict__.items():
+                setattr(clone, k, deepcopy(v, memo))
+            clone.id = None
 
-        else:
-            # If this object has been copied before, return the first copy made
-            return existing
+            return clone
 
     @property
     def id(self):

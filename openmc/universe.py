@@ -1,4 +1,5 @@
 from collections import OrderedDict, Iterable
+from copy import deepcopy
 from numbers import Integral
 from xml.etree import ElementTree as ET
 import random
@@ -92,6 +93,19 @@ class Universe(object):
         string += '{0: <16}{1}{2}\n'.format('\tCells', '=\t',
                                             list(self._cells.keys()))
         return string
+
+    def __deepcopy__(self, memo):
+        if id(self) in memo:
+            return memo[id(self)]
+        else:
+            clone = type(self).__new__(type(self))
+            memo[id(self)] = clone
+
+            for k, v in self.__dict__.items():
+                setattr(clone, k, deepcopy(v, memo))
+            clone.id = None
+
+            return clone
 
     @property
     def id(self):
