@@ -1,4 +1,4 @@
-from collections import Iterable
+from collections import Iterable, Mapping
 from numbers import Real, Integral
 import warnings
 from xml.etree import ElementTree as ET
@@ -221,6 +221,8 @@ class Settings(object):
 
         self._resonance_scattering = None
 
+        self._modify_xs = {}
+
     @property
     def run_mode(self):
         return self._run_mode
@@ -420,6 +422,10 @@ class Settings(object):
     @property
     def resonance_scattering(self):
         return self._resonance_scattering
+
+    @property
+    def modify_xs(self):
+        return self._modify_xs
 
     @run_mode.setter
     def run_mode(self, run_mode):
@@ -812,6 +818,18 @@ class Settings(object):
             check_type('resonance_scattering', res, ResonanceScattering)
             self._resonance_scattering = [res]
 
+    @modify_xs.setter
+    def modify_xs(self, modify_xs):
+        check_type('modified xs', modify_xs, Mapping)
+        for name, nuclide in modify_xs.items():
+            check_type('modified xs for {}'.format(name), nuclide, Mapping)
+            if 'scattering' not in nuclide:
+                raise ValueError("The modified cross section entry for {} is missing "
+                                 "a 'scattering' key".format(name))
+            check_type('modified scattering for {}'.format(name),
+                       nuclide['scattering'], Real)
+        self._modify_xs = modify_xs
+
     def _create_run_mode_subelement(self):
 
         if self.run_mode == 'eigenvalue':
@@ -1152,6 +1170,18 @@ class Settings(object):
         self._create_dd_subelement()
         self._create_use_multipole_subelement()
         self._create_resonance_scattering_element()
+
+        if self.modify_xs:
+            modify_xs = ET.SubElement(self._settings_file, "modify_xs")
+            for name, nuclide in self.modify_xs.items():
+                nuc_element = ET.SubElement(modify_xs, "nuclide")
+                name_element = ET.SubElement(nuc_element, "name")
+                name_element.text = name
+                if nuclide.get('absorption'):
+                    abs_element = ET.SubElement(nuc_element, "absorption")
+                    abs_element.text = 'true'
+                scat_element = ET.SubElement(nuc_element, "scattering")
+                scat_element.text = str(nuclide['scattering'])
 
         # Clean the indentation in the file to be user-readable
         clean_xml_indentation(self._settings_file)

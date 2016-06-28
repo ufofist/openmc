@@ -92,6 +92,10 @@ contains
     type(NodeList), pointer :: node_scat_list => null()
     type(NodeList), pointer :: node_source_list => null()
 
+    type(Node), pointer :: node_modify_xs => null()
+    type(NodeList), pointer :: node_modify_nuc => null()
+    type(Node), pointer :: node_nuclide => null()
+
     ! Check if settings.xml exists
     filename = trim(path_input) // "settings.xml"
     inquire(FILE=filename, EXIST=file_exists)
@@ -1123,6 +1127,29 @@ contains
         call fatal_error("Unrecognized value for <use_windowed_multipole> in &
              &settings.xml")
       end select
+    end if
+
+    ! Check for modified cross sections
+    if (check_for_node(doc, "modify_xs")) then
+      call get_node_ptr(doc, "modify_xs", node_modify_xs)
+
+      call get_node_list(node_modify_xs, "nuclide", node_modify_nuc)
+      n = get_list_size(node_modify_nuc)
+      allocate(modify_xs(n))
+
+      do i = 1, n
+        call get_list_item(node_modify_nuc, i, node_nuclide)
+        call get_node_value(node_nuclide, "name", modify_xs(i) % name)
+        call get_node_value(node_nuclide, "scattering", modify_xs(i) % scattering)
+        if (check_for_node(node_nuclide, "absorption")) then
+          call get_node_value(node_nuclide, "absorption", temp_str)
+          if (temp_str == 'true' .or. temp_str == '1') then
+            modify_xs(i) % absorption = .true.
+          end if
+        end if
+      end do
+    else
+      allocate(modify_xs(0))
     end if
 
     ! Close settings XML file

@@ -399,7 +399,7 @@ contains
       if (data_0K) then
         continue
       else
-        call read_reactions(nuc)
+        call read_reactions(nuc, i_listing)
         call read_nu_data(nuc)
         call read_energy_dist(nuc)
         call read_angular_dist(nuc)
@@ -794,10 +794,11 @@ contains
 ! multiplicities, and cross-sections.
 !===============================================================================
 
-  subroutine read_reactions(nuc)
+  subroutine read_reactions(nuc, i_listing)
     type(Nuclide), intent(inout) :: nuc
+    integer, intent(in) :: i_listing
 
-    integer :: i         ! loop indices
+    integer :: i, j      ! loop indices
     integer :: i_fission ! index in nuc % index_fission
     integer :: LMT       ! index of MT list in XSS
     integer :: NMT       ! Number of reactions
@@ -841,6 +842,13 @@ contains
       allocate(rxn % products(1) % distribution(1))
       allocate(UncorrelatedAngleEnergy :: rxn % products(1) % distribution(1) % obj)
     end associate
+
+    ! Modify elastic scattering
+    do j = 1, size(modify_xs)
+      if (starts_with(xs_listings(i_listing) % alias, modify_xs(j) % name)) then
+        nuc % elastic(:) = modify_xs(j) % scattering
+      end if
+    end do
 
     ! Add contribution of elastic scattering to total cross section
     nuc % total = nuc % total + nuc % elastic
@@ -896,6 +904,17 @@ contains
         allocate(rxn % sigma(NE))
         XSS_index = JXS7 + LOCA + 1
         rxn % sigma = get_real(NE)
+
+        ! Set absorption cross sections to zero unless the user explicitly
+        ! requests to keep them
+        do j = 1, size(modify_xs)
+          if (starts_with(xs_listings(i_listing) % alias, modify_xs(j) % name)) then
+            if (.not. ((is_fission(rxn % MT) .or. rxn % MT == 102) .and. &
+                 modify_xs(j) % absorption)) then
+              rxn % sigma(:) = ZERO
+            end if
+          end if
+        end do
       end associate
     end do
 
