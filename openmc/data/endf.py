@@ -17,11 +17,11 @@ from collections import OrderedDict, Iterable
 import numpy as np
 from numpy.polynomial.polynomial import Polynomial
 
-from . import reaction_name
-from .container import Tabulated1D, interpolation_scheme
-from .energy_distribution import *
-from .angle_distribution import AngleDistribution
-from .thermal import CoherentElastic
+from . import REACTION_NAME
+from .function import Tabulated1D, INTERPOLATION_SCHEME
+#from .energy_distribution import *
+#from .angle_distribution import AngleDistribution
+#from .thermal import CoherentElastic
 from openmc.stats.univariate import Uniform, Tabular, Legendre
 
 
@@ -120,6 +120,213 @@ def seek_section_end(f):
             break
 
 
+def get_text_record(file_obj):
+    return file_obj.readline()[:66]
+
+
+def get_cont_record(file_obj, skipC=False):
+    line = file_obj.readline()
+    if skipC:
+        C1 = None
+        C2 = None
+    else:
+        C1 = endftod(line[:11])
+        C2 = endftod(line[11:22])
+    L1 = int(line[22:33])
+    L2 = int(line[33:44])
+    N1 = int(line[44:55])
+    N2 = int(line[55:66])
+    return [C1, C2, L1, L2, N1, N2]
+
+
+def get_head_record(file_obj):
+    line = file_obj.readline()
+    ZA = int(endftod(line[:11]))
+    AWR = endftod(line[11:22])
+    L1 = int(line[22:33])
+    L2 = int(line[33:44])
+    N1 = int(line[44:55])
+    N2 = int(line[55:66])
+    return [ZA, AWR, L1, L2, N1, N2]
+
+
+def get_list_record(file_obj, only_list=False):
+    # determine how many items are in list
+    items = get_cont_record(file_obj)
+    NPL = items[4]
+
+    # read items
+    itemsList = []
+    m = 0
+    for i in range((NPL-1)//6 + 1):
+        line = file_obj.readline()
+        toRead = min(6, NPL-m)
+        for j in range(toRead):
+            val = endftod(line[0:11])
+            itemsList.append(val)
+            line = line[11:]
+        m = m + toRead
+    if only_list:
+        return itemsList
+    else:
+        return (items, itemsList)
+
+
+def get_tab1_record(file_obj):
+    # Determine how many interpolation regions and total points there are
+    line = file_obj.readline()
+    C1 = endftod(line[:11])
+    C2 = endftod(line[11:22])
+    L1 = int(line[22:33])
+    L2 = int(line[33:44])
+    n_regions = int(line[44:55])
+    n_pairs = int(line[55:66])
+    params = [C1, C2, L1, L2]
+
+    # Read the interpolation region data, namely NBT and INT
+    breakpoints = np.zeros(n_regions)
+    interpolation = np.zeros(n_regions)
+    m = 0
+    for i in range((n_regions - 1)//3 + 1):
+        line = file_obj.readline()
+        toRead = min(3, n_regions - m)
+        for j in range(toRead):
+            breakpoints[m] = int(line[0:11])
+            interpolation[m] = int(line[11:22])
+            line = line[22:]
+            m += 1
+
+    # Read tabulated pairs x(n) and y(n)
+    x = np.zeros(n_pairs)
+    y = np.zeros(n_pairs)
+    m = 0
+    for i in range((n_pairs - 1)//3 + 1):
+        line = file_obj.readline()
+        toRead = min(3, n_pairs - m)
+        for j in range(toRead):
+            x[m] = endftod(line[:11])
+            y[m] = endftod(line[11:22])
+            line = line[22:]
+            m += 1
+
+    return params, Tabulated1D(x, y, breakpoints, interpolation)
+
+
+def get_tab2_record(file_obj):
+    r = ENDFTab2Record()
+    r.read(file_obj)
+    return r
+
+
+class Evaluation(object):
+    def __init__(self, filename):
+        fh = open(filename, 'rU')
+        self.section = {}
+        self.info = {}
+        self.target = {}
+        self.projectile = {}
+        self.reaction_list = []
+
+        # Determine MAT number for this evaluation
+        MF = 0
+        while MF == 0:
+            position = fh.tell()
+            line = fh.readline()
+            MF = int(line[70:72])
+        self.material = int(line[66:70])
+        fh.seek(position)
+
+        while True:
+            # Find next section
+            while True:
+                position = fh.tell()
+                line = fh.readline()
+                MAT = int(line[66:70])
+                MF = int(line[70:72])
+                MT = int(line[72:75])
+                if MT > 0 or MAT == 0:
+                    fh.seek(position)
+                    break
+
+            # If end of material reached, exit loop
+            if MAT == 0:
+                break
+
+            section_data = ''
+            while True:
+                line = fh.readline()
+                if line[72:75] == '  0':
+                    break
+                else:
+                    section_data += line
+            self.section[MF, MT] = section_data
+
+        self._read_header()
+
+    def _read_header(self):
+        file_obj = io.StringIO(self.section[1, 451])
+
+        # Information about target/projectile
+        # First HEAD record
+        items = get_head_record(file_obj)
+        self.target['ZA'] = items[0]
+        self.target['mass'] = items[1]
+        self._LRP = items[2]
+        self.target['fissionable'] = (items[3] == 1)
+        try:
+            global libraries
+            library = libraries[items[4]]
+        except KeyError:
+            library = 'Unknown'
+        self.info['modification'] = items[5]
+
+        # Control record 1
+        items = get_cont_record(file_obj)
+        self.target['excitation_energy'] = items[0]
+        self.target['stable'] = (int(items[1]) == 0)
+        self.target['state'] = items[2]
+        self.target['isomeric_state'] = items[3]
+        self.info['format'] = items[5]
+        assert self.info['format'] == 6
+
+        # Control record 2
+        items = get_cont_record(file_obj)
+        self.projectile['mass'] = items[0]
+        self.info['energy_max'] = items[1]
+        library_release = items[2]
+        self.info['sublibrary'] = items[4]
+        library_version = items[5]
+        self.info['library'] = (library, library_version, library_release)
+
+        # Control record 3
+        items = get_cont_record(file_obj)
+        self.target['temperature'] = items[0]
+        self.info['derived'] = (items[2] > 0)
+        NWD = items[4]
+        NXC = items[5]
+
+        # Text records
+        text = [get_text_record(file_obj) for i in range(NWD)]
+        if len(text) >= 5:
+            self.target['zsymam'] = text[0][0:11]
+            self.info['laboratory'] = text[0][11:22]
+            self.info['date'] = text[0][22:32]
+            self.info['author'] = text[0][32:66]
+            self.info['reference'] = text[1][1:22]
+            self.info['date_distribution'] = text[1][22:32]
+            self.info['date_release'] = text[1][33:43]
+            self.info['date_entry'] = text[1][55:63]
+            self.info['identifier'] = text[2:5]
+            self.info['description'] = text[5:]
+
+        # File numbers, reaction designations, and number of records
+        for i in range(NXC):
+            items = get_cont_record(file_obj, skipC=True)
+            MF, MT, NC, MOD = items[2:6]
+            self.reaction_list.append((MF, MT, NC, MOD))
+
+
+'''
 class Evaluation(object):
     """ENDF material evaluation with multiple files/sections
 
@@ -1673,7 +1880,7 @@ class Evaluation(object):
         return '<Evaluation: {0}, {1}>'.format(name, library)
 
 
-
+'''
 
 class ENDFTab2Record(object):
     def __init__(self):
@@ -1704,13 +1911,13 @@ class ENDFTab2Record(object):
                 line = line[22:]
             m = m + toRead
 
-
+'''
 class AngularDistribution(object):
     def __init__(self):
         pass
 
 
-class Reaction(object):
+class ReactionENDF(object):
     """Data for a single reaction including its cross section and secondary
     angle/energy distribution.
 
@@ -2555,3 +2762,4 @@ class Resonance(object):
 
 _formalisms = {1: SingleLevelBreitWigner, 2: MultiLevelBreitWigner,
                3: ReichMoore, 4: AdlerAdler, 7: RMatrixLimited}
+'''

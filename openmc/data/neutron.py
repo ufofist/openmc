@@ -11,6 +11,7 @@ from .data import ATOMIC_SYMBOL, SUM_RULES
 from .ace import Table, get_table
 from .fission_energy import FissionEnergyRelease
 from .function import Tabulated1D, Sum
+from .endf import Evaluation
 from .product import Product
 from .reaction import Reaction, _get_photon_products
 from .urr import ProbabilityTables
@@ -487,4 +488,46 @@ class IncidentNeutron(EqualityMixin):
         # Read unresolved resonance probability tables
         data.urr = ProbabilityTables.from_ace(ace)
 
+        return data
+
+    @classmethod
+    def from_endf(cls, ev_or_filename):
+        if isinstance(ev_or_filename, Evaluation):
+            ev = ev_or_filename
+        else:
+            ev = Evaluation(ev_or_filename)
+
+        atomic_number = ev.target['ZA'] // 1000
+        mass_number = ev.target['ZA'] % 1000
+        metastable = ev.target['isomeric_state']
+        atomic_weight_ratio = ev.target['mass']
+        temperature = ev.target['temperature']
+
+        # Determine name
+        element = atomic_symbol[atomic_number]
+        if metastable > 0:
+            name = '{}{}_m{}'.format(element, mass_number, metastable)
+        else:
+            name = '{}{}'.format(element, mass_number)
+
+        # Instantiate incident neutron data
+        data = cls(name, atomic_number, mass_number, metastable,
+                   atomic_weight_ratio, temperature)
+
+        # Read each reaction
+        for mf, mt, nc, mod in ev.reaction_list:
+            if mf == 3:
+                data.reactions[mt] = Reaction.from_endf(ev, mt)
+
+        # If first-chance, second-chance, etc. fission are present, check
+        # whether energy distributions were specified in MF=5. If not, copy the
+        # energy distribution from MT=18.
+        for mt, rx in data.reactions.items():
+            if mt in (19, 20, 21, 38):
+                if (5, mt) not in ev.section:
+                    neutron = data.reactions[18].products[0]
+                    rx.products[0].applicability = neutron.applicability
+                    rx.products[0].distribution = neutron.distribution
+
+        data._evaluation = ev
         return data

@@ -1,4 +1,5 @@
 from collections import Iterable
+from io import StringIO
 from numbers import Real
 import sys
 
@@ -6,11 +7,125 @@ import numpy as np
 
 import openmc.checkvalue as cv
 from openmc.mixin import EqualityMixin
-from .function import Tabulated1D, Polynomial, Function1D
+from openmc.stats import Tabular, Legendre
 from .angle_energy import AngleEnergy
+from .angle_distribution import AngleDistribution
+from .correlated import CorrelatedAngleEnergy
+from .data import ATOMIC_SYMBOL
+from .endf import get_head_record, get_tab1_record, get_tab2_record, \
+    get_list_record, get_cont_record
+from .function import Tabulated1D, Polynomial, Function1D
+from .kalbach_mann import KalbachMann
+from .laboratory import LaboratoryAngleEnergy
+from .nbody import NBodyPhaseSpace
+from .uncorrelated import UncorrelatedAngleEnergy
 
 if sys.version_info[0] >= 3:
     basestring = str
+
+
+def get_products(ev, mt):
+    file_obj = StringIO(ev.section[6, mt])
+
+    # Read HEAD record
+    items = get_head_record(file_obj)
+    reference_frame = {1: 'laboratory', 2: 'center-of-mass',
+                       3: 'light-heavy'}[items[3]]
+    n_products = items[4]
+
+    products = []
+    for i in range(n_products):
+        # Get yield for this product
+        params, yield_ = get_tab1_record(file_obj)
+
+        za = params[0]
+        awr = params[1]
+        lip = params[2]
+        law = params[3]
+
+        if za == 0:
+            p = Product('photon')
+        elif za == 1:
+            p = Product('neutron')
+        elif za == 1000:
+            p = Product('electron')
+        else:
+            z = za // 1000
+            a = za % 1000
+            p = Product('{}{}'.format(atomic_symbol[z], a))
+
+        p.yield_ = yield_
+
+        """
+        # Set reference frame
+        if reference_frame == 'laboratory':
+            p.center_of_mass = False
+        elif reference_frame == 'center-of-mass':
+            p.center_of_mass = True
+        elif reference_frame == 'light-heavy':
+            p.center_of_mass = (awr <= 4.0)
+        """
+
+        if law == 0:
+            # No distribution given
+            pass
+        if law == 1:
+            # Continuum energy-angle distribution
+            tab2 = get_tab2_record(file_obj)
+            lang = tab2.params[2]
+            if lang == 1:
+                p.distribution = [CorrelatedAngleEnergy.from_endf(
+                    file_obj, tab2)]
+            elif lang == 2:
+                p.distribution = [KalbachMann.from_endf(file_obj, tab2)]
+
+        elif law == 2:
+            # Discrete two-body scattering
+            tab2 = get_tab2_record(file_obj)
+            ne = tab2.params[5]
+            energy = np.zeros(ne)
+            mu = []
+            for i in range(ne):
+                items, values = get_list_record(file_obj)
+                energy[i] = items[1]
+                lang = items[2]
+                if lang == 0:
+                    mu.append(Legendre(values))
+                elif lang == 12:
+                    mu.append(Tabular(values[::2], values[1::2]))
+                elif lang == 14:
+                    mu.append(Tabular(values[::2], values[1::2],
+                                      'log-linear'))
+
+            angle_dist = AngleDistribution(energy, mu)
+            dist = UncorrelatedAngleEnergy(angle_dist)
+            p.distribution = [dist]
+            # TODO: Add level-inelastic info?
+
+        elif law == 3:
+            # Isotropic discrete emission
+            p.distribution = [UncorrelatedAngleEnergy()]
+            # TODO: Add level-inelastic info?
+
+        elif law == 4:
+            # Discrete two-body recoil
+            pass
+
+        elif law == 5:
+            # Charged particle elastic scattering
+            pass
+
+        elif law == 6:
+            # N-body phase-space distribution
+            p.distribution = [NBodyPhaseSpace.from_endf(file_obj)]
+
+        elif law == 7:
+            # Laboratory energy-angle distribution
+            p.distribution = [LaboratoryAngleEnergy.from_endf(file_obj)]
+
+        products.append(p)
+
+    return products
 
 
 class Product(EqualityMixin):
