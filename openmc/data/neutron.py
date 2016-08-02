@@ -7,11 +7,11 @@ from warnings import warn
 import numpy as np
 import h5py
 
-from .data import ATOMIC_SYMBOL, SUM_RULES
+from .data import ATOMIC_SYMBOL
 from .ace import Table, get_table
 from .fission_energy import FissionEnergyRelease
 from .function import Tabulated1D, Sum
-from .endf import Evaluation
+from .endf import Evaluation, SUM_RULES
 from .product import Product
 from .reaction import Reaction, _get_photon_products
 from .urr import ProbabilityTables
