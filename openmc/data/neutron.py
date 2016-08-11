@@ -14,6 +14,7 @@ from .function import Tabulated1D, Sum
 from .endf import Evaluation, SUM_RULES
 from .product import Product
 from .reaction import Reaction, _get_photon_products
+from .resonance import Resonances
 from .urr import ProbabilityTables
 import openmc.checkvalue as cv
 from openmc.mixin import EqualityMixin
@@ -504,7 +505,7 @@ class IncidentNeutron(EqualityMixin):
         temperature = ev.target['temperature']
 
         # Determine name
-        element = atomic_symbol[atomic_number]
+        element = ATOMIC_SYMBOL[atomic_number]
         if metastable > 0:
             name = '{}{}_m{}'.format(element, mass_number, metastable)
         else:
@@ -513,6 +514,9 @@ class IncidentNeutron(EqualityMixin):
         # Instantiate incident neutron data
         data = cls(name, atomic_number, mass_number, metastable,
                    atomic_weight_ratio, temperature)
+
+        if (2, 151) in ev.section:
+            data.resonances = Resonances.from_endf(ev)
 
         # Read each reaction
         for mf, mt, nc, mod in ev.reaction_list:

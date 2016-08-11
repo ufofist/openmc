@@ -16,3 +16,4 @@ from .thermal import *
 from .urr import *
 from .library import *
 from .fission_energy import *
+from .resonance import *

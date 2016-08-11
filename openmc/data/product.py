@@ -52,7 +52,7 @@ def get_products(ev, mt):
         else:
             z = za // 1000
             a = za % 1000
-            p = Product('{}{}'.format(atomic_symbol[z], a))
+            p = Product('{}{}'.format(ATOMIC_SYMBOL[z], a))
 
         p.yield_ = yield_
 
