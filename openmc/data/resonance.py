@@ -1,4 +1,4 @@
-from collections import defaultdict, MutableSequence
+from collections import defaultdict, MutableSequence, Iterable
 import io
 
 import numpy as np
@@ -6,6 +6,11 @@ from numpy.polynomial import Polynomial
 import pandas as pd
 
 from .endf import get_head_record, get_cont_record, get_tab1_record, get_list_record
+try:
+    from .reconstruct import wave_number, penetration_shift, reconstruct_mlbw, reconstruct_slbw
+    _reconstruct = True
+except ImportError:
+    _reconstruct = False
 import openmc.checkvalue as cv
 
 
@@ -144,6 +149,8 @@ class ResonanceRange(object):
         self.channel_radius = channel
         self.scattering_radius = scattering
 
+        self._prepared = False
+
     @classmethod
     def from_endf(cls, ev, file_obj, items):
         """Create resonance range from an ENDF evaluation.
@@ -225,6 +232,12 @@ class MultiLevelBreitWigner(ResonanceRange):
         self.parameters = None
         self.q = None
 
+        # Set resonance reconstruction function
+        if _reconstruct:
+            self._reconstruct = reconstruct_mlbw
+        else:
+            self._reconstruct = None
+
     @classmethod
     def from_endf(cls, ev, file_obj, items):
         """Create MLBW data from an ENDF evaluation.
@@ -255,6 +268,7 @@ class MultiLevelBreitWigner(ResonanceRange):
 
         # Other scatter radius parameters
         items = get_cont_record(file_obj)
+        target_spin = items[0]
         ap = Polynomial((items[1],))  # energy-independent scattering-radius
         NLS = items[4]  # number of l-values
 
@@ -269,8 +283,8 @@ class MultiLevelBreitWigner(ResonanceRange):
         records = []
         for l in range(NLS):
             items, values = get_list_record(file_obj)
-            q[l] = items[1]
             l_value = items[2]
+            q[l_value] = items[1]
             competitive = items[3]
 
             # Construct scattering and channel radius
@@ -313,8 +327,92 @@ class MultiLevelBreitWigner(ResonanceRange):
         mlbw = cls(energy_min, energy_max, channel_radius, scattering_radius)
         mlbw.q = q
         mlbw.parameters = parameters
+        mlbw._target_spin = target_spin
 
         return mlbw
+
+    def _prepare_resonances(self, target):
+        A = target.atomic_weight_ratio
+
+        df = self.parameters.copy()
+
+        # Penetration and shift factors
+        p = np.zeros(len(df))
+        s = np.zeros(len(df))
+
+        # Penetration and shift factors for competitive reaction
+        px = np.zeros(len(df))
+        sx = np.zeros(len(df))
+
+        l_values = []
+        competitive = []
+
+        for i, E, l, J, gt, gn, gg, gf, gx in df.itertuples():
+            if l not in l_values:
+                l_values.append(l)
+                competitive.append(gx > 0)
+
+            # Determine penetration and shift corresponding to resonance energy
+            k = wave_number(A, E)
+            rho = k*self.channel_radius[l](E)
+            rhohat = k*self.scattering_radius[l](E)
+            p[i], s[i] = penetration_shift(l, rho)
+
+            # Determine penetration at modified energy for competitive reaction
+            if gx > 0:
+                Ex = E + self.q[l]*(A + 1)/A
+                rho = k*self.channel_radius[l](Ex)
+                rhohat = k*self.scattering_radius[l](Ex)
+                px[i], sx[i] = penetration_shift(l, rho)
+            else:
+                px[i] = sx[i] = 0.0
+
+        df['p'] = p
+        df['s'] = s
+        df['px'] = px
+        df['sx'] = sx
+
+        self._l_values = np.array(l_values)
+        self._competitive = np.array(competitive)
+        self._parameter_matrix = {}
+        for l in l_values:
+            self._parameter_matrix[l] = df[df['L'] == l].as_matrix()
+
+        self._prepared = True
+
+    def reconstruct(self, target, energies):
+        if not _reconstruct:
+            raise RuntimeError("Resonance reconstruction not available.")
+
+        if not self._prepared:
+            # Pre-calculate penetrations and shifts for resonances
+            self._prepare_resonances(target)
+
+        if not isinstance(energies, Iterable):
+            energies = np.array([energies])
+            return_scalar = True
+        else:
+            return_scalar = False
+
+        elastic = np.zeros_like(energies)
+        capture = np.zeros_like(energies)
+        fission = np.zeros_like(energies)
+
+        for i, E in enumerate(energies):
+            xse, xsg, xsf = reconstruct_mlbw(self, target, E)
+            elastic[i] = xse
+            capture[i] = xsg
+            fission[i] = xsf
+
+        elastic += target.reactions[2].xs(energies)
+        capture += target.reactions[102].xs(energies)
+        if 18 in target.reactions:
+            fission += target.reactions[18].xs(energies)
+
+        if return_scalar:
+            return(elastic[0], capture[0], fission[0])
+        else:
+            return (elastic, capture, fission)
 
 
 class SingleLevelBreitWigner(MultiLevelBreitWigner):
@@ -356,6 +454,12 @@ class SingleLevelBreitWigner(MultiLevelBreitWigner):
     def __init__(self, energy_min, energy_max, channel, scattering):
         super(SingleLevelBreitWigner, self).__init__(
             energy_min, energy_max, channel, scattering)
+
+        # Set resonance reconstruction function
+        if _reconstruct:
+            self._reconstruct = reconstruct_slbw
+        else:
+            self._reconstruct = None
 
 
 class ReichMoore(ResonanceRange):
@@ -489,6 +593,7 @@ class ReichMoore(ResonanceRange):
         rm.parameters = parameters
         rm.angle_distribution = angle_distribution
         rm.num_l_convergence = num_l_convergence
+        rm._target_spin = target_spin
 
         return rm
 
