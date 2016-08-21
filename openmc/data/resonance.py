@@ -7,7 +7,8 @@ import pandas as pd
 
 from .endf import get_head_record, get_cont_record, get_tab1_record, get_list_record
 try:
-    from .reconstruct import wave_number, penetration_shift, reconstruct_mlbw, reconstruct_slbw
+    from .reconstruct import wave_number, penetration_shift, reconstruct_mlbw, \
+        reconstruct_slbw, reconstruct_rm
     _reconstruct = True
 except ImportError:
     _reconstruct = False
@@ -188,6 +189,40 @@ class ResonanceRange(object):
         a = Polynomial((0.123 * ev.target['mass']**(1./3.) + 0.08,))
 
         return cls(energy_min, energy_max, {0: a}, {0: ap})
+
+    def reconstruct(self, target, energies):
+        if not _reconstruct:
+            raise RuntimeError("Resonance reconstruction not available.")
+
+        if not self._prepared:
+            # Pre-calculate penetrations and shifts for resonances
+            self._prepare_resonances(target)
+
+        if not isinstance(energies, Iterable):
+            energies = np.array([energies])
+            return_scalar = True
+        else:
+            return_scalar = False
+
+        elastic = np.zeros_like(energies)
+        capture = np.zeros_like(energies)
+        fission = np.zeros_like(energies)
+
+        for i, E in enumerate(energies):
+            xse, xsg, xsf = self._reconstruct(self, target, E)
+            elastic[i] = xse
+            capture[i] = xsg
+            fission[i] = xsf
+
+        elastic += target.reactions[2].xs(energies)
+        capture += target.reactions[102].xs(energies)
+        if 18 in target.reactions:
+            fission += target.reactions[18].xs(energies)
+
+        if return_scalar:
+            return(elastic[0], capture[0], fission[0])
+        else:
+            return (elastic, capture, fission)
 
 
 class MultiLevelBreitWigner(ResonanceRange):
@@ -376,43 +411,9 @@ class MultiLevelBreitWigner(ResonanceRange):
         self._competitive = np.array(competitive)
         self._parameter_matrix = {}
         for l in l_values:
-            self._parameter_matrix[l] = df[df['L'] == l].as_matrix()
+            self._parameter_matrix[l] = df[df.L == l].as_matrix()
 
         self._prepared = True
-
-    def reconstruct(self, target, energies):
-        if not _reconstruct:
-            raise RuntimeError("Resonance reconstruction not available.")
-
-        if not self._prepared:
-            # Pre-calculate penetrations and shifts for resonances
-            self._prepare_resonances(target)
-
-        if not isinstance(energies, Iterable):
-            energies = np.array([energies])
-            return_scalar = True
-        else:
-            return_scalar = False
-
-        elastic = np.zeros_like(energies)
-        capture = np.zeros_like(energies)
-        fission = np.zeros_like(energies)
-
-        for i, E in enumerate(energies):
-            xse, xsg, xsf = reconstruct_mlbw(self, target, E)
-            elastic[i] = xse
-            capture[i] = xsg
-            fission[i] = xsf
-
-        elastic += target.reactions[2].xs(energies)
-        capture += target.reactions[102].xs(energies)
-        if 18 in target.reactions:
-            fission += target.reactions[18].xs(energies)
-
-        if return_scalar:
-            return(elastic[0], capture[0], fission[0])
-        else:
-            return (elastic, capture, fission)
 
 
 class SingleLevelBreitWigner(MultiLevelBreitWigner):
@@ -508,6 +509,12 @@ class ReichMoore(ResonanceRange):
         self.angle_distribution = False
         self.num_l_convergence = 0
 
+        # Set resonance reconstruction function
+        if _reconstruct:
+            self._reconstruct = reconstruct_rm
+        else:
+            self._reconstruct = None
+
     @classmethod
     def from_endf(cls, ev, file_obj, items):
         """Create Reich-Moore resonance data from an ENDF evaluation.
@@ -596,6 +603,41 @@ class ReichMoore(ResonanceRange):
         rm._target_spin = target_spin
 
         return rm
+
+    def _prepare_resonances(self, target):
+        A = target.atomic_weight_ratio
+
+        df = self.parameters.copy()
+
+        # Penetration and shift factors
+        p = np.zeros(len(df))
+        s = np.zeros(len(df))
+
+        l_values = []
+        lj_values = []
+
+        for i, E, l, J, gn, gg, gfa, gfb in df.itertuples():
+            if l not in l_values:
+                l_values.append(l)
+            if (l, J) not in lj_values:
+                lj_values.append((l, J))
+
+            # Determine penetration and shift corresponding to resonance energy
+            k = wave_number(A, E)
+            rho = k*self.channel_radius[l](E)
+            rhohat = k*self.scattering_radius[l](E)
+            p[i], s[i] = penetration_shift(l, rho)
+
+        df['p'] = p
+        df['s'] = s
+
+        self._l_values = np.array(l_values)
+        self._parameter_matrix = {}
+        for (l, J) in lj_values:
+            self._parameter_matrix[l, J] = df[(df.L == l) &
+                                              (df.J == J)].as_matrix()
+
+        self._prepared = True
 
 
 class RMatrixLimited(ResonanceRange):

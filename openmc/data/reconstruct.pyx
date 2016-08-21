@@ -3,10 +3,12 @@ from libc.stdlib cimport atof, atoi
 from libc.string cimport strtok, strcpy, strncpy
 from libc.math cimport cos, sin, sqrt, atan
 
+from cmath import exp
 from math import pi
 
 cimport numpy as np
 import numpy as np
+from numpy.linalg import inv
 cimport cython
 
 
@@ -269,5 +271,140 @@ def reconstruct_slbw(slbw, target, double E):
             # Add contribution to fission per Equation D.6
             if gf > 0:
                 fission += f*gf
+
+    return (elastic, capture, fission)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def reconstruct_rm(rm, target, double E):
+    cdef int i, l, m, n, i_res
+    cdef double elastic, capture, fission, total
+    cdef double A, k, rho, rhohat, I
+    cdef double P, S, phi
+    cdef double imin, imax, s, Jmin, Jmax, J, j
+    cdef double E_r, gn, gg, gfa, gfb, P_r
+    cdef double E_diff, abs_value, gJ
+    cdef double pie = pi
+    cdef double complex Ubar, U_, denominator_inverse
+    cdef bint hasfission
+    cdef np.ndarray[double, ndim=2] one
+    cdef np.ndarray[double complex, ndim=2] K, Imat, U
+    cdef double [:,:] params
+
+    # Get nuclear spin
+    I = rm._target_spin
+
+    elastic = 0.
+    fission = 0.
+    total = 0.
+    A = target.atomic_weight_ratio
+    k = wave_number(A, E)
+    one = np.eye(3)
+    K = np.zeros((3,3), dtype=complex)
+
+    for i, l in enumerate(rm._l_values):
+        # Check for l-dependent scattering radius
+        rho = k*rm.channel_radius[l](E)
+        rhohat = k*rm.scattering_radius[l](E)
+
+        # Calculate shift and penetrability
+        P, S = penetration_shift(l, rho)
+
+        # Calculate phase shift
+        phi = phaseshift(l, rhohat)
+
+        # Calculate common factor on collision matrix terms
+        Ubar = exp(-2j*phi)
+
+        imin = abs(I - 0.5)
+        imax = I + 0.5
+
+        for s in range(int(imax - imin + 1)):
+            s += imin
+            Jmin = abs(l - s)
+            Jmax = l + s
+            for J in range(int(Jmax - Jmin + 1)):
+                J += Jmin
+
+                # Initialize K matrix
+                for m in range(3):
+                    for n in range(3):
+                        K[m,n] = 0.0
+
+                hasfission = False
+                if (l, J) in rm._parameter_matrix:
+                    params = rm._parameter_matrix[l, J]
+
+                    for i_res in range(params.shape[0]):
+                        # If the spin is negative assume this resonance comes
+                        # from the I - 1/2 channel and vice versa
+                        j = params[i_res, 2]
+                        if l > 0:
+                            if l == I or s != abs(I - 0.5) or J != abs(abs(I - l) - 0.5):
+                                if (j < 0 and s != abs(I - 0.5) or
+                                    j > 0 and s != I + 0.5):
+                                    continue
+
+                        # Copy resonance parameters
+                        E_r = params[i_res, 0]
+                        gn = params[i_res, 3]
+                        gg = params[i_res, 4]
+                        gfa = params[i_res, 5]
+                        gfb = params[i_res, 6]
+                        P_r = params[i_res, 7]
+
+                        # Calculate neutron width at energy E
+                        gn = sqrt(P*gn/P_r)
+
+                        # Calculate inverse of denominator of K matrix terms
+                        E_diff = E_r - E
+                        abs_value = E_diff*E_diff + 0.25*gg*gg
+                        denominator_inverse = (E_diff + 0.5j*gg)/abs_value
+
+                        # Upper triangular portion of K matrix
+                        K[0,0] = K[0,0] + gn*gn*denominator_inverse
+                        if gfa != 0.0 or gfb != 0.0:
+                            # Negate fission widths if necessary
+                            gfa = (-1 if gfa < 0 else 1)*sqrt(abs(gfa))
+                            gfb = (-1 if gfb < 0 else 1)*sqrt(abs(gfb))
+
+                            K[0,1] = K[0,1] + gn*gfa*denominator_inverse
+                            K[0,2] = K[0,2] + gn*gfb*denominator_inverse
+                            K[1,1] = K[1,1] + gfa*gfa*denominator_inverse
+                            K[1,2] = K[1,2] + gfa*gfb*denominator_inverse
+                            K[2,2] = K[2,2] + gfb*gfb*denominator_inverse
+                            hasfission = True
+
+                    # multiply by factor of i/2
+                    for m in range(3):
+                        for n in range(3):
+                            K[m,n] = K[m,n] * 0.5j
+
+                    # Get collision matrix
+                    gJ = (2*J + 1)/(4*I + 2)
+                    if hasfission:
+                        # Copy upper triangular portion of K to lower triangular
+                        K[1,0] = K[0,1]
+                        K[2,0] = K[0,2]
+                        K[2,1] = K[1,2]
+
+                        Imat = inv(one - K)
+                        U = Ubar*(2*Imat - one)
+                        elastic += gJ*abs(1 - U[0,0])**2
+                        fission += 4*gJ*(abs(Imat[1,0])**2 + abs(Imat[2,0])**2)
+                        total += 2*gJ*(1 - U[0,0].real)
+                    else:
+                        U_ = Ubar*(2*(1 - K[0,0]).conjugate()/abs(1 - K[0,0])**2 - 1)
+                        elastic += gJ*abs(1 - U_)**2
+                        total += 2*gJ*(1 - U_.real)
+
+    # Calculate capture as difference of other cross sections
+    capture = total - elastic - fission
+
+    elastic *= pie/k**2
+    capture *= pie/k**2
+    fission *= pie/k**2
 
     return (elastic, capture, fission)
