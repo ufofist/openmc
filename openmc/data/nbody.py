@@ -144,6 +144,20 @@ class NBodyPhaseSpace(AngleEnergy):
 
     @classmethod
     def from_endf(cls, file_obj):
+        """Generate N-body phase space distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positions at the start of the N-body phase space
+            distribution
+
+        Returns
+        -------
+        openmc.data.NBodyPhaseSpace
+            N-body phase space distribution
+
+        """
         items = get_cont_record(file_obj)
         total_mass = items[0]
         n_particles = items[5]

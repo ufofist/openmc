@@ -60,6 +60,24 @@ class EnergyDistribution(EqualityMixin):
 
     @staticmethod
     def from_endf(file_obj, params):
+        """Generate energy distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.EnergyDistribution
+            A sub-class of :class:`openmc.data.EnergyDistribution`
+
+        """
         lf = params[3]
         if lf == 1:
             return ArbitraryTabulated.from_endf(file_obj, params)
@@ -107,6 +125,24 @@ class ArbitraryTabulated(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate arbitrary tabulated distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.ArbitraryTabulated
+            Arbitrary tabulated distribution
+
+        """
         tab2 = get_tab2_record(file_obj)
         n_energies = tab2.params[5]
 
@@ -162,6 +198,24 @@ class GeneralEvaporation(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate general evaporation spectrum from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.GeneralEvaporation
+            General evaporation spectrum
+
+        """
         u = params[0]
         params, theta = get_tab1_record(file_obj)
         params, g = get_tab1_record(file_obj)
@@ -277,6 +331,24 @@ class MaxwellEnergy(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate Maxwell distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.MaxwellEnergy
+            Maxwell distribution
+
+        """
         u = params[0]
         params, theta = get_tab1_record(file_obj)
         return cls(theta, u)
@@ -391,6 +463,24 @@ class Evaporation(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate evaporation spectrum from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.Evaporation
+            Evaporation spectrum
+
+        """
         u = params[0]
         params, theta = get_tab1_record(file_obj)
         return cls(theta, u)
@@ -531,6 +621,24 @@ class WattEnergy(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate Watt fission spectrum from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.WattEnergy
+            Watt fission spectrum
+
+        """
         u = params[0]
         params, a = get_tab1_record(file_obj)
         params, b = get_tab1_record(file_obj)
@@ -645,6 +753,24 @@ class MadlandNix(EnergyDistribution):
 
     @classmethod
     def from_endf(cls, file_obj, params):
+        """Generate Madland-Nix fission spectrum from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for an energy
+            distribution.
+        params : list
+            List of parameters at the start of the energy distribution that
+            includes the LF value indicating what type of energy distribution is
+            present.
+
+        Returns
+        -------
+        openmc.data.MadlandNix
+            Madland-Nix fission spectrum
+
+        """
         params, tm = get_tab1_record(file_obj)
         efl, efh = params[0:2]
         return cls(efl, efh, tm)

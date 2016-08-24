@@ -69,6 +69,11 @@ class Resonances(object):
         ev : openmc.data.endf.Evaluation
             ENDF evaluation
 
+        Returns
+        -------
+        openmc.data.Resonances
+            Resonance data
+
         """
         file_obj = io.StringIO(ev.section[2, 151])
 
@@ -158,6 +163,11 @@ class ResonanceRange(object):
             Items from the CONT record at the start of the resonance range
             subsection
 
+        Returns
+        -------
+        openmc.data.ResonanceRange
+            Resonance range data
+
         """
         energy_min, energy_max = items[0:2]
 
@@ -229,6 +239,11 @@ class MultiLevelBreitWigner(ResonanceRange):
         items : list
             Items from the CONT record at the start of the resonance range
             subsection
+
+        Returns
+        -------
+        openmc.data.MultiLevelBreitWigner
+            Multi-level Breit-Wigner resonance parameters
 
         """
 
@@ -404,6 +419,11 @@ class ReichMoore(ResonanceRange):
             Items from the CONT record at the start of the resonance range
             subsection
 
+        Returns
+        -------
+        openmc.data.ReichMoore
+            Reich-Moore resonance parameters
+
         """
         # Read energy-dependent scattering radius if present
         energy_min, energy_max = items[0:2]
@@ -474,9 +494,9 @@ class ReichMoore(ResonanceRange):
 
 
 class RMatrixLimited(ResonanceRange):
-    """R-Matrix Limited resolved resonance formalism data.
+    """R-matrix limited resolved resonance formalism data.
 
-    R-Matrix Limited resolved resonance data is identified by LRF=7 in the
+    R-matrix limited resolved resonance data is identified by LRF=7 in the
     ENDF-6 format.
 
     Parameters
@@ -531,6 +551,11 @@ class RMatrixLimited(ResonanceRange):
         items : list
             Items from the CONT record at the start of the resonance range
             subsection
+
+        Returns
+        -------
+        openmc.data.RMatrixLimited
+            R-matrix limited resonance parameters
 
         """
         energy_min, energy_max = items[0:2]
@@ -727,6 +752,11 @@ class Unresolved(ResonanceRange):
             subsection
         fission_widths : bool
             Whether fission widths are given
+
+        Returns
+        -------
+        openmc.data.Unresolved
+            Unresolved resonance region parameters
 
         """
         # Read energy-dependent scattering radius if present

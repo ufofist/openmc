@@ -41,7 +41,7 @@ class AngleEnergy(EqualityMixin):
 
     @staticmethod
     def from_ace(ace, location_dist, location_start, rx=None):
-        """Generate an AngleEnergy object from ACE data
+        """Generate an angle-energy distribution from ACE data
 
         Parameters
         ----------
@@ -108,12 +108,3 @@ class AngleEnergy(EqualityMixin):
                              "distribution law {}".format(law))
 
         return distribution
-
-    @staticmethod
-    def from_endf(ev, mt):
-        if (6, mt) in ev.section:
-            file_obj = StringIO(ev.section[6, mt])
-        else:
-            distribution = openmc.data.UncorrelationAngleEnergy()
-            if (4, mt) in ev.section:
-                pass

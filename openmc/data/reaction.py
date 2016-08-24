@@ -199,7 +199,7 @@ def _get_fission_endf(ev):
         lnu = get_head_record(file_obj)[3]
         if lnu == 1:
             # Polynomial representation
-            coefficients = get_list_record(file_obj, only_list=True)
+            items, coefficients = get_list_record(file_obj)
             prompt_neutron.yield_ = Polynomial(coefficients)
         elif lnu == 2:
             # Tabulated representation
@@ -216,7 +216,7 @@ def _get_fission_endf(ev):
         lnu = get_head_record(file_obj)[3]
         if lnu == 1:
             # Polynomial representation
-            coefficients = get_list_record(file_obj, only_list=True)
+            items, coefficients = get_list_record(file_obj)
             total_neutron.yield_ = Polynomial(coefficients)
         elif lnu == 2:
             # Tabulated representation
@@ -237,7 +237,7 @@ def _get_fission_endf(ev):
 
         if ldg == 0:
             # Delayed-group constants energy independent
-            decay_constants = get_list_record(file_obj, only_list=True)
+            items, decay_constants = get_list_record(file_obj)
             for constant in decay_constants:
                 delayed_neutron = Product('neutron')
                 delayed_neutron.emission_mode = 'delayed'
@@ -254,7 +254,7 @@ def _get_fission_endf(ev):
         # energy distributions are given.
         if lnu == 1:
             # Nu represented as polynomial
-            coefficients = get_list_record(file_obj, only_list=True)
+            items, coefficients = get_list_record(file_obj)
             yield_ = Polynomial(coefficients)
             for neutron in products[-6:]:
                 neutron.yield_ = deepcopy(yield_)
@@ -651,7 +651,7 @@ class Reaction(EqualityMixin):
 
         Returns
         -------
-        openmc.data.ace.Reaction
+        openmc.data.Reaction
             Reaction data
 
         """
@@ -809,6 +809,21 @@ class Reaction(EqualityMixin):
 
     @classmethod
     def from_endf(cls, ev, mt):
+        """Generate a reaction from an ENDF evaluation
+
+        Parameters
+        ----------
+        ev : openmc.data.endf.Evaluation
+            ENDF evaluation
+        mt : int
+            The MT value of the reaction to get angular distributions for
+
+        Returns
+        -------
+        rx : openmc.data.Reaction
+            Reaction data
+
+        """
         rx = Reaction(mt)
 
         # Integrated cross section

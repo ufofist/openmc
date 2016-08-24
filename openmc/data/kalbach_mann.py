@@ -350,6 +350,20 @@ class KalbachMann(AngleEnergy):
 
     @classmethod
     def from_endf(cls, file_obj, tab2):
+        """Generate Kalbach-Mann distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of the Kalbach-Mann distribution
+        tab2
+
+        Returns
+        -------
+        openmc.data.KalbachMann
+            Kalbach-Mann energy-angle distribution
+
+        """
         lep = tab2.params[3]
         ne = tab2.params[5]
         energy = np.zeros(ne)

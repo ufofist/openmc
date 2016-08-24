@@ -410,6 +410,21 @@ class CorrelatedAngleEnergy(AngleEnergy):
 
     @classmethod
     def from_endf(cls, file_obj, tab2):
+        """Generate correlated angle-energy distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        file_obj : file-like object
+            ENDF file positioned at the start of a section for a correlated
+            angle-energy distribution
+        tab2
+
+        Returns
+        -------
+        openmc.data.CorrelatedAngleEnergy
+            Correlated angle-energy distribution
+
+        """
         lep = tab2.params[3]
         ne = tab2.params[5]
         energy = np.zeros(ne)

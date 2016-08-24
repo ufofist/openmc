@@ -205,6 +205,21 @@ class AngleDistribution(EqualityMixin):
 
     @classmethod
     def from_endf(cls, ev, mt):
+        """Generate an angular distribution from an ENDF evaluation
+
+        Parameters
+        ----------
+        ev : openmc.data.endf.Evaluation
+            ENDF evaluation
+        mt : int
+            The MT value of the reaction to get angular distributions for
+
+        Returns
+        -------
+        openmc.data.AngleDistribution
+            Angular distribution
+
+        """
         file_obj = StringIO(ev.section[4, mt])
 
         # Read HEAD record

@@ -493,6 +493,20 @@ class IncidentNeutron(EqualityMixin):
 
     @classmethod
     def from_endf(cls, ev_or_filename):
+        """Generate incident neutron continuous-energy data from an ENDF evaluation
+
+        Parameters
+        ----------
+        ev_or_filename : openmc.data.endf.Evaluation or str
+            ENDF evaluation to read from. If given as a string, it is assumed to
+            be the filename for the ENDF file.
+
+        Returns
+        -------
+        openmc.data.IncidentNeutron
+            Incident neutron continuous-energy data
+
+        """
         if isinstance(ev_or_filename, Evaluation):
             ev = ev_or_filename
         else:
