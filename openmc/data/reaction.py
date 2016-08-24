@@ -612,9 +612,6 @@ class Reaction(EqualityMixin):
     @xs.setter
     def xs(self, xs):
         cv.check_type('reaction cross section', xs, Callable)
-        if isinstance(xs, Tabulated1D):
-            for y in xs.y:
-                cv.check_greater_than('reaction cross section', y, 0.0, True)
         self._xs = xs
 
     def to_hdf5(self, group):
