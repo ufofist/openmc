@@ -166,7 +166,7 @@ class IncidentNeutron(EqualityMixin):
     @atomic_number.setter
     def atomic_number(self, atomic_number):
         cv.check_type('atomic number', atomic_number, Integral)
-        cv.check_greater_than('atomic number', atomic_number, 0)
+        cv.check_greater_than('atomic number', atomic_number, 0, True)
         self._atomic_number = atomic_number
 
     @mass_number.setter

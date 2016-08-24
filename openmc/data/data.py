@@ -104,8 +104,8 @@ NATURAL_ABUNDANCE = {
     'U234': 5.4e-05, 'U235': 0.007204, 'U238': 0.992742
 }
 
-ATOMIC_SYMBOL = {1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C', 7: 'N',
-                 8: 'O', 9: 'F', 10: 'Ne', 11: 'Na', 12: 'Mg', 13: 'Al',
+ATOMIC_SYMBOL = {0: 'n', 1: 'H', 2: 'He', 3: 'Li', 4: 'Be', 5: 'B', 6: 'C',
+                 7: 'N', 8: 'O', 9: 'F', 10: 'Ne', 11: 'Na', 12: 'Mg', 13: 'Al',
                  14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 18: 'Ar', 19: 'K',
                  20: 'Ca', 21: 'Sc', 22: 'Ti', 23: 'V', 24: 'Cr', 25: 'Mn',
                  26: 'Fe', 27: 'Co', 28: 'Ni', 29: 'Cu', 30: 'Zn', 31: 'Ga',
@@ -153,7 +153,7 @@ def atomic_mass(isotope):
         mass_file = os.path.join(os.path.dirname(__file__), 'mass.mas12')
         with open(mass_file, 'r') as ame:
             # Read lines in file starting at line 40
-            for line in itertools.islice(ame, 40, None):
+            for line in itertools.islice(ame, 39, None):
                 name = '{}{}'.format(line[20:22].strip(), int(line[16:19]))
                 mass = float(line[96:99]) + 1e-6*float(
                     line[100:106] + '.' + line[107:112])
