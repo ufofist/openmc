@@ -9,14 +9,20 @@ import numpy as np
 
 import openmc.checkvalue as cv
 from openmc.mixin import EqualityMixin
-from openmc.stats import Uniform
+from openmc.stats import Uniform, Tabular, Legendre
 from .angle_distribution import AngleDistribution
 from .angle_energy import AngleEnergy
+from .correlated import CorrelatedAngleEnergy
+from .data import ATOMIC_SYMBOL
+from .endf import get_head_record, get_tab1_record, get_list_record, \
+    get_tab2_record
 from .energy_distribution import EnergyDistribution, LevelInelastic, \
     DiscretePhoton
-from .endf import get_head_record, get_tab1_record, get_list_record
 from .function import Tabulated1D, Polynomial
-from .product import Product, get_products
+from .kalbach_mann import KalbachMann
+from .laboratory import LaboratoryAngleEnergy
+from .nbody import NBodyPhaseSpace
+from .product import Product
 from .uncorrelated import UncorrelatedAngleEnergy
 
 
@@ -57,7 +63,126 @@ REACTION_NAME.update({i: '(n,3He{})'.format(i-750) for i in range(750, 799)})
 REACTION_NAME.update({i: '(n,a{})'.format(i-800) for i in range(800, 849)})
 
 
-def _get_fission_products(ace):
+def _get_products(ev, mt):
+    """Generate products from MF=6 in an ENDF evaluation
+
+    Parameters
+    ----------
+    ev : openmc.data.endf.Evaluation
+        ENDF evaluation to read from
+    mt : int
+        The MT value of the reaction to get products for
+
+    Returns
+    -------
+    products : list of openmc.data.Product
+        Products of the reaction
+
+    """
+    file_obj = StringIO(ev.section[6, mt])
+
+    # Read HEAD record
+    items = get_head_record(file_obj)
+    reference_frame = {1: 'laboratory', 2: 'center-of-mass',
+                       3: 'light-heavy'}[items[3]]
+    n_products = items[4]
+
+    products = []
+    for i in range(n_products):
+        # Get yield for this product
+        params, yield_ = get_tab1_record(file_obj)
+
+        za = params[0]
+        awr = params[1]
+        lip = params[2]
+        law = params[3]
+
+        if za == 0:
+            p = Product('photon')
+        elif za == 1:
+            p = Product('neutron')
+        elif za == 1000:
+            p = Product('electron')
+        else:
+            z = za // 1000
+            a = za % 1000
+            p = Product('{}{}'.format(ATOMIC_SYMBOL[z], a))
+
+        p.yield_ = yield_
+
+        """
+        # Set reference frame
+        if reference_frame == 'laboratory':
+            p.center_of_mass = False
+        elif reference_frame == 'center-of-mass':
+            p.center_of_mass = True
+        elif reference_frame == 'light-heavy':
+            p.center_of_mass = (awr <= 4.0)
+        """
+
+        if law == 0:
+            # No distribution given
+            pass
+        if law == 1:
+            # Continuum energy-angle distribution
+            tab2 = get_tab2_record(file_obj)
+            lang = tab2.params[2]
+            if lang == 1:
+                p.distribution = [CorrelatedAngleEnergy.from_endf(
+                    file_obj, tab2)]
+            elif lang == 2:
+                p.distribution = [KalbachMann.from_endf(file_obj, tab2)]
+
+        elif law == 2:
+            # Discrete two-body scattering
+            tab2 = get_tab2_record(file_obj)
+            ne = tab2.params[5]
+            energy = np.zeros(ne)
+            mu = []
+            for i in range(ne):
+                items, values = get_list_record(file_obj)
+                energy[i] = items[1]
+                lang = items[2]
+                if lang == 0:
+                    mu.append(Legendre(values))
+                elif lang == 12:
+                    mu.append(Tabular(values[::2], values[1::2]))
+                elif lang == 14:
+                    mu.append(Tabular(values[::2], values[1::2],
+                                      'log-linear'))
+
+            angle_dist = AngleDistribution(energy, mu)
+            dist = UncorrelatedAngleEnergy(angle_dist)
+            p.distribution = [dist]
+            # TODO: Add level-inelastic info?
+
+        elif law == 3:
+            # Isotropic discrete emission
+            p.distribution = [UncorrelatedAngleEnergy()]
+            # TODO: Add level-inelastic info?
+
+        elif law == 4:
+            # Discrete two-body recoil
+            pass
+
+        elif law == 5:
+            # Charged particle elastic scattering
+            pass
+
+        elif law == 6:
+            # N-body phase-space distribution
+            p.distribution = [NBodyPhaseSpace.from_endf(file_obj)]
+
+        elif law == 7:
+            # Laboratory energy-angle distribution
+            p.distribution = [LaboratoryAngleEnergy.from_endf(file_obj)]
+
+        products.append(p)
+
+    return products
+
+
+def _get_fission_products_ace(ace):
     """Generate fission products from an ACE table
 
     Parameters
@@ -186,7 +311,21 @@ def _get_fission_products(ace):
     return products, derived_products
 
 
-def _get_fission_endf(ev):
+def _get_fission_products_endf(ev):
+    """Generate fission products from an ENDF evaluation
+
+    Parameters
+    ----------
+    ev : openmc.data.endf.Evaluation
+
+    Returns
+    -------
+    products : list of openmc.data.Product
+        Prompt and delayed fission neutrons
+    derived_products : list of openmc.data.Product
+        "Total" fission neutron
+
+    """
     products = []
     derived_products = []
 
@@ -281,43 +420,7 @@ def _get_fission_endf(ev):
     return products, derived_products
 
 
-def _get_fission_energy_release(ev):
-    energy_release = {}
-    if (1, 458) in ev.section:
-        file_obj = StringIO(ev.section[1, 458])
-
-        # Skip HEAD record
-        get_head_record(file_obj)
-
-        # Read LIST record containing components of fission energy release (or
-        # coefficients)
-        items, values = get_list_record(file_obj)
-        poly_order = items[3]
-
-        values = np.asarray(values)
-        values.shape = (poly_order + 1, 18)
-        energy_release['fission_products'] = (Polynomial(values[:, 0]),
-                                              Polynomial(values[:, 1]))
-        energy_release['prompt_neutrons'] = (Polynomial(values[:, 2]),
-                                             Polynomial(values[:, 3]))
-        energy_release['delayed_neutrons'] = (Polynomial(values[:, 4]),
-                                              Polynomial(values[:, 5]))
-        energy_release['prompt_gammas'] = (Polynomial(values[:, 6]),
-                                           Polynomial(values[:, 7]))
-        energy_release['delayed_gammas'] = (Polynomial(values[:, 8]),
-                                            Polynomial(values[:, 9]))
-        energy_release['delayed_betas'] = (Polynomial(values[:, 10]),
-                                           Polynomial(values[:, 11]))
-        energy_release['neutrinos'] = (Polynomial(values[:, 12]),
-                                       Polynomial(values[:, 13]))
-        energy_release['recoverable'] = (Polynomial(values[:, 14]),
-                                         Polynomial(values[:, 15]))
-        energy_release['total'] = (Polynomial(values[:, 16]),
-                                   Polynomial(values[:, 17]))
-    return energy_release
-
-
-def _get_photon_products(ace, rx):
+def _get_photon_products_ace(ace, rx):
     """Generate photon products from an ACE table
 
     Parameters
@@ -423,6 +526,21 @@ def _get_photon_products(ace, rx):
 
 
 def _get_photon_products_endf(ev, rx):
+    """Generate photon products from an ENDF evaluation
+
+    Parameters
+    ----------
+    ev : openmc.data.endf.Evaluation
+        ENDF evaluation to read from
+    rx : openmc.data.Reaction
+        Reaction that generates photons
+
+    Returns
+    -------
+    photons : list of openmc.Products
+        Photons produced from reaction with given MT
+
+    """
     products = []
 
     if (12, rx.mt) in ev.section:
@@ -737,7 +855,7 @@ class Reaction(EqualityMixin):
                     rx.products.append(neutron)
                 else:
                     assert mt in (18, 19, 20, 21, 38)
-                    rx.products, rx.derived_products = _get_fission_products(ace)
+                    rx.products, rx.derived_products = _get_fission_products_ace(ace)
 
                     for p in rx.products:
                         if p.emission_mode in ('prompt', 'total'):
@@ -803,7 +921,7 @@ class Reaction(EqualityMixin):
         # ======================================================================
         # PHOTON PRODUCTION
 
-        rx.products += _get_photon_products(ace, rx)
+        rx.products += _get_photon_products_ace(ace, rx)
 
         return rx
 
@@ -836,19 +954,18 @@ class Reaction(EqualityMixin):
         # Get fission product yields (nu) as well as delayed neutron energy
         # distributions
         if mt in (18, 19, 20, 21, 38):
-            rx.products, rx.derived_products = _get_fission_endf(ev)
-            rx.energy_release = _get_fission_energy_release(ev)
+            rx.products, rx.derived_products = _get_fission_products_endf(ev)
 
         if (6, mt) in ev.section:
             # Product angle-energy distribution
-            rx.products = get_products(ev, mt)
+            rx.products = _get_products(ev, mt)
 
         elif (4, mt) in ev.section or (5, mt) in ev.section:
             # Uncorrelated angle-energy distribution
             neutron = Product('neutron')
 
             # Note that the energy distribution for MT=455 is read in
-            # _get_fission_endf rather than here
+            # _get_fission_products_endf rather than here
             if (5, mt) in ev.section:
                 file_obj = StringIO(ev.section[5, mt])
                 items = get_head_record(file_obj)

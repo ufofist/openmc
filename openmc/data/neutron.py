@@ -13,7 +13,7 @@ from .fission_energy import FissionEnergyRelease
 from .function import Tabulated1D, Sum
 from .endf import Evaluation, SUM_RULES
 from .product import Product
-from .reaction import Reaction, _get_photon_products
+from .reaction import Reaction, _get_photon_products_ace
 from .resonance import Resonances
 from .urr import ProbabilityTables
 import openmc.checkvalue as cv
@@ -483,7 +483,7 @@ class IncidentNeutron(EqualityMixin):
                 rx.xs = Sum([data.reactions[mt_i].xs for mt_i in mts])
 
                 # Determine summed cross section
-                rx.products += _get_photon_products(ace, rx)
+                rx.products += _get_photon_products_ace(ace, rx)
                 data.summed_reactions[mt] = rx
 
         # Read unresolved resonance probability tables
