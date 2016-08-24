@@ -498,8 +498,8 @@ class IncidentNeutron(EqualityMixin):
         else:
             ev = Evaluation(ev_or_filename)
 
-        atomic_number = ev.target['ZA'] // 1000
-        mass_number = ev.target['ZA'] % 1000
+        atomic_number = ev.target['atomic_number']
+        mass_number = ev.target['mass_number']
         metastable = ev.target['isomeric_state']
         atomic_weight_ratio = ev.target['mass']
         temperature = ev.target['temperature']
@@ -532,6 +532,11 @@ class IncidentNeutron(EqualityMixin):
                     neutron = data.reactions[18].products[0]
                     rx.products[0].applicability = neutron.applicability
                     rx.products[0].distribution = neutron.distribution
+
+        # Read fission energy release (requires that we already know nu for
+        # fission)
+        if (1, 458) in ev.section:
+            data.fission_energy = FissionEnergyRelease.from_endf(ev, data)
 
         data._evaluation = ev
         return data

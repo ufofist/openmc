@@ -47,6 +47,8 @@ SUM_RULES = {1: [2, 3],
              106: list(range(750, 800)),
              107: list(range(800, 850))}
 
+_ENDF_FLOAT_RE = re.compile(r'([\s\-\+]\d+\.\d+)([\+\-]\d+)')
+
 
 def radiation_type(value):
     p = {0: 'gamma', 1: 'beta-', 2: 'ec/beta+', 3: 'IT',
@@ -58,18 +60,31 @@ def radiation_type(value):
         return (p[int(value)], p[int(10*value % 10)])
 
 
-def endftod(s):
-    if 'e' in s or 'E' in s:
-        return float(s)
-    elif '+' in s[1:]:
-        return float(s[0] + s[1:].replace('+', 'e+'))
-    elif '-' in s[1:]:
-        return float(s[0] + s[1:].replace('-', 'e-'))
-    else:
-        return float(s)
+def float_endf(s):
+    """Convert string of floating point number in ENDF to float.
+
+    The ENDF-6 format uses an 'e-less' floating point number format,
+    e.g. -1.23481+10. Trying to convert using the float built-in won't work
+    because of the lack of an 'e'. This function allows such strings to be
+    converted while still allowing numbers that are not in exponential notation
+    to be converted as well.
+
+    Parameters
+    ----------
+    s : str
+        Floating-point number from an ENDF file
+
+    Returns
+    -------
+    float
+        The number
+
+    """
+    return float(_ENDF_FLOAT_RE.sub(r'\1e\2', s))
 
 
 def at_end_of_tape(f):
+
     """Indicate whether file is positioned at the end of an ENDF tape.
 
     Parameters
@@ -147,8 +162,8 @@ def get_cont_record(file_obj, skipC=False):
         C1 = None
         C2 = None
     else:
-        C1 = endftod(line[:11])
-        C2 = endftod(line[11:22])
+        C1 = float_endf(line[:11])
+        C2 = float_endf(line[11:22])
     L1 = int(line[22:33])
     L2 = int(line[33:44])
     N1 = int(line[44:55])
@@ -158,8 +173,8 @@ def get_cont_record(file_obj, skipC=False):
 
 def get_head_record(file_obj):
     line = file_obj.readline()
-    ZA = int(endftod(line[:11]))
-    AWR = endftod(line[11:22])
+    ZA = int(float_endf(line[:11]))
+    AWR = float_endf(line[11:22])
     L1 = int(line[22:33])
     L2 = int(line[33:44])
     N1 = int(line[44:55])
@@ -173,27 +188,23 @@ def get_list_record(file_obj, only_list=False):
     NPL = items[4]
 
     # read items
-    itemsList = []
-    m = 0
-    for i in range((NPL-1)//6 + 1):
+    b = []
+    for i in range((NPL - 1)//6 + 1):
         line = file_obj.readline()
-        toRead = min(6, NPL-m)
-        for j in range(toRead):
-            val = endftod(line[0:11])
-            itemsList.append(val)
-            line = line[11:]
-        m = m + toRead
+        n = min(6, NPL - 6*i)
+        for j in range(n):
+            b.append(float_endf(line[11*j:11*(j + 1)]))
     if only_list:
-        return itemsList
+        return b
     else:
-        return (items, itemsList)
+        return (items, b)
 
 
 def get_tab1_record(file_obj):
     # Determine how many interpolation regions and total points there are
     line = file_obj.readline()
-    C1 = endftod(line[:11])
-    C2 = endftod(line[11:22])
+    C1 = float_endf(line[:11])
+    C2 = float_endf(line[11:22])
     L1 = int(line[22:33])
     L2 = int(line[33:44])
     n_regions = int(line[44:55])
@@ -221,8 +232,8 @@ def get_tab1_record(file_obj):
         line = file_obj.readline()
         toRead = min(3, n_pairs - m)
         for j in range(toRead):
-            x[m] = endftod(line[:11])
-            y[m] = endftod(line[11:22])
+            x[m] = float_endf(line[:11])
+            y[m] = float_endf(line[11:22])
             line = line[22:]
             m += 1
 
@@ -236,8 +247,30 @@ def get_tab2_record(file_obj):
 
 
 class Evaluation(object):
+    """ENDF material evaluation with multiple files/sections
+
+    Parameters
+    ----------
+    filename : str
+        Path to ENDF file to read
+
+    Attributes
+    ----------
+    info : dict
+        Miscallaneous information about the evaluation.
+    target : dict
+        Information about the target material, such as its mass, isomeric state,
+        whether it's stable, and whether it's fissionable.
+    projectile : dict
+        Information about the projectile such as its mass.
+    reaction_list : list of 4-tuples
+        List of sections in the evaluation. The entries of the tuples are the
+        file (MF), section (MT), number of records (NC), and modification
+        indicator (MOD).
+
+    """
     def __init__(self, filename):
-        fh = open(filename, 'rU')
+        fh = open(filename, 'r')
         self.section = {}
         self.info = {}
         self.target = {}
@@ -284,9 +317,9 @@ class Evaluation(object):
         file_obj = io.StringIO(self.section[1, 451])
 
         # Information about target/projectile
-        # First HEAD record
         items = get_head_record(file_obj)
-        self.target['ZA'] = items[0]
+        self.target['atomic_number'] = items[0] // 1000
+        self.target['mass_number'] = items[0] % 1000
         self.target['mass'] = items[1]
         self._LRP = items[2]
         self.target['fissionable'] = (items[3] == 1)
@@ -1907,8 +1940,8 @@ class ENDFTab2Record(object):
     def read(self, fh):
         # Determine how many interpolation regions and total points there are
         line = fh.readline()
-        C1 = endftod(line[:11])
-        C2 = endftod(line[11:22])
+        C1 = float_endf(line[:11])
+        C2 = float_endf(line[11:22])
         L1 = int(line[22:33])
         L2 = int(line[33:44])
         NR = int(line[44:55])
