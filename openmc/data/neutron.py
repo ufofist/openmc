@@ -139,6 +139,8 @@ class IncidentNeutron(EqualityMixin):
         Contains the cross sections, secondary angle and energy distributions,
         and other associated data for each reaction. The keys are the MT values
         and the values are Reaction objects.
+    resonances : openmc.data.Resonances or None
+        Resonance parameters
     summed_reactions : collections.OrderedDict
         Contains summed cross sections, e.g., the total cross section. The keys
         are the MT values and the values are Reaction objects.
@@ -168,6 +170,7 @@ class IncidentNeutron(EqualityMixin):
         self.reactions = OrderedDict()
         self.summed_reactions = OrderedDict()
         self._urr = {}
+        self._resonances = None
 
     def __contains__(self, mt):
         return mt in self.reactions or mt in self.summed_reactions
@@ -213,6 +216,10 @@ class IncidentNeutron(EqualityMixin):
     @property
     def reactions(self):
         return self._reactions
+
+    @property
+    def resonances(self):
+        return self._resonances
 
     @property
     def summed_reactions(self):
@@ -269,6 +276,11 @@ class IncidentNeutron(EqualityMixin):
     def reactions(self, reactions):
         cv.check_type('reactions', reactions, Mapping)
         self._reactions = reactions
+
+    @resonances.setter
+    def resonances(self, resonances):
+        cv.check_type('resonances', resonances, Resonances)
+        self._resonances = resonances
 
     @summed_reactions.setter
     def summed_reactions(self, summed_reactions):
