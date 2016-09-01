@@ -44,7 +44,7 @@ SUM_RULES = {1: [2, 3],
              106: list(range(750, 800)),
              107: list(range(800, 850))}
 
-_ENDF_FLOAT_RE = re.compile(r'([\s\-\+]\d+\.\d+)([\+\-]\d+)')
+_ENDF_FLOAT_RE = re.compile(r'([\s\-\+]?\d*\.\d+)([\+\-]\d+)')
 
 
 def radiation_type(value):

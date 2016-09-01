@@ -214,10 +214,10 @@ class ResonanceRange(object):
             capture[i] = xsg
             fission[i] = xsf
 
-        elastic += target.reactions[2].xs(energies)
-        capture += target.reactions[102].xs(energies)
+        elastic += target[2].xs['0K'](energies)
+        capture += target[102].xs['0K'](energies)
         if 18 in target.reactions:
-            fission += target.reactions[18].xs(energies)
+            fission += target[18].xs['0K'](energies)
 
         if return_scalar:
             return(elastic[0], capture[0], fission[0])
@@ -619,8 +619,8 @@ class ReichMoore(ResonanceRange):
         for i, E, l, J, gn, gg, gfa, gfb in df.itertuples():
             if l not in l_values:
                 l_values.append(l)
-            if (l, J) not in lj_values:
-                lj_values.append((l, J))
+            if (l, abs(J)) not in lj_values:
+                lj_values.append((l, abs(J)))
 
             # Determine penetration and shift corresponding to resonance energy
             k = wave_number(A, E)
@@ -635,7 +635,7 @@ class ReichMoore(ResonanceRange):
         self._parameter_matrix = {}
         for (l, J) in lj_values:
             self._parameter_matrix[l, J] = df[(df.L == l) &
-                                              (df.J == J)].as_matrix()
+                                              (abs(df.J) == J)].as_matrix()
 
         self._prepared = True
 

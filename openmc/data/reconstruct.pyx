@@ -377,28 +377,28 @@ def reconstruct_rm(rm, target, double E):
                             K[2,2] = K[2,2] + gfb*gfb*denominator_inverse
                             hasfission = True
 
-                    # multiply by factor of i/2
-                    for m in range(3):
-                        for n in range(3):
-                            K[m,n] = K[m,n] * 0.5j
+                # multiply by factor of i/2
+                for m in range(3):
+                    for n in range(3):
+                        K[m,n] = K[m,n] * 0.5j
 
-                    # Get collision matrix
-                    gJ = (2*J + 1)/(4*I + 2)
-                    if hasfission:
-                        # Copy upper triangular portion of K to lower triangular
-                        K[1,0] = K[0,1]
-                        K[2,0] = K[0,2]
-                        K[2,1] = K[1,2]
+                # Get collision matrix
+                gJ = (2*J + 1)/(4*I + 2)
+                if hasfission:
+                    # Copy upper triangular portion of K to lower triangular
+                    K[1,0] = K[0,1]
+                    K[2,0] = K[0,2]
+                    K[2,1] = K[1,2]
 
-                        Imat = inv(one - K)
-                        U = Ubar*(2*Imat - one)
-                        elastic += gJ*abs(1 - U[0,0])**2
-                        fission += 4*gJ*(abs(Imat[1,0])**2 + abs(Imat[2,0])**2)
-                        total += 2*gJ*(1 - U[0,0].real)
-                    else:
-                        U_ = Ubar*(2*(1 - K[0,0]).conjugate()/abs(1 - K[0,0])**2 - 1)
-                        elastic += gJ*abs(1 - U_)**2
-                        total += 2*gJ*(1 - U_.real)
+                    Imat = inv(one - K)
+                    U = Ubar*(2*Imat - one)
+                    elastic += gJ*abs(1 - U[0,0])**2
+                    fission += 4*gJ*(abs(Imat[1,0])**2 + abs(Imat[2,0])**2)
+                    total += 2*gJ*(1 - U[0,0].real)
+                else:
+                    U_ = Ubar*(2*(1 - K[0,0]).conjugate()/abs(1 - K[0,0])**2 - 1)
+                    elastic += gJ*abs(1 - U_)**2
+                    total += 2*gJ*(1 - U_.real)
 
     # Calculate capture as difference of other cross sections
     capture = total - elastic - fission
