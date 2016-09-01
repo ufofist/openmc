@@ -1,6 +1,4 @@
 from libc.stdlib cimport malloc, calloc, free
-from libc.stdlib cimport atof, atoi
-from libc.string cimport strtok, strcpy, strncpy
 from libc.math cimport cos, sin, sqrt, atan
 
 from cmath import exp
@@ -101,12 +99,13 @@ def reconstruct_mlbw(mlbw, double E):
     cdef double (*s)[2]
     cdef double [:,:] params
 
+    I = mlbw.target_spin
+    A = mlbw.atomic_weight_ratio
+    k = wave_number(A, E)
+
     elastic = 0.
     capture = 0.
     fission = 0.
-    A = mlbw.awri[0]
-    k = wave_number(A, E)
-    I = mlbw._target_spin
 
     for i, l in enumerate(mlbw._l_values):
         params = mlbw._parameter_matrix[l]
@@ -120,7 +119,7 @@ def reconstruct_mlbw(mlbw, double E):
 
         # Determine shift and penetration at modified energy
         if mlbw._competitive[i]:
-            Ex = E + mlbw.q[l]*(A + 1)/A
+            Ex = E + mlbw.q_value[l]*(A + 1)/A
             rhoc = mlbw.channel_radius[l](Ex)
             rhochat = mlbw.scattering_radius[l](Ex)
             P_c, S_c = penetration_shift(l, rhoc)
@@ -205,12 +204,13 @@ def reconstruct_slbw(slbw, double E):
     cdef double pie = pi
     cdef double [:,:] params
 
+    I = slbw.target_spin
+    A = slbw.atomic_weight_ratio
+    k = wave_number(A, E)
+
     elastic = 0.
     capture = 0.
     fission = 0.
-    A = slbw.awri[0]
-    k = wave_number(A, E)
-    I = slbw._target_spin
 
     for i, l in enumerate(slbw._l_values):
         params = slbw._parameter_matrix[l]
@@ -228,7 +228,7 @@ def reconstruct_slbw(slbw, double E):
 
         # Determine shift and penetration at modified energy
         if slbw._competitive[i]:
-            Ex = E + slbw.q[l]*(A + 1)/A
+            Ex = E + slbw.q_value[l]*(A + 1)/A
             rhoc = slbw.channel_radius[l](Ex)
             rhochat = slbw.scattering_radius[l](Ex)
             P_c, S_c = penetration_shift(l, rhoc)
@@ -262,7 +262,7 @@ def reconstruct_slbw(slbw, double E):
             f = pie/k**2*gJ*gnE/((E - Eprime)**2 + gtE**2/4)
 
             # Add contribution to elastic per Equation D.2
-            elastic += f*(gnE*cos2phi - 2*gtE*sinphi2
+            elastic += f*(gnE*cos2phi - 2*(gg + gf)*sinphi2
                           + 2*(E - Eprime)*sin2phi)
 
             # Add contribution to capture per Equation D.3
@@ -294,12 +294,12 @@ def reconstruct_rm(rm, double E):
     cdef double [:,:] params
 
     # Get nuclear spin
-    I = rm._target_spin
+    I = rm.target_spin
 
     elastic = 0.
     fission = 0.
     total = 0.
-    A = rm.awri[0]
+    A = rm.atomic_weight_ratio
     k = wave_number(A, E)
     one = np.eye(3)
     K = np.zeros((3,3), dtype=complex)

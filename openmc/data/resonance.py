@@ -114,10 +114,12 @@ class Resonances(object):
 
 
 class ResonanceRange(object):
-    """Resolved resonance formalism data as given in MF=2, MT=151.
+    """Resolved resonance range
 
     Parameters
     ----------
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
     energy_min : float
         Minimum energy of the resolved resonance range in eV
     energy_max : float
@@ -131,26 +133,29 @@ class ResonanceRange(object):
 
     Attributes
     ----------
-    energy_min : float
-        Minimum energy of the resolved resonance range in eV
-    energy_max : float
-        Maximum energy of the resolved resonance range in eV
     channel_radius : dict
         Dictionary whose keys are l-values and values are channel radii as a
         function of energy
+    energy_max : float
+        Maximum energy of the resolved resonance range in eV
+    energy_min : float
+        Minimum energy of the resolved resonance range in eV
     scattering_radius : dict
         Dictionary whose keys are l-values and values are scattering radii as a
-        function of energy
+        function of energ
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
 
     """
-
-    def __init__(self, energy_min, energy_max, channel, scattering):
+    def __init__(self, target_spin, energy_min, energy_max, channel, scattering):
+        self.target_spin = target_spin
         self.energy_min = energy_min
         self.energy_max = energy_max
         self.channel_radius = channel
         self.scattering_radius = scattering
 
         self._prepared = False
+        self._parameter_matrix = {}
 
     @classmethod
     def from_endf(cls, ev, file_obj, items):
@@ -183,14 +188,32 @@ class ResonanceRange(object):
         assert items[4] == 0
 
         # Get energy-independent scattering radius
-        ap = Polynomial((get_cont_record(file_obj)[1],))
+        items = get_cont_record(file_obj)
+        target_spin = items[0]
+        ap = Polynomial((items[1],))
 
         # Calculate channel radius from ENDF-102 equation D.14
         a = Polynomial((0.123 * (1.008665*ev.target['mass'])**(1./3.) + 0.08,))
 
-        return cls(energy_min, energy_max, {0: a}, {0: ap})
+        return cls(target_spin, energy_min, energy_max, {0: a}, {0: ap})
 
     def reconstruct(self, target, energies):
+        """Evaluate cross section at specified energies.
+
+        Parameters
+        ----------
+        target : openmc.data.IncidentNeutron
+            Target nuclide
+        energies : float or Iterable of float
+            Energies at which the cross section should be evaluated
+
+        Returns
+        -------
+        3-tuple of float or numpy.ndarray
+            Elastic, capture, and fission cross sections at the specified
+            energies
+
+        """
         if not _reconstruct:
             raise RuntimeError("Resonance reconstruction not available.")
 
@@ -233,6 +256,8 @@ class MultiLevelBreitWigner(ResonanceRange):
 
     Parameters
     ----------
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
     energy_min : float
         Minimum energy of the resolved resonance range in eV
     energy_max : float
@@ -246,26 +271,37 @@ class MultiLevelBreitWigner(ResonanceRange):
 
     Attributes
     ----------
-    scattering_radius : dict
-        Dictionary whose keys are l-values and values are scattering radii as a
-        function of energy
+    atomic_weight_ratio : float
+        Atomic weight ratio of the target nuclide given as a function of
+        l-value. Note that this may be different than the value for the
+        evaluation as a whole.
     channel_radius : dict
         Dictionary whose keys are l-values and values are channel radii as a
         function of energy
+    energy_max : float
+        Maximum energy of the resolved resonance range in eV
+    energy_min : float
+        Minimum energy of the resolved resonance range in eV
     parameters : pandas.DataFrame
         Energies, spins, and resonances widths for each resonance
-    q : Iterable of float
+    q_value : dict
         Q-value to be added to incident particle's center-of-mass energy to
-        determine the channel energy for use in the penetrability factor. Given
-        as a function of the l-value.
+        determine the channel energy for use in the penetrability factor. The
+        keys of the dictionary are l-values.
+    scattering_radius : dict
+        Dictionary whose keys are l-values and values are scattering radii as a
+        function of energy
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
 
     """
 
-    def __init__(self, energy_min, energy_max, channel, scattering):
+    def __init__(self, target_spin, energy_min, energy_max, channel, scattering):
         super(MultiLevelBreitWigner, self).__init__(
-            energy_min, energy_max, channel, scattering)
+            target_spin, energy_min, energy_max, channel, scattering)
         self.parameters = None
-        self.q = None
+        self.q_value = {}
+        self.atomic_weight_ratio = None
 
         # Set resonance reconstruction function
         if _reconstruct:
@@ -307,22 +343,20 @@ class MultiLevelBreitWigner(ResonanceRange):
         ap = Polynomial((items[1],))  # energy-independent scattering-radius
         NLS = items[4]  # number of l-values
 
-        q = {}
-        awri = {}
-
         # Read resonance widths, J values, etc
         channel_radius = {}
         scattering_radius = {}
+        q_value = {}
         records = []
         for l in range(NLS):
             items, values = get_list_record(file_obj)
             l_value = items[2]
-            awri[l_value] = items[0]
-            q[l_value] = items[1]
+            awri = items[0]
+            q_value[l_value] = items[1]
             competitive = items[3]
 
             # Calculate channel radius from ENDF-102 equation D.14
-            a = Polynomial((0.123 * (1.008665*awri[l_value])**(1./3.) + 0.08,))
+            a = Polynomial((0.123 * (1.008665*awri)**(1./3.) + 0.08,))
 
             # Construct scattering and channel radius
             if nro == 0:
@@ -332,14 +366,13 @@ class MultiLevelBreitWigner(ResonanceRange):
                 elif naps == 1:
                     channel_radius[l_value] = ap
             elif nro == 1:
+                scattering_radius[l_value] = ape
                 if naps == 0:
                     channel_radius[l_value] = a
-                    scattering_radius[l_value] = ape
                 elif naps == 1:
-                    channel_radius[l_value] = scattering_radius[l_value] = ape
+                    channel_radius[l_value] = ape
                 elif naps == 2:
                     channel_radius[l_value] = ap
-                    scattering_radius[l_value] = ape
 
             energy = values[0::6]
             spin = values[1::6]
@@ -348,7 +381,7 @@ class MultiLevelBreitWigner(ResonanceRange):
             gg = np.asarray(values[4::6])
             gf = np.asarray(values[5::6])
             if competitive > 0:
-                gx = gt - (ng + gg + gf)
+                gx = gt - (gn + gg + gf)
             else:
                 gx = np.zeros_like(gt)
 
@@ -361,11 +394,11 @@ class MultiLevelBreitWigner(ResonanceRange):
         parameters = pd.DataFrame.from_records(records, columns=columns)
 
         # Create instance of class
-        mlbw = cls(energy_min, energy_max, channel_radius, scattering_radius)
-        mlbw.q = q
-        mlbw.awri = awri
+        mlbw = cls(target_spin, energy_min, energy_max,
+                   channel_radius, scattering_radius)
+        mlbw.q_value = q_value
+        mlbw.atomic_weight_ratio = awri
         mlbw.parameters = parameters
-        mlbw._target_spin = target_spin
 
         return mlbw
 
@@ -383,13 +416,13 @@ class MultiLevelBreitWigner(ResonanceRange):
         l_values = []
         competitive = []
 
+        A = self.atomic_weight_ratio
         for i, E, l, J, gt, gn, gg, gf, gx in df.itertuples():
             if l not in l_values:
                 l_values.append(l)
                 competitive.append(gx > 0)
 
             # Determine penetration and shift corresponding to resonance energy
-            A = self.awri[l]
             k = wave_number(A, E)
             rho = k*self.channel_radius[l](E)
             rhohat = k*self.scattering_radius[l](E)
@@ -411,7 +444,6 @@ class MultiLevelBreitWigner(ResonanceRange):
 
         self._l_values = np.array(l_values)
         self._competitive = np.array(competitive)
-        self._parameter_matrix = {}
         for l in l_values:
             self._parameter_matrix[l] = df[df.L == l].as_matrix()
 
@@ -426,6 +458,8 @@ class SingleLevelBreitWigner(MultiLevelBreitWigner):
 
     Parameters
     ----------
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
     energy_min : float
         Minimum energy of the resolved resonance range in eV
     energy_max : float
@@ -439,24 +473,34 @@ class SingleLevelBreitWigner(MultiLevelBreitWigner):
 
     Attributes
     ----------
-    scattering_radius : dict
-        Dictionary whose keys are l-values and values are scattering radii as a
-        function of energy
+    atomic_weight_ratio : float
+        Atomic weight ratio of the target nuclide given as a function of
+        l-value. Note that this may be different than the value for the
+        evaluation as a whole.
     channel_radius : dict
         Dictionary whose keys are l-values and values are channel radii as a
         function of energy
+    energy_max : float
+        Maximum energy of the resolved resonance range in eV
+    energy_min : float
+        Minimum energy of the resolved resonance range in eV
     parameters : pandas.DataFrame
         Energies, spins, and resonances widths for each resonance
-    q : Iterable of float
+    q_value : dict
         Q-value to be added to incident particle's center-of-mass energy to
-        determine the channel energy for use in the penetrability factor. Given
-        as a function of the l-value.
+        determine the channel energy for use in the penetrability factor. The
+        keys of the dictionary are l-values.
+    scattering_radius : dict
+        Dictionary whose keys are l-values and values are scattering radii as a
+        function of energy
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
 
     """
 
-    def __init__(self, energy_min, energy_max, channel, scattering):
+    def __init__(self, target_spin, energy_min, energy_max, channel, scattering):
         super(SingleLevelBreitWigner, self).__init__(
-            energy_min, energy_max, channel, scattering)
+            target_spin, energy_min, energy_max, channel, scattering)
 
         # Set resonance reconstruction function
         if _reconstruct:
@@ -473,6 +517,8 @@ class ReichMoore(ResonanceRange):
 
     Parameters
     ----------
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
     energy_min : float
         Minimum energy of the resolved resonance range in eV
     energy_max : float
@@ -486,27 +532,34 @@ class ReichMoore(ResonanceRange):
 
     Attributes
     ----------
-    energy_min : float
-        Minimum energy of the resolved resonance range in eV
-    energy_max : float
-        Maximum energy of the resolved resonance range in eV
-    channel : dict
+    angle_distribution : bool
+        Indicate whether parameters can be used to compute angular distributions
+    atomic_weight_ratio : float
+        Atomic weight ratio of the target nuclide given as a function of
+        l-value. Note that this may be different than the value for the
+        evaluation as a whole.
+    channel_radius : dict
         Dictionary whose keys are l-values and values are channel radii as a
         function of energy
-    scattering : dict
+    energy_max : float
+        Maximum energy of the resolved resonance range in eV
+    energy_min : float
+        Minimum energy of the resolved resonance range in eV
+    num_l_convergence : int
+        Number of l-values which must be used to converge the calculation
+    scattering_radius : dict
         Dictionary whose keys are l-values and values are scattering radii as a
         function of energy
     parameters : pandas.DataFrame
         Energies, spins, and resonances widths for each resonance
-    angle_distribution : bool
-        Indicate whether parameters can be used to compute angular distributions
-    num_l_convergence : int
-        Number of l-values which must be used to converge the calculation
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
 
     """
 
-    def __init__(self, energy_min, energy_max, channel, scattering):
-        super(ReichMoore, self).__init__(energy_min, energy_max, channel, scattering)
+    def __init__(self, target_spin, energy_min, energy_max, channel, scattering):
+        super(ReichMoore, self).__init__(
+            target_spin, energy_min, energy_max, channel, scattering)
         self.parameters = None
         self.angle_distribution = False
         self.num_l_convergence = 0
@@ -555,16 +608,15 @@ class ReichMoore(ResonanceRange):
         # Read resonance widths, J values, etc
         channel_radius = {}
         scattering_radius = {}
-        awri = {}
         records = []
         for i in range(NLS):
             items, values = get_list_record(file_obj)
             apl = Polynomial((items[1],)) if items[1] != 0.0 else ap
             l_value = items[2]
-            awri[l_value] = items[0]
+            awri = items[0]
 
             # Calculate channel radius from ENDF-102 equation D.14
-            a = Polynomial((0.123 * (1.008665*awri[l_value])**(1./3.) + 0.08,))
+            a = Polynomial((0.123 * (1.008665*awri)**(1./3.) + 0.08,))
 
             # Construct scattering and channel radius
             if nro == 0:
@@ -600,12 +652,12 @@ class ReichMoore(ResonanceRange):
         parameters = pd.DataFrame.from_records(records, columns=columns)
 
         # Create instance of ReichMoore
-        rm = cls(energy_min, energy_max, channel_radius, scattering_radius)
+        rm = cls(target_spin, energy_min, energy_max,
+                 channel_radius, scattering_radius)
         rm.parameters = parameters
         rm.angle_distribution = angle_distribution
         rm.num_l_convergence = num_l_convergence
-        rm.awri = awri
-        rm._target_spin = target_spin
+        rm.atomic_weight_ratio = awri
 
         return rm
 
@@ -619,6 +671,7 @@ class ReichMoore(ResonanceRange):
         l_values = []
         lj_values = []
 
+        A = self.atomic_weight_ratio
         for i, E, l, J, gn, gg, gfa, gfb in df.itertuples():
             if l not in l_values:
                 l_values.append(l)
@@ -626,7 +679,6 @@ class ReichMoore(ResonanceRange):
                 lj_values.append((l, abs(J)))
 
             # Determine penetration and shift corresponding to resonance energy
-            A = self.awri[l]
             k = wave_number(A, E)
             rho = k*self.channel_radius[l](E)
             rhohat = k*self.scattering_radius[l](E)
@@ -636,7 +688,6 @@ class ReichMoore(ResonanceRange):
         df['s'] = s
 
         self._l_values = np.array(l_values)
-        self._parameter_matrix = {}
         for (l, J) in lj_values:
             self._parameter_matrix[l, J] = df[(df.L == l) &
                                               (abs(df.J) == J)].as_matrix()
@@ -858,6 +909,8 @@ class Unresolved(ResonanceRange):
 
     Parameters
     ----------
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
     energy_min : float
         Minimum energy of the unresolved resonance range in eV
     energy_max : float
@@ -867,24 +920,27 @@ class Unresolved(ResonanceRange):
 
     Attributes
     ----------
-    energy_min : float
-        Minimum energy of the unresolved resonance range in eV
-    energy_max : float
-        Maximum energy of the unresolved resonance range in eV
-    scattering_radius : openmc.data.Function1D
-        Scattering radii as a function of energy
-    energies : Iterable of float
-        Energies at which parameters are tabulated
-    parameters : list of pandas.DataFrame
-        Average resonance parameters at each energy
     add_to_background : bool
         If True, file 3 contains partial cross sections to be added to the
         average unresolved cross sections calculated from parameters.
+    energies : Iterable of float
+        Energies at which parameters are tabulated
+    energy_max : float
+        Maximum energy of the unresolved resonance range in eV
+    energy_min : float
+        Minimum energy of the unresolved resonance range in eV
+    parameters : list of pandas.DataFrame
+        Average resonance parameters at each energy
+    scattering_radius : openmc.data.Function1D
+        Scattering radii as a function of energy
+    target_spin : float
+        Intrinsic spin, :math:`I`, of the target nuclide
 
     """
 
-    def __init__(self, energy_min, energy_max, scatter):
-        super(Unresolved, self).__init__(energy_min, energy_max, None, scatter)
+    def __init__(self, target_spin, energy_min, energy_max, scatter):
+        super(Unresolved, self).__init__(
+            target_spin, energy_min, energy_max, None, scatter)
         self.energies = None
         self.parameters = None
         self.add_to_background = False
@@ -920,7 +976,7 @@ class Unresolved(ResonanceRange):
         formalism = items[3]
         if not (fission_widths and formalism == 1):
             items = get_cont_record(file_obj)
-            spin = items[0]
+            target_spin = items[0]
             if nro == 0:
                 scattering_radius = items[1]
             add_to_background = (items[2] == 0)
@@ -945,7 +1001,7 @@ class Unresolved(ResonanceRange):
             # Case B -- fission widths given, only fission widths are
             # energy-dependent
             items, energies = get_list_record(file_obj)
-            spin = items[0]
+            target_spin = items[0]
             if nro == 0:
                 scattering_radius = items[1]
             add_to_background = (items[2] == 0)
@@ -998,7 +1054,7 @@ class Unresolved(ResonanceRange):
             parameters = pd.DataFrame.from_records(records, columns=columns)
             energies = None
 
-        urr = cls(energy_min, energy_max, scattering_radius)
+        urr = cls(target_spin, energy_min, energy_max, scattering_radius)
         urr.parameters = parameters
         urr.add_to_background = add_to_background
         urr.energies = energies
