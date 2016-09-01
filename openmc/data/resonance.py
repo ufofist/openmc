@@ -14,7 +14,6 @@ except ImportError:
     _reconstruct = False
 import openmc.checkvalue as cv
 
-
 class Resonances(object):
     """Resolved and unresolved resonance data
 
@@ -197,13 +196,11 @@ class ResonanceRange(object):
 
         return cls(target_spin, energy_min, energy_max, {0: a}, {0: ap})
 
-    def reconstruct(self, target, energies):
+    def reconstruct(self, energies):
         """Evaluate cross section at specified energies.
 
         Parameters
         ----------
-        target : openmc.data.IncidentNeutron
-            Target nuclide
         energies : float or Iterable of float
             Energies at which the cross section should be evaluated
 
@@ -217,35 +214,24 @@ class ResonanceRange(object):
         if not _reconstruct:
             raise RuntimeError("Resonance reconstruction not available.")
 
+        # Pre-calculate penetrations and shifts for resonances
         if not self._prepared:
-            # Pre-calculate penetrations and shifts for resonances
             self._prepare_resonances()
 
-        if not isinstance(energies, Iterable):
-            energies = np.array([energies])
-            return_scalar = True
+        if isinstance(energies, Iterable):
+            elastic = np.zeros_like(energies)
+            capture = np.zeros_like(energies)
+            fission = np.zeros_like(energies)
+
+            for i, E in enumerate(energies):
+                xse, xsg, xsf = self._reconstruct(self, E)
+                elastic[i] = xse
+                capture[i] = xsg
+                fission[i] = xsf
         else:
-            return_scalar = False
+            elastic, capture, fission = self._reconstruct(self, energies)
 
-        elastic = np.zeros_like(energies)
-        capture = np.zeros_like(energies)
-        fission = np.zeros_like(energies)
-
-        for i, E in enumerate(energies):
-            xse, xsg, xsf = self._reconstruct(self, E)
-            elastic[i] = xse
-            capture[i] = xsg
-            fission[i] = xsf
-
-        elastic += target[2].xs['0K'](energies)
-        capture += target[102].xs['0K'](energies)
-        if 18 in target.reactions:
-            fission += target[18].xs['0K'](energies)
-
-        if return_scalar:
-            return(elastic[0], capture[0], fission[0])
-        else:
-            return (elastic, capture, fission)
+        return (elastic, capture, fission)
 
 
 class MultiLevelBreitWigner(ResonanceRange):
@@ -1067,3 +1053,6 @@ _FORMALISMS = {0: ResonanceRange,
                2: MultiLevelBreitWigner,
                3: ReichMoore,
                7: RMatrixLimited}
+
+_RESOLVED = (SingleLevelBreitWigner, MultiLevelBreitWigner,
+             ReichMoore, RMatrixLimited)

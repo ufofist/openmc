@@ -423,3 +423,22 @@ class Sum(EqualityMixin):
     def functions(self, functions):
         cv.check_type('functions', functions, Iterable, Callable)
         self._functions = functions
+
+
+class ResonancesWithBackground(EqualityMixin):
+    def __init__(self, resonances, background, rx):
+        self.resonances = resonances
+        self.background = background
+        self.rx = rx
+
+    def __call__(self, x):
+        for r in self.resonances.ranges:
+            if r.energy_min <= x <= r.energy_max:
+                elastic, capture, fission = r.reconstruct(x)
+                background_xs = self.background(x)
+                if self.rx == 'elastic':
+                    return elastic + background_xs
+                elif self.rx == 'capture':
+                    return capture + background_xs
+                elif self.rx == 'fission':
+                    return fission + background_xs

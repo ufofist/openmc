@@ -11,11 +11,11 @@ import h5py
 from .ace import Table, get_table
 from .data import ATOMIC_SYMBOL, K_BOLTZMANN
 from .fission_energy import FissionEnergyRelease
-from .function import Tabulated1D, Sum
+from .function import Tabulated1D, Sum, ResonancesWithBackground
 from .endf import Evaluation, SUM_RULES
 from .product import Product
 from .reaction import Reaction, _get_photon_products_ace
-from .resonance import Resonances
+from .resonance import Resonances, _RESOLVED
 from .urr import ProbabilityTables
 import openmc.checkvalue as cv
 from openmc.mixin import EqualityMixin
@@ -656,6 +656,21 @@ class IncidentNeutron(EqualityMixin):
         for mf, mt, nc, mod in ev.reaction_list:
             if mf == 3:
                 data.reactions[mt] = Reaction.from_endf(ev, mt)
+
+        # Replace cross sections for elastic, capture, fission
+        if isinstance(data.resonances.resolved, _RESOLVED):
+            elastic = data.reactions[2]
+            elastic.xs['0K'] = ResonancesWithBackground(
+                data.resonances, elastic.xs['0K'], 'elastic')
+
+            capture = data.reactions[102]
+            capture.xs['0K'] = ResonancesWithBackground(
+                data.resonances, capture.xs['0K'], 'capture')
+
+            if 18 in data.reactions:
+                fission = data.reactions[18]
+                fission.xs['0K'] = ResonancesWithBackground(
+                    data.resonances, capture.xs['0K'], 'fission')
 
         # If first-chance, second-chance, etc. fission are present, check
         # whether energy distributions were specified in MF=5. If not, copy the
