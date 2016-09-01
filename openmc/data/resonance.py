@@ -186,7 +186,7 @@ class ResonanceRange(object):
         ap = Polynomial((get_cont_record(file_obj)[1],))
 
         # Calculate channel radius from ENDF-102 equation D.14
-        a = Polynomial((0.123 * ev.target['mass']**(1./3.) + 0.08,))
+        a = Polynomial((0.123 * (1.008665*ev.target['mass'])**(1./3.) + 0.08,))
 
         return cls(energy_min, energy_max, {0: a}, {0: ap})
 
@@ -196,7 +196,7 @@ class ResonanceRange(object):
 
         if not self._prepared:
             # Pre-calculate penetrations and shifts for resonances
-            self._prepare_resonances(target)
+            self._prepare_resonances()
 
         if not isinstance(energies, Iterable):
             energies = np.array([energies])
@@ -209,7 +209,7 @@ class ResonanceRange(object):
         fission = np.zeros_like(energies)
 
         for i, E in enumerate(energies):
-            xse, xsg, xsf = self._reconstruct(self, target, E)
+            xse, xsg, xsf = self._reconstruct(self, E)
             elastic[i] = xse
             capture[i] = xsg
             fission[i] = xsf
@@ -307,10 +307,8 @@ class MultiLevelBreitWigner(ResonanceRange):
         ap = Polynomial((items[1],))  # energy-independent scattering-radius
         NLS = items[4]  # number of l-values
 
-        # Calculate channel radius from ENDF-102 equation D.14
-        a = Polynomial((0.123 * ev.target['mass']**(1./3.) + 0.08,))
-
         q = {}
+        awri = {}
 
         # Read resonance widths, J values, etc
         channel_radius = {}
@@ -319,8 +317,12 @@ class MultiLevelBreitWigner(ResonanceRange):
         for l in range(NLS):
             items, values = get_list_record(file_obj)
             l_value = items[2]
+            awri[l_value] = items[0]
             q[l_value] = items[1]
             competitive = items[3]
+
+            # Calculate channel radius from ENDF-102 equation D.14
+            a = Polynomial((0.123 * (1.008665*awri[l_value])**(1./3.) + 0.08,))
 
             # Construct scattering and channel radius
             if nro == 0:
@@ -361,14 +363,13 @@ class MultiLevelBreitWigner(ResonanceRange):
         # Create instance of class
         mlbw = cls(energy_min, energy_max, channel_radius, scattering_radius)
         mlbw.q = q
+        mlbw.awri = awri
         mlbw.parameters = parameters
         mlbw._target_spin = target_spin
 
         return mlbw
 
-    def _prepare_resonances(self, target):
-        A = target.atomic_weight_ratio
-
+    def _prepare_resonances(self):
         df = self.parameters.copy()
 
         # Penetration and shift factors
@@ -388,6 +389,7 @@ class MultiLevelBreitWigner(ResonanceRange):
                 competitive.append(gx > 0)
 
             # Determine penetration and shift corresponding to resonance energy
+            A = self.awri[l]
             k = wave_number(A, E)
             rho = k*self.channel_radius[l](E)
             rhohat = k*self.scattering_radius[l](E)
@@ -550,17 +552,19 @@ class ReichMoore(ResonanceRange):
         NLS = items[4]  # Number of l-values
         num_l_convergence = items[5]  # Number of l-values for convergence
 
-        # Calculate channel radius from ENDF-102 equation D.14
-        a = Polynomial((0.123 * ev.target['mass']**(1./3.) + 0.08,))
-
         # Read resonance widths, J values, etc
         channel_radius = {}
         scattering_radius = {}
+        awri = {}
         records = []
         for i in range(NLS):
             items, values = get_list_record(file_obj)
             apl = Polynomial((items[1],)) if items[1] != 0.0 else ap
             l_value = items[2]
+            awri[l_value] = items[0]
+
+            # Calculate channel radius from ENDF-102 equation D.14
+            a = Polynomial((0.123 * (1.008665*awri[l_value])**(1./3.) + 0.08,))
 
             # Construct scattering and channel radius
             if nro == 0:
@@ -600,13 +604,12 @@ class ReichMoore(ResonanceRange):
         rm.parameters = parameters
         rm.angle_distribution = angle_distribution
         rm.num_l_convergence = num_l_convergence
+        rm.awri = awri
         rm._target_spin = target_spin
 
         return rm
 
-    def _prepare_resonances(self, target):
-        A = target.atomic_weight_ratio
-
+    def _prepare_resonances(self):
         df = self.parameters.copy()
 
         # Penetration and shift factors
@@ -623,6 +626,7 @@ class ReichMoore(ResonanceRange):
                 lj_values.append((l, abs(J)))
 
             # Determine penetration and shift corresponding to resonance energy
+            A = self.awri[l]
             k = wave_number(A, E)
             rho = k*self.channel_radius[l](E)
             rhohat = k*self.scattering_radius[l](E)

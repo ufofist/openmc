@@ -77,7 +77,7 @@ def penetration_shift(int l, double rho):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def reconstruct_mlbw(mlbw, target, double E):
+def reconstruct_mlbw(mlbw, double E):
     """Reconstruct MLBW data
 
     Parameters
@@ -104,7 +104,7 @@ def reconstruct_mlbw(mlbw, target, double E):
     elastic = 0.
     capture = 0.
     fission = 0.
-    A = target.atomic_weight_ratio
+    A = mlbw.awri[0]
     k = wave_number(A, E)
     I = mlbw._target_spin
 
@@ -193,7 +193,7 @@ def reconstruct_mlbw(mlbw, target, double E):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def reconstruct_slbw(slbw, target, double E):
+def reconstruct_slbw(slbw, double E):
     cdef int i, l, i_res
     cdef double elastic, capture, fission
     cdef double A, k, rho, rhohat, I
@@ -208,7 +208,7 @@ def reconstruct_slbw(slbw, target, double E):
     elastic = 0.
     capture = 0.
     fission = 0.
-    A = target.atomic_weight_ratio
+    A = slbw.awri[0]
     k = wave_number(A, E)
     I = slbw._target_spin
 
@@ -278,7 +278,7 @@ def reconstruct_slbw(slbw, target, double E):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def reconstruct_rm(rm, target, double E):
+def reconstruct_rm(rm, double E):
     cdef int i, l, m, n, i_res
     cdef double elastic, capture, fission, total
     cdef double A, k, rho, rhohat, I
@@ -299,7 +299,7 @@ def reconstruct_rm(rm, target, double E):
     elastic = 0.
     fission = 0.
     total = 0.
-    A = target.atomic_weight_ratio
+    A = rm.awri[0]
     k = wave_number(A, E)
     one = np.eye(3)
     K = np.zeros((3,3), dtype=complex)
