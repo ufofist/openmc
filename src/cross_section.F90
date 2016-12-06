@@ -15,6 +15,7 @@ module cross_section
   use particle_header,  only: Particle
   use random_lcg,       only: prn, future_prn, prn_set_stream
   use sab_header,       only: SAlphaBeta
+  use timer_header
 
   implicit none
 
@@ -25,9 +26,11 @@ contains
 ! particle is currently traveling through.
 !===============================================================================
 
-  subroutine calculate_xs(p)
+  subroutine calculate_xs(p, event_timer, t_return)
 
     type(Particle), intent(inout) :: p
+    type(Timer), intent(inout) :: event_timer
+    real(8), intent(out) :: t_return
 
     integer :: i             ! loop index over nuclides
     integer :: i_nuclide     ! index into nuclides array
@@ -36,6 +39,7 @@ contains
     integer :: i_grid        ! index into logarithmic mapping array or material
                              ! union grid
     real(8) :: atom_density  ! atom density of a nuclide
+    real(8) :: t_start, t_end
     logical :: check_sab     ! should we check for S(a,b) table?
 
     ! Set all material macroscopic cross sections to zero
@@ -44,6 +48,9 @@ contains
     material_xs % absorption     = ZERO
     material_xs % fission        = ZERO
     material_xs % nu_fission     = ZERO
+
+    t_return = ZERO
+    t_start = event_timer % get_value()
 
     ! Exit subroutine if material is void
     if (p % material == MATERIAL_VOID) return
@@ -59,7 +66,7 @@ contains
       j = 1
 
       ! Add contribution from each nuclide in material
-      do i = 1, mat % n_nuclides
+      do i = 1, size(mat % nuclide)
         ! ========================================================================
         ! CHECK FOR S(A,B) TABLE
 
@@ -94,15 +101,26 @@ contains
         if (p % E /= micro_xs(i_nuclide) % last_E &
              .or. p % sqrtkT /= micro_xs(i_nuclide) % last_sqrtkT) then
           call calculate_nuclide_xs(i_nuclide, i_sab, p % E, i_grid, p % sqrtkT)
+
+          t_end = event_timer%get_value()
+          write (10, *) overall_id, trim(nuclides(i_nuclide)%name), t_end - t_start
+          t_start = t_end
         else if (i_sab /= micro_xs(i_nuclide) % last_index_sab) then
           call calculate_nuclide_xs(i_nuclide, i_sab, p % E, i_grid, p % sqrtkT)
-        end if
 
+          t_end = event_timer%get_value()
+          write (10,*) overall_id, trim(nuclides(i_nuclide)%name), t_end - t_start
+          t_start = t_end
+        end if
+      end do
+
+      do i = 1, size(mat % nuclide)
         ! ========================================================================
         ! ADD TO MACROSCOPIC CROSS SECTION
 
         ! Copy atom density of nuclide in material
         atom_density = mat % atom_density(i)
+        i_nuclide = mat % nuclide(i)
 
         ! Add contributions to material macroscopic total cross section
         material_xs % total = material_xs % total + &
@@ -125,6 +143,9 @@ contains
              atom_density * micro_xs(i_nuclide) % nu_fission
       end do
     end associate
+
+    t_end = event_timer % get_value()
+    t_return = t_start - t_end
 
   end subroutine calculate_xs
 

@@ -214,6 +214,7 @@ module global
   integer    :: current_batch = 0 ! current batch
   integer    :: current_gen   = 0 ! current generation within a batch
   integer    :: overall_gen   = 0 ! overall generation in the run
+  integer    :: overall_id = 0
 
   ! ============================================================================
   ! TALLY PRECISION TRIGGER VARIABLES

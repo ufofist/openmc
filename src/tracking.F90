@@ -39,7 +39,6 @@ contains
     integer :: lattice_translation(3) ! in-lattice translation vector
     integer :: last_cell              ! most recent cell particle was in
     integer :: n_event                ! number of collisions/crossings
-    integer :: overall_id
     real(8) :: d_boundary             ! distance to nearest boundary
     real(8) :: d_collision            ! sampled distance to collision
     real(8) :: distance               ! distance particle travels
@@ -102,7 +101,7 @@ contains
         ! If the material is the same as the last material and the temperature
         ! hasn't changed, we don't need to lookup cross sections again.
         if (p % material /= p % last_material .or. &
-             p % sqrtkT /= p % last_sqrtkT) call calculate_xs(p)
+             p % sqrtkT /= p % last_sqrtkT) call calculate_xs(p, event_timer, t_start)
       else
         ! Since the MGXS can be angle dependent, this needs to be done
         ! After every collision for the MGXS mode
