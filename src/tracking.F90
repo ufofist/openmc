@@ -19,6 +19,7 @@ module tracking
                                 score_collision_derivative, zero_flux_derivs
   use track_output,       only: initialize_particle_track, write_particle_track, &
                                 add_particle_track, finalize_particle_track
+  use timer_header
 
   implicit none
 
@@ -38,10 +39,15 @@ contains
     integer :: lattice_translation(3) ! in-lattice translation vector
     integer :: last_cell              ! most recent cell particle was in
     integer :: n_event                ! number of collisions/crossings
+    integer :: overall_id
     real(8) :: d_boundary             ! distance to nearest boundary
     real(8) :: d_collision            ! sampled distance to collision
     real(8) :: distance               ! distance particle travels
     logical :: found_cell             ! found cell which particle is in?
+    real(8) :: t_start, t_end
+    type(Timer) :: event_timer
+
+    overall_id = (overall_gen - 1)*n_particles + p % id
 
     ! Display message if high verbosity or trace is on
     if (verbosity >= 9 .or. trace) then
@@ -68,7 +74,11 @@ contains
     ! Every particle starts with no accumulated flux derivative.
     if (active_tallies % size() > 0) call zero_flux_derivs()
 
+    call event_timer % start()
+    t_start = ZERO
+
     EVENT_LOOP: do
+
       ! If the cell hasn't been determined based on the particle's location,
       ! initiate a search for the current cell. This generally happens at the
       ! beginning of the history and again for any secondary particles
@@ -145,6 +155,10 @@ contains
       ! Score flux derivative accumulators for differential tallies.
       if (active_tallies % size() > 0) call score_track_derivative(p, distance)
 
+      t_end = event_timer % get_value()
+      write (10, *) overall_id, 'F', t_end - t_start
+      t_start = t_end
+
       if (d_collision > d_boundary) then
         ! ====================================================================
         ! PARTICLE CROSSES SURFACE
@@ -163,6 +177,10 @@ contains
           call cross_surface(p, last_cell)
           p % event = EVENT_SURFACE
         end if
+
+        t_end = event_timer % get_value()
+        write (10, *) overall_id, 'B', t_end - t_start
+        t_start = t_end
       else
         ! ====================================================================
         ! PARTICLE HAS COLLISION
@@ -224,6 +242,10 @@ contains
 
         ! Score flux derivative accumulators for differential tallies.
         if (active_tallies % size() > 0) call score_collision_derivative(p)
+
+        t_end = event_timer % get_value()
+        write (10, *) overall_id, 'C', t_end - t_start
+        t_start = t_end
       end if
 
       ! Save coordinates for tallying purposes
