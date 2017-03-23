@@ -467,6 +467,74 @@ def _get_fission_products_endf(ev):
     return products, derived_products
 
 
+def _get_activation_products(ev, mt):
+    """Generate activation products from an ENDF evaluation
+
+    Parameters
+    ----------
+    ev : openmc.data.endf.Evaluation
+        The ENDF evaluation
+    mt : int
+        The ENDF MT number for the desired reaction.
+
+    Returns
+    -------
+    products : list of openmc.data.Product
+        Activation products
+
+    """
+    file_obj = StringIO(ev.section[8, mt])
+
+    # Determine total number of states and whether decay chain is given in a
+    # decay sublibrary
+    items = get_head_record(file_obj)
+    n_states = items[4]
+    decay_sublib = (items[5] == 1)
+
+    # Determine if file 9/10 are present
+    file9 = False
+    file10 = False
+    for i in range(n_states):
+        if decay_sublib:
+            items = get_cont_record(file_obj)
+        else:
+            items, values = get_list_record(file_obj)
+        lmf = items[2]
+        if lmf == 9:
+            file9 = True
+        elif lmf == 10:
+            file10 = True
+
+    products = []
+
+    if file9:
+        file9_obj = StringIO(ev.section[9, mt])
+        items = get_head_record(file9_obj)
+        n_states = items[4]
+        for i in range(n_states):
+            # Determine what the product is
+            items, yield_ = get_tab1_record(file9_obj)
+            Z, A = divmod(items[2], 1000)
+            excited_state = items[3]
+
+            # Get GND name for product
+            symbol = ATOMIC_SYMBOL[Z]
+            if excited_state > 0:
+                name = '{}{}_e{}'.format(symbol, A, excited_state)
+            else:
+                name = '{}{}'.format(symbol, A)
+
+            # Create product and append to list
+            p = Product(name)
+            p.yield_ = yield_
+            products.append(p)
+
+    if file10:
+        pass
+
+    return products
+
+
 def _get_photon_products_ace(ace, rx):
     """Generate photon products from an ACE table
 
@@ -1085,6 +1153,9 @@ class Reaction(EqualityMixin):
                 rx.products[0].distribution = neutron.distribution
             else:
                 rx.products.append(neutron)
+
+        if (8, mt) in ev.section:
+            rx.products += _get_activation_products(ev, mt)
 
         if (12, mt) in ev.section or (13, mt) in ev.section:
             rx.products += _get_photon_products_endf(ev, rx)
