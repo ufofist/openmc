@@ -27,6 +27,8 @@ module global
 
   implicit none
 
+  integer(8) :: upscatter_reject
+
   ! ============================================================================
   ! GEOMETRY-RELATED VARIABLES
 

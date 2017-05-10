@@ -932,7 +932,11 @@ contains
             E_rel = dot_product((v_neut - v_target), (v_neut - v_target))
             xs_0K = elastic_xs_0K(E_rel, nuc)
             R = xs_0K / xs_max
-            if (prn() < R) exit DBRC_REJECT_LOOP
+            if (prn() < R) then
+              exit DBRC_REJECT_LOOP
+            else
+              upscatter_reject = upscatter_reject + 1
+            end if
           end do DBRC_REJECT_LOOP
 
         elseif (sampling_method == RES_SCAT_ARES) then
@@ -975,6 +979,8 @@ contains
               E_t = E_t / awr
               v_target = sqrt(E_t) * rotate_angle(uvw, mu)
               exit ARES_REJECT_LOOP
+            else
+              upscatter_reject = upscatter_reject + 1
             end if
           end do ARES_REJECT_LOOP
         end if
