@@ -431,11 +431,6 @@ class Filter(IDManagerMixin):
             the total number of bins in the corresponding tally, with the filter
             bin appropriately tiled to map to the corresponding tally bins.
 
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
-
         See also
         --------
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
@@ -576,7 +571,7 @@ class CellFilter(WithIDFilter):
     @property
     def bins(self):
         return self._bins
-      
+
     @bins.setter
     def bins(self, bins):
         self._smart_set_bins(bins, openmc.Cell)
@@ -609,7 +604,7 @@ class CellFromFilter(WithIDFilter):
     @property
     def bins(self):
         return self._bins
-      
+
     @bins.setter
     def bins(self, bins):
         self._smart_set_bins(bins, openmc.Cell)
@@ -716,11 +711,6 @@ class SurfaceFilter(Filter):
             of rows in the DataFrame is the same as the total number of bins in
             the corresponding tally, with the filter bin appropriately tiled to
             map to the corresponding tally bins.
-
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
 
         See also
         --------
@@ -874,11 +864,6 @@ class MeshFilter(Filter):
             in the DataFrame is the same as the total number of bins in the
             corresponding tally, with the filter bin appropriately tiled to map
             to the corresponding tally bins.
-
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
 
         See also
         --------
@@ -1121,11 +1106,6 @@ class EnergyFilter(RealFilter):
             corresponding tally, with the filter bin appropriately tiled to map
             to the corresponding tally bins.
 
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
-
         See also
         --------
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
@@ -1331,11 +1311,6 @@ class DistribcellFilter(Filter):
             of bins in the corresponding tally, with the filter bin
             appropriately tiled to map to the corresponding tally bins.
 
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
-
         See also
         --------
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
@@ -1525,11 +1500,6 @@ class MuFilter(RealFilter):
             corresponding tally, with the filter bin appropriately tiled to map
             to the corresponding tally bins.
 
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
-
         See also
         --------
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
@@ -1630,11 +1600,6 @@ class PolarFilter(RealFilter):
             corresponding tally, with the filter bin appropriately tiled to map
             to the corresponding tally bins.
 
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
-
         See also
         --------
         Tally.get_pandas_dataframe(), CrossFilter.get_pandas_dataframe()
@@ -1734,11 +1699,6 @@ class AzimuthalFilter(RealFilter):
             rows in the DataFrame is the same as the total number of bins in the
             corresponding tally, with the filter bin appropriately tiled to map
             to the corresponding tally bins.
-
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
 
         See also
         --------
@@ -2026,11 +1986,6 @@ class EnergyFunctionFilter(Filter):
             DataFrame column is to differentiate the filter from other
             EnergyFunctionFilters. The number of rows in the DataFrame is the
             same as the total number of bins in the corresponding tally.
-
-        Raises
-        ------
-        ImportError
-            When Pandas is not installed
 
         See also
         --------
