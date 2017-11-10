@@ -838,6 +838,13 @@ class Material(IDManagerMixin):
         if not nuclide[0].scattering is None:
             xml_element.set("scattering", nuclide[0].scattering)
 
+        if not nuclide[0].poly_coeffs is None:
+            xml_element.set("poly_coeffs", ' '.join(
+                str(t) for t in nuclide[0].poly_coeffs])
+
+        if not nuclide[0].poly_type is None:
+            xml_element.set("poly_type", nuclide[0].poly_type)
+
         return xml_element
 
     def _get_macroscopic_xml(self, macroscopic):

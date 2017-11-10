@@ -3,6 +3,7 @@ import warnings
 from six import string_types
 
 import openmc.checkvalue as cv
+from openmc.checkvalue import check_iterable_type
 
 
 class Nuclide(object):
@@ -26,6 +27,9 @@ class Nuclide(object):
         # Initialize class attributes
         self._name = ''
         self._scattering = None
+
+        self._poly_coeffs = None
+        self._poly_type = None
 
         # Set the Material class attributes
         self.name = name
@@ -68,6 +72,14 @@ class Nuclide(object):
     def scattering(self):
         return self._scattering
 
+    @property
+    def poly_coeffs(self):
+        return self._poly_coeffs
+
+    @property
+    def poly_type(self):
+        return self._poly_type
+
     @name.setter
     def name(self, name):
         cv.check_type('name', name, string_types)
@@ -91,3 +103,13 @@ class Nuclide(object):
             raise ValueError(msg)
 
         self._scattering = scattering
+
+    @poly_coeffs.setter
+    def poly_coeffs(self, poly_coeffs):
+        check_iterable_type('poly_coeffs)', poly_coeffs, float)
+        self._poly_coeffs = poly_coeffs
+
+    @poly_type.setter
+    def poly_type(self, poly_type):
+        check_type('polynomial type', poly_type, string_types)
+        self._poly_type = poly_type

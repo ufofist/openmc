@@ -5,6 +5,7 @@ module material_header
   use constants
   use dict_header, only: DictIntInt
   use error
+  use math
   use nuclide_header
   use sab_header
   use stl_vector, only: VectorReal, VectorInt
@@ -22,6 +23,73 @@ module material_header
   public :: openmc_material_set_density
   public :: openmc_material_set_densities
   public :: openmc_material_set_id
+
+!===============================================================================
+! PolyProperty describes polynomial used to calculate temperatures
+!===============================================================================
+
+  type, abstract :: PolyProperty
+    character(len=52) :: type = ""           ! user readable type
+    real(8), allocatable :: coeffs(:)        ! coefficients for poly evaluation
+    integer              :: n_coeffs         ! number of coeffs
+    integer, allocatable :: order(:)         ! the order of the expansion
+    integer              :: geom_norm_offset ! offset for the geom_norms coeffs
+    real(8), allocatable :: poly_results(:)  ! variables used in evaluation of
+                                             ! of property
+    real(8), allocatable :: poly_norm(:)     ! polynomial norm available to
+                                             ! property for efficiency
+  contains
+    procedure(evaluate_), deferred :: evaluate
+  end type PolyProperty
+
+  abstract interface
+
+!===============================================================================
+! EVALUATE returns the evaluated property of the polynomial given the particle
+! position and the coefficients
+!===============================================================================
+
+    function evaluate_(this, xyz) result(property_value)
+      import PolyProperty
+      class(PolyProperty), intent(inout) :: this
+      real(8),             intent(in) :: xyz(3)
+      real(8)                         :: property_value
+    end function evaluate_
+
+  end interface
+
+!===============================================================================
+! PolyContainer pointer array for storing PolyProperty
+!===============================================================================
+
+  type PolyContainer
+    class(PolyProperty), allocatable :: obj
+  end type PolyContainer
+
+!===============================================================================
+! ZERNIKE1DPROPERTY is a Zernike 1D polynomial expansion of a property
+!===============================================================================
+
+  type, public, extends(PolyProperty) :: Zernike1DProperty
+    ! The number of Zernike1D polynomial property coefficients is set by
+    ! the order.  There should be n+1+1 coefficients for order n.
+    ! The first coefficient is the geometric normalization factor
+  contains
+    procedure :: evaluate => evaluate_zernike1d
+  end type Zernike1DProperty
+
+!===============================================================================
+! ZERNIKEPROPERTY is a Zernike polynomial expansion of a property
+!===============================================================================
+
+  type, public, extends(PolyProperty) :: ZernikeProperty
+    ! The number of Zernike polynomial property coefficients is set by
+    ! the order.  There should be n * ( n + 1 ) / 2 + n + 1 + 1
+    ! coefficients for order n. The first coefficient is the geometric n
+    ! normalization factor
+  contains
+    procedure :: evaluate => evaluate_zernike
+  end type ZernikeProperty
 
 !===============================================================================
 ! MATERIAL describes a material by its constituent nuclides
@@ -52,6 +120,12 @@ module material_header
     ! Temporary names read during initialization
     character(20), allocatable :: names(:)     ! isotope names
     character(20), allocatable :: sab_names(:) ! name of S(a,b) table
+
+    ! Continuous distribution varibles
+    logical :: continuous_num_density = .false. ! Number density logical
+
+    ! Continuous material tracking variables
+    type(PolyContainer), allocatable :: poly_densities(:) ! poly densities
 
     ! Does this material contain fissionable nuclides? Is it depletable?
     logical :: fissionable = .false.
@@ -234,6 +308,75 @@ contains
     if (allocated(materials)) deallocate(materials)
     call material_dict % clear()
   end subroutine free_memory_material
+
+!===============================================================================
+! EVALUATE_ZERNIKE1D this funciton evaluates the zernike property distribution
+!===============================================================================
+
+  function evaluate_zernike1d(this, xyz) result(property)
+    class(Zernike1DProperty), intent(inout) :: this
+    real(8),        intent(in) :: xyz(3)        ! x,y,z coordinates
+    real(8)                    :: property      ! Property being evaluated
+
+    integer                    :: i             ! Loop index
+    real(8)                    :: rho           ! Normalized radial position
+    integer                    :: c_index       ! Coefficient index counter
+    real(8)                    :: poly_val      ! Value of the polynomial
+
+    ! Initialize property
+    property = 0.0
+
+    ! Get normalized positions
+    rho = sqrt(  xyz(1) *  xyz(1) + xyz(2) *  xyz(2) ) / this % coeffs(1)
+
+    c_index = 2
+    do i = 0, this % order(1),2
+      poly_val = calc_zn_one_d(i,rho,0.0_8)
+      property = property + poly_val * this % coeffs(c_index)
+      c_index = c_index + 1
+    end do
+
+  end function evaluate_zernike1d
+
+!===============================================================================
+! EVALUATE_ZERNIKE this funciton evaluates the zernike property distribution
+!===============================================================================
+
+  function evaluate_zernike(this, xyz) result(property)
+    class(ZernikeProperty), intent(inout) :: this
+    real(8),        intent(in) :: xyz(3)
+    real(8)                    :: property
+
+    integer                    :: i,j,k                ! Loop index
+    real(8)                    :: rho
+    real(8)                    :: phi
+
+    ! Initialize property
+    property = 0.0
+
+    ! Get normalized positions
+    rho = sqrt(  xyz(1) *  xyz(1) + xyz(2) *  xyz(2) ) / this % coeffs(1)
+    phi = atan2(xyz(2),xyz(1))
+
+    k = 2  ! Keeps tracking of index in this % coeffs
+    call calc_zn(this%order(1),rho,phi, this % poly_norm, this % poly_results)
+    do i = 0, this % order(1)
+      do j = 1, i+1
+        property = property + this % poly_results(k-1) * this % coeffs(k)
+        !write(*,*) 'this % poly_results(',k,') = ', this % poly_results(k-1)
+        !write(*,*) 'this % coeffs(',k,') = ', this % coeffs(k)
+        k = k + 1
+      end do
+    end do
+
+    if (property < -1E-8) then
+      write(*,*) 'Property = ', property
+      call fatal_error('A negative number density below -1E-8 was calculated')
+    else if (property < 0) then
+      call warning('A negative number density between -1E-8 and 0 was calculated')
+    end if
+
+  end function evaluate_zernike
 
 !===============================================================================
 !                               C API FUNCTIONS

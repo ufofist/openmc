@@ -455,7 +455,14 @@ contains
               do l = 1, materials(p % material) % n_nuclides
 
                 ! Get atom density
-                atom_density_ = materials(p % material) % atom_density(l)
+                associate (mat => materials(p % material))
+                  if (mat % continuous_num_density) then
+                    atom_density_ = mat % poly_densities(i) % obj % &
+                         evaluate(p % coord(p % n_coord) % xyz)
+                  else
+                    atom_density_ = mat % atom_density(l)
+                  end if
+                end associate
 
                 ! Get index in nuclides array
                 i_nuc = materials(p % material) % nuclide(l)
@@ -611,7 +618,14 @@ contains
                   do l = 1, materials(p % material) % n_nuclides
 
                     ! Get atom density
-                    atom_density_ = materials(p % material) % atom_density(l)
+                    associate (mat => materials(p % material))
+                      if (mat % continuous_num_density) then
+                        atom_density_ = mat % poly_densities(l) % obj % &
+                             evaluate(p % coord(p % n_coord) % xyz)
+                      else
+                        atom_density_ = mat % atom_density(l)
+                      end if
+                    end associate
 
                     ! Get index in nuclides array
                     i_nuc = materials(p % material) % nuclide(l)
@@ -645,7 +659,14 @@ contains
                 do l = 1, materials(p % material) % n_nuclides
 
                   ! Get atom density
-                  atom_density_ = materials(p % material) % atom_density(l)
+                  associate (mat => materials(p % material))
+                    if (mat % continuous_num_density) then
+                      atom_density_ = mat % poly_densities(l) % obj % &
+                           evaluate(p % coord(p % n_coord) % xyz)
+                    else
+                      atom_density_ = mat % atom_density(l)
+                    end if
+                  end associate
 
                   ! Get index in nuclides array
                   i_nuc = materials(p % material) % nuclide(l)
@@ -862,7 +883,14 @@ contains
                   do l = 1, materials(p % material) % n_nuclides
 
                     ! Get atom density
-                    atom_density_ = materials(p % material) % atom_density(l)
+                    associate (mat => materials(p % material))
+                      if (mat % continuous_num_density) then
+                        atom_density_ = mat % poly_densities(l) % obj % &
+                             evaluate(p % coord(p % n_coord) % xyz)
+                      else
+                        atom_density_ = mat % atom_density(l)
+                      end if
+                    end associate
 
                     ! Get index in nuclides array
                     i_nuc = materials(p % material) % nuclide(l)
@@ -907,7 +935,14 @@ contains
                 do l = 1, materials(p % material) % n_nuclides
 
                   ! Get atom density
-                  atom_density_ = materials(p % material) % atom_density(l)
+                  associate (mat => materials(p % material))
+                    if (mat % continuous_num_density) then
+                      atom_density_ = mat % poly_densities(l) % obj % &
+                           evaluate(p % coord(p % n_coord) % xyz)
+                    else
+                      atom_density_ = mat % atom_density(l)
+                    end if
+                  end associate
 
                   ! Get index in nuclides array
                   i_nuc = materials(p % material) % nuclide(l)
@@ -989,7 +1024,14 @@ contains
             else
               do l = 1, materials(p % material) % n_nuclides
                 ! Determine atom density and index of nuclide
-                atom_density_ = materials(p % material) % atom_density(l)
+                associate (mat => materials(p % material))
+                  if (mat % continuous_num_density) then
+                    atom_density_ = mat % poly_densities(l) % obj % &
+                         evaluate(p % coord(p % n_coord) % xyz)
+                  else
+                    atom_density_ = mat % atom_density(l)
+                  end if
+                end associate
                 i_nuc = materials(p % material) % nuclide(l)
 
                 ! If nuclide is fissionable, accumulate kappa fission
@@ -1065,7 +1107,14 @@ contains
           else
             if (p % material /= MATERIAL_VOID) then
               do l = 1, materials(p % material) % n_nuclides
-                atom_density_ = materials(p % material) % atom_density(l)
+                associate (mat => materials(p % material))
+                  if (mat % continuous_num_density) then
+                    atom_density_ = mat % poly_densities(l) % obj % &
+                         evaluate(p % coord(p % n_coord) % xyz)
+                  else
+                    atom_density_ = mat % atom_density(l)
+                  end if
+                end associate
                 i_nuc = materials(p % material) % nuclide(l)
                 if (allocated(nuclides(i_nuc) % fission_q_prompt)) then
                   score = score + micro_xs(i_nuc) % fission * atom_density_ &
@@ -1119,7 +1168,14 @@ contains
           else
             if (p % material /= MATERIAL_VOID) then
               do l = 1, materials(p % material) % n_nuclides
-                atom_density_ = materials(p % material) % atom_density(l)
+                associate (mat => materials(p % material))
+                  if (mat % continuous_num_density) then
+                    atom_density_ = mat % poly_densities(l) % obj % &
+                         evaluate(p % coord(p % n_coord) % xyz)
+                  else
+                    atom_density_ = mat % atom_density(l)
+                  end if
+                end associate
                 i_nuc = materials(p % material) % nuclide(l)
                 if (allocated(nuclides(i_nuc) % fission_q_recov)) then
                   score = score + micro_xs(i_nuc) % fission * atom_density_ &
@@ -1182,7 +1238,14 @@ contains
               if (p % material /= MATERIAL_VOID) then
                 do l = 1, materials(p % material) % n_nuclides
                   ! Get atom density
-                  atom_density_ = materials(p % material) % atom_density(l)
+                  associate (mat => materials(p % material))
+                    if (mat % continuous_num_density) then
+                      atom_density_ = mat % poly_densities(l) % obj % &
+                           evaluate(p % coord(p % n_coord) % xyz)
+                    else
+                      atom_density_ = mat % atom_density(l)
+                    end if
+                  end associate
 
                   ! Get index in nuclides array
                   i_nuc = materials(p % material) % nuclide(l)
@@ -2183,7 +2246,12 @@ contains
       ! Determine index in nuclides array and atom density for i-th nuclide in
       ! current material
       i_nuclide = mat % nuclide(i)
-      atom_density = mat % atom_density(i)
+      if (mat % continuous_num_density) then
+        atom_density = mat % poly_densities(i) % obj % &
+             evaluate(p % coord(p % n_coord) % xyz)
+      else
+        atom_density = mat % atom_density(i)
+      end if
 
       ! Determine score for each bin
       call score_general(p, t, (i_nuclide-1)*t % n_score_bins, filter_index, &
@@ -2436,7 +2504,12 @@ contains
             ! Check to see if this nuclide was in the material of our collision
             do m = 1, mat % n_nuclides
               if (mat % nuclide(m) == i_nuclide) then
-                atom_density = mat % atom_density(m)
+                if (mat % continuous_num_density) then
+                  atom_density = mat % poly_densities(m) % obj % &
+                       evaluate(p % coord(p % n_coord) % xyz)
+                else
+                  atom_density = mat % atom_density(m)
+                end if
                 exit
               end if
             end do
@@ -2825,7 +2898,12 @@ contains
                   end if
                 end do NUCLIDE_MAT_LOOP
 
-                atom_density = mat % atom_density(j)
+                if (mat % continuous_num_density) then
+                  atom_density = mat % poly_densities(j) % obj % &
+                       evaluate(p % coord(p % n_coord) % xyz)
+                else
+                  atom_density = mat % atom_density(j)
+                end if
               else
                 atom_density = ZERO
               end if
@@ -2990,7 +3068,12 @@ contains
                   end if
                 end do NUCLIDE_MAT_LOOP
 
-                atom_density = mat % atom_density(j)
+                if (mat % continuous_num_density) then
+                  atom_density = mat % poly_densities(j) % obj % &
+                       evaluate(p % coord(p % n_coord) % xyz)
+                else
+                  atom_density = mat % atom_density(j)
+                end if
               else
                 atom_density = ZERO
               end if

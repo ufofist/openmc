@@ -66,6 +66,13 @@ module simulation_header
   ! Number of distribcell maps
   integer :: n_maps
 
+! ============================================================================
+! CONTINUOUS TRACKING SIMULATION VARIABLES
+
+  integer    :: num_intervals = 10
+  ! Debug file counter
+  integer :: dbg_file_counter = 0
+
 !$omp threadprivate(trace, thread_id, current_work)
 
 contains

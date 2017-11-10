@@ -827,4 +827,217 @@ contains
     end do
   end subroutine broaden_wmp_polynomials
 
+!===============================================================================
+! CALC_ZN calculates the n-th order Zernike polynomial moment for a given angle
+! (rho, theta) location in the unit disk.
+!===============================================================================
+
+  subroutine calc_zn(n, rho, phi, sqrt_norm, zn)
+    ! This efficient method for calculation R(m,n) is taken from
+    ! Chong, C. W., Raveendran, P., & Mukundan, R. (2003). A comparative
+    ! analysis of algorithms for fast computation of Zernike moments.
+    ! Pattern Recognition, 36(3), 731-742.
+
+    integer, intent(in) :: n           ! Maximum order
+    real(8), intent(in) :: rho         ! Radial location in the unit disk
+    real(8), intent(in) :: phi         ! Theta (radians) location in the unit disk
+    real(8), intent(in) :: sqrt_norm(:)! Sqrt normalization for each order n
+    real(8), intent(inout) :: zn(:)    ! The resulting list of coefficients
+    real(8) :: sin_phi, cos_phi        ! Sine and Cosine of phi
+    real(8) :: sin_phi_vec(n+1)        ! Contains sin(n*phi)
+    real(8) :: cos_phi_vec(n+1)        ! Contains cos(n*phi)
+    real(8) :: zn_mat(n+1, n+1)        ! Matrix form of the coefficients which is
+                                       ! easier to work with
+    integer :: i,p,q                   ! Loop counters
+    real(8) :: k1, k2, k3, k4          ! Variables for R_m_n calculation
+
+    ! n == radial degree
+    ! m == azimuthal frequency
+
+    ! Deterine vector of sin(n*phi) and cos(n*phi)
+    sin_phi = sin(phi)
+    cos_phi = cos(phi)
+
+    sin_phi_vec(1) = 1.0_8
+    cos_phi_vec(1) = 1.0_8
+
+    sin_phi_vec(2) = 2.0_8 * cos_phi
+    cos_phi_vec(2) = cos_phi
+
+    do i=3,(n+1)
+      sin_phi_vec(i) = 2.0_8 * cos_phi * sin_phi_vec(i-1) - sin_phi_vec(i-2)
+      cos_phi_vec(i) = 2.0_8 * cos_phi * cos_phi_vec(i-1) - cos_phi_vec(i-2)
+    enddo
+
+    do i=1,n+1
+      sin_phi_vec(i) = sin_phi_vec(i) * sin_phi
+    enddo
+
+    ! Calculate R_m_n(rho)
+    ! Fill the main diagonal first
+    do p=0,N
+      zn_mat(p+1,p+1) = rho**p
+    enddo
+    ! Fill in the second diagonal
+    do q=0,(n-2)
+       zn_mat(q+2+1,q+1) = (q+2) * zn_mat(q+2+1, q+2+1) - (q+1) * zn_mat(q+1,q+1)
+    enddo
+    ! Fill in the rest of the values using the original results
+    do p=4,n
+       k2 = 2 * p * (p - 1) * (p - 2)
+       do q=p-4,0,-2
+          k1 = (p + q) * (p - q) * (p - 2) / 2
+          k3 = -q**2*(p - 1) - p * (p - 1) * (p - 2)
+          k4 = -p * (p + q - 2) * (p - q - 2) / 2
+          zn_mat(p+1, q+1) = ((k2 * rho**2 + k3) * zn_mat(p-2+1, q+1) + k4 * zn_mat(p-4+1, q+1)) / k1
+       enddo
+    enddo
+
+    ! Roll into a single vector for easier computation later
+    ! The vector is ordered (0,0), (1,-1), (1,1), (2,-2), (2,0),
+    ! (2, 2), ....   in (n,m) indices
+    ! Note that the cos and sin vectors are offest by one
+    ! sin_phi_vec = [sin(x), sin(2x), sin(3x) ...]
+    ! cos_phi_vec = [1.0, cos(x), cos(2x)... ]
+    i = 1
+    do p=0,n
+       do q=-p,p,2
+          if (q < 0) then
+             zn(i) = zn_mat(p+1,abs(q)+1) * sin_phi_vec(p) * sqrt_norm(i)
+          else if ( q == 0) then
+             zn(i) = zn_mat(p+1,q+1) * sqrt_norm(i)
+          else
+             zn(i) = zn_mat(p+1,q+1) * cos_phi_vec(p+1) * sqrt_norm(i)
+          endif
+          !write(*,*) '*****'
+          !write(*,*) 'rho = ', rho
+          !write(*,*) 'phi = ', phi
+          !write(*,*) 'z(',p,',',q,') = ', zn_mat(p+1,abs(q)+1)
+          !write(*,*) 'sqrt_norm(',i,') = ', sqrt_norm(i)
+          !if(q<0) then
+          !   write(*,*) 'sin_phi_vec(',p,')', sin_phi_vec(p)
+          !   write(*,*) 'Known sin(',p,'x) = ', sin(p*phi)
+          !else if(q>0) then
+          !   write(*,*) 'cos_phi_vec(',p,')', cos_phi_vec(p+1)
+          !   write(*,*) 'Known cos(',p,'x) = ', cos(p*phi)
+          !endif
+          !write(*,*) 'i = ', i
+          !write(*,*) '*****'
+          i = i + 1
+       enddo
+    enddo
+
+    !do p=1,size(zn)
+    !   write(*,*) 'Writing rolled matrix...'
+    !   write(*,*) 'zn(',p,') = ', zn(p)
+    !enddo
+  end subroutine calc_zn
+
+
+!===============================================================================
+! CALC_ZN_one_d calculates the n-th order radial only Zernike polynomial moment
+! for a given rho
+!===============================================================================
+
+  pure function calc_zn_one_d(n, rho, phi) result(zn)
+
+    integer, intent(in) :: n           ! Order requested
+    real(8), intent(in) :: rho         ! Radial location in the unit disk
+    real(8), intent(in) :: phi         ! Theta (radians) location in the unit disk
+    real(8)             :: zn          ! The resultant Z_n(uvw)
+    ! Right now this is only in 2D.
+    ! n == radial degree
+    ! m == azimuthal frequency
+
+    select case(n)
+    case(0)
+       ! n = 0, m = 0
+       zn = ( ( 1.00 ) ) &
+            * ( 1.000000000000 )
+    case(2)
+       ! n = 2, m = 0
+       zn = ( ( -1.00 ) + &
+            ( 2.00 ) *rho * rho ) &
+            * ( 1.732050807569 )
+    case(4)
+       zn = ( ( 1.00 ) + &
+            ( -6.00 ) *rho * rho + &
+            ( 6.00 ) *rho *rho *rho * rho ) &
+            * ( 2.236067977500 )
+    case(6)
+       ! n = 6, m = 0
+       zn = ( ( -1.00 ) + &
+            ( 12.00 ) *rho * rho + &
+            ( -30.00 ) *rho *rho *rho * rho + &
+            ( 20.00 ) *rho *rho *rho *rho *rho * rho ) &
+            * ( 2.645751311065 )
+    case(8)
+       ! n = 8, m = 0
+       zn = ( ( 1.00 ) + &
+            ( -20.00 ) *rho * rho + &
+            ( 90.00 ) *rho *rho *rho * rho + &
+            ( -140.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( 70.00 ) *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 3.000000000000 )
+    case(10)
+       ! n = 10, m = 0
+       zn = ( ( -1.00 ) + &
+            ( 30.00 ) *rho * rho + &
+            ( -210.00 ) *rho *rho *rho * rho + &
+            ( 560.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( -630.00 ) *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 252.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 3.316624790355 )
+    case(12)
+       ! n = 12, m = 0
+       zn = ( ( 1.00 ) + &
+            ( -42.00 ) *rho * rho + &
+            ( 420.00 ) *rho *rho *rho * rho + &
+            ( -1680.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( 3150.00 ) *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -2772.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 924.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 3.605551275464 )
+    case(14)
+       ! n = 14, m = 0
+       zn = ( ( -1.00 ) + &
+            ( 56.00 ) *rho * rho + &
+            ( -756.00 ) *rho *rho *rho * rho + &
+            ( 4200.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( -11550.00 ) *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 16632.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -12012.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 3432.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 3.872983346207 )
+    case(16)
+       ! n = 16, m = 0
+       zn = ( ( 1.00 ) + &
+            ( -72.00 ) *rho * rho + &
+            ( 1260.00 ) *rho *rho *rho * rho + &
+            ( -9240.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( 34650.00 ) *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -72072.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 84084.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -51480.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 12870.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 4.123105625618 )
+    case(18)
+       ! n = 18, m = 0
+       zn = ( ( -1.00 ) + &
+            ( 90.00 ) *rho * rho + &
+            ( -1980.00 ) *rho *rho *rho * rho + &
+            ( 18480.00 ) *rho *rho *rho *rho *rho * rho + &
+            ( -90090.00 ) *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 252252.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -420420.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 411840.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( -218790.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho + &
+            ( 48620.00 ) *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho *rho * rho ) &
+            * ( 4.358898943541 )
+    case default
+       zn = 0.0
+    end select
+
+  end function calc_zn_one_d
+
 end module math

@@ -2030,10 +2030,12 @@ contains
     integer :: i              ! loop index for materials
     integer :: j              ! loop index for nuclides
     integer :: n              ! number of nuclides
+    integer :: p,q,ii         ! loop index for polynomial densities
     integer :: n_sab          ! number of sab tables for a material
     integer :: i_library      ! index in libraries array
     integer :: index_nuclide  ! index in nuclides
     integer :: index_sab      ! index in sab_tables
+    integer :: temp_int       ! temporary integer
     logical :: file_exists    ! does materials.xml exist?
     character(20)           :: name         ! name of nuclide, e.g. 92235.03c
     character(MAX_WORD_LEN) :: units        ! units on density
@@ -2041,6 +2043,7 @@ contains
     character(MAX_LINE_LEN) :: temp_str     ! temporary string when reading
     real(8)                 :: val          ! value entered for density
     real(8)                 :: temp_dble    ! temporary double prec. real
+    real(8), allocatable    :: temp_real_array(:) ! temporary array for distrib
     logical                 :: sum_density  ! density is sum of nuclide densities
     type(VectorChar)        :: names        ! temporary list of nuclide names
     type(VectorInt)         :: list_iso_lab ! temporary list of isotropic lab scatterers
@@ -2294,6 +2297,89 @@ contains
               call get_node_value(node_nuc, "wo", temp_dble)
               call densities % push_back(-temp_dble)
             end if
+
+            ! Copy the coefficients of an expansion if they exist
+            if (check_for_node(node_nuc, "poly_coeffs")) then
+
+              mat % continuous_num_density = .true.
+
+              temp_int = size(node_nuc_list)
+              if (.not. allocated(mat % poly_densities)) &
+                   allocate(mat % poly_densities(temp_int))
+
+              call get_node_value(node_nuc, "poly_type", temp_str)
+              select case(trim(to_lower(temp_str)))
+              case ('zernike1d')
+                allocate(Zernike1DProperty::mat % poly_densities(j) % obj)
+              case ('zernike')
+                allocate(ZernikeProperty::mat % poly_densities(j) % obj)
+              end select
+
+              if (allocated(temp_real_array)) deallocate(temp_real_array)
+
+              allocate(temp_real_array(node_word_count(node_nuc, "poly_coeffs")))
+              call get_node_array(node_nuc, "poly_coeffs", temp_real_array)
+
+              mat % poly_densities(j) % obj % n_coeffs = &
+                   node_word_count(node_nuc, "poly_coeffs")
+
+              allocate(mat % poly_densities(j) % obj % coeffs( &
+                   mat % poly_densities(j) % obj % n_coeffs))
+
+              do p = 1, mat % poly_densities(j) % obj % n_coeffs
+                mat % poly_densities(j) % obj % coeffs(p) = temp_real_array(p)
+              end do
+
+              select case(trim(to_lower(temp_str)))
+              case ('zernike1d')
+                allocate(mat % poly_densities(j) % obj % order(1))
+                mat % poly_densities(j) % obj % order = &
+                     (mat % poly_densities(j) % obj % n_coeffs - 1 - 1 ) * 2
+              case ('zernike')
+                ! temp_int is used as an order counter here
+                allocate(mat % poly_densities(j) % obj % order(1))
+                temp_int = 0
+                p = 1
+                do while(p < mat % poly_densities(j) % obj % n_coeffs)
+                  p = p + temp_int + 1
+                  temp_int = temp_int + 1
+                enddo
+                if (p == mat % poly_densities(j) % obj % n_coeffs) then
+                  mat % poly_densities(j) % obj % order = temp_int-1
+                else
+                  write(*,*) p == mat % poly_densities(j) % obj % n_coeffs, ' coefficients were provided'
+                  call fatal_error('Correct polynomial order could not be determined')
+                endif
+              end select
+
+              ! Allocate the poly_results vector that is used to evaluate the material
+              ! property to the largest value it can be
+              allocate(mat % poly_densities(j) % obj % poly_results(mat % poly_densities(j) % obj % n_coeffs-1))
+              allocate(mat % poly_densities(j) % obj % poly_norm(mat % poly_densities(j) % obj % n_coeffs-1))
+              ! Allocate the poly_norm vector to hold each order normalizatino for
+              ! efficient computation
+              select case(trim(to_lower(temp_str)))
+              case ('zernike1d')
+                ii = 1
+                do p=0,(mat % poly_densities(j) % obj % order(1) + 1),2
+                  mat % poly_densities(j) % obj % poly_norm(ii) = sqrt(p + 1.0_8)
+                  ii = ii + 1
+                enddo
+              case ('zernike')
+                ii = 1
+                do p=0,(mat % poly_densities(j) % obj % order(1))
+                  do q=-p,p,2
+                    if(q == 0) then
+                      mat % poly_densities(j) % obj % poly_norm(ii) = sqrt(p + 1.0_8)
+                    else
+                      mat % poly_densities(j) % obj % poly_norm(ii) = sqrt(2.0_8*p + 2.0_8)
+                    endif
+                    ii = ii + 1
+                  enddo
+                enddo
+              end select
+            endif
+
           end if
         end do INDIVIDUAL_NUCLIDES
       end if
