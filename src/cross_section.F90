@@ -159,6 +159,7 @@ contains
     integer :: j      ! index in DEPLETION_RX
     real(8) :: f      ! interp factor on nuclide energy grid
     real(8) :: kT     ! temperature in eV
+    real(8) :: d_kT
     real(8) :: sig_t, sig_a, sig_f ! Intermediate multipole variables
 
     ! Initialize cached cross sections to zero
@@ -219,7 +220,14 @@ contains
         kT = sqrtkT**2
         select case (temperature_method)
         case (TEMPERATURE_NEAREST)
-          i_temp = minloc(abs(nuclides(i_nuclide) % kTs - kT), dim=1)
+          f = INFINITY
+          do j = 1, size(nuc % kTs)
+            d_kT = abs(nuc % kTs(j) - kT)
+            if (d_kT < f) then
+              i_temp = j
+              f = d_kT
+            end if
+          end do
 
         case (TEMPERATURE_INTERPOLATION)
           ! Find temperatures that bound the actual temperature
