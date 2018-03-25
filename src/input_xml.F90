@@ -526,8 +526,12 @@ contains
           allocate(m % dimension(3))
           m % dimension = ceiling((n_particles/20)**(ONE/THREE))
 
-          ! Calculate width
-          m % width = (m % upper_right - m % lower_left) / m % dimension
+          ! Calculate width / upper-right coordinate
+          if (allocated(m % upper_right)) then
+            m % width = (m % upper_right - m % lower_left) / m % dimension
+          elseif (allocated(m % width)) then
+            m % upper_right = m % lower_left + m % dimension * m % width
+          end if
         end if
 
         ! Allocate space for storing number of fission sites in each mesh cell

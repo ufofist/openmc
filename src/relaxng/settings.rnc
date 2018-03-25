@@ -34,7 +34,7 @@ element settings {
     (element type { ( "regular" ) } |
       attribute type { ( "regular" ) })? &
     (element dimension { list { xsd:positiveInteger+ } } |
-      attribute dimension { list { xsd:positiveInteger+ } }) &
+      attribute dimension { list { xsd:positiveInteger+ } })? &
     (element lower_left { list { xsd:double+ } } |
       attribute lower_left { list { xsd:double+ } }) &
     (

@@ -138,7 +138,9 @@ contains
       end if
 
       ! Set width and upper right coordinate
-      this % upper_right = this % lower_left + this % dimension * this % width
+      if (allocated(this % dimension)) then
+        this % upper_right = this % lower_left + this % dimension * this % width
+      end if
 
     elseif (check_for_node(node, "upper_right")) then
       n = node_word_count(node, "upper_right")
@@ -159,7 +161,9 @@ contains
       end if
 
       ! Set width and upper right coordinate
-      this % width = (this % upper_right - this % lower_left) / this % dimension
+      if (allocated(this % dimension)) then
+        this % width = (this % upper_right - this % lower_left) / this % dimension
+      end if
     else
       call fatal_error("Must specify either <upper_right> and <width> on a &
            &mesh.")

@@ -134,22 +134,24 @@
               </attribute>
             </choice>
           </optional>
-          <choice>
-            <element name="dimension">
-              <list>
-                <oneOrMore>
-                  <data type="positiveInteger"/>
-                </oneOrMore>
-              </list>
-            </element>
-            <attribute name="dimension">
-              <list>
-                <oneOrMore>
-                  <data type="positiveInteger"/>
-                </oneOrMore>
-              </list>
-            </attribute>
-          </choice>
+          <optional>
+            <choice>
+              <element name="dimension">
+                <list>
+                  <oneOrMore>
+                    <data type="positiveInteger"/>
+                  </oneOrMore>
+                </list>
+              </element>
+              <attribute name="dimension">
+                <list>
+                  <oneOrMore>
+                    <data type="positiveInteger"/>
+                  </oneOrMore>
+                </list>
+              </attribute>
+            </choice>
+          </optional>
           <choice>
             <element name="lower_left">
               <list>
