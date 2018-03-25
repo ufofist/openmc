@@ -1,4 +1,4 @@
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
 from copy import deepcopy
 from functools import partial
@@ -15,7 +15,7 @@ from openmc.mixin import IDManagerMixin
 _BOUNDARY_TYPES = ['transmission', 'vacuum', 'reflective', 'periodic']
 
 
-class Surface(IDManagerMixin):
+class Surface(IDManagerMixin, metaclass=ABCMeta):
     """An implicit surface with an associated boundary condition.
 
     An implicit surface is defined as the set of zeros of a function of the
@@ -147,7 +147,6 @@ class Surface(IDManagerMixin):
             desired half-space
 
         """
-
         return (np.array([-np.inf, -np.inf, -np.inf]),
                 np.array([np.inf, np.inf, np.inf]))
 
@@ -179,6 +178,14 @@ class Surface(IDManagerMixin):
             memo[self] = clone
 
         return memo[self]
+
+    @abstractmethod
+    def evaluate(self, point):
+        pass
+
+    @abstractmethod
+    def translate(self, vector):
+        pass
 
     def to_xml_element(self):
         """Return XML representation of the surface
@@ -394,12 +401,35 @@ class Plane(Surface):
         Returns
         -------
         float
-            :math:`Ax' + By' + Cz' - d`
+            :math:`Ax' + By' + Cz' - D`
 
         """
 
         x, y, z = point
         return self.a*x + self.b*y + self.c*z - self.d
+
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.Plane
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        d = self.d + self.a*vx + self.b*vy + self.c*vz
+        if d == self.d:
+            return self
+        else:
+            return type(self)(A=self.a, B=self.b, C=self.c, D=d)
 
     def to_xml_element(self):
         """Return XML representation of the surface
@@ -523,6 +553,28 @@ class XPlane(Plane):
         """
         return point[0] - self.x0
 
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.XPlane
+            Translated surface
+
+        """
+        vx = vector[0]
+        if vx == 0:
+            return self
+        else:
+            return type(self)(x0=self.x0 + vx)
+
 
 class YPlane(Plane):
     """A plane perpendicular to the y axis of the form :math:`y - y_0 = 0`
@@ -628,6 +680,28 @@ class YPlane(Plane):
 
         """
         return point[1] - self.y0
+
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.YPlane
+            Translated surface
+
+        """
+        vy = vector[1]
+        if vy == 0.0:
+            return self
+        else:
+            return type(self)(y0=self.y0 + vy)
 
 
 class ZPlane(Plane):
@@ -735,8 +809,30 @@ class ZPlane(Plane):
         """
         return point[2] - self.z0
 
+    def translate(self, vector):
+        """Translate surface in given direction
 
-class Cylinder(Surface, metaclass=ABCMeta):
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.ZPlane
+            Translated surface
+
+        """
+        vz = vector[2]
+        if vz == 0.0:
+            return self
+        else:
+            return type(self)(z0=self.z0 + vz)
+
+
+class Cylinder(Surface):
     """A cylinder whose length is parallel to the x-, y-, or z-axis.
 
     Parameters
@@ -909,6 +1005,30 @@ class XCylinder(Cylinder):
         z = point[2] - self.z0
         return y**2 + z**2 - self.r**2
 
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.XCylinder
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        if vy == 0.0 and vz == 0.0:
+            return self
+        else:
+            y0 = self.y0 + vy
+            z0 = self.z0 + vz
+            return type(self)(y0=y0, z0=z0, R=self.R)
+
 
 class YCylinder(Cylinder):
     """An infinite cylinder whose length is parallel to the y-axis of the form
@@ -1031,6 +1151,30 @@ class YCylinder(Cylinder):
         z = point[2] - self.z0
         return x**2 + z**2 - self.r**2
 
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.YCylinder
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        if vx == 0.0 and vz == 0.0:
+            return self
+        else:
+            x0 = self.x0 + vx
+            z0 = self.z0 + vz
+            return type(self)(x0=x0, z0=z0, R=self.r)
+
 
 class ZCylinder(Cylinder):
     """An infinite cylinder whose length is parallel to the z-axis of the form
@@ -1152,6 +1296,30 @@ class ZCylinder(Cylinder):
         x = point[0] - self.x0
         y = point[1] - self.y0
         return x**2 + y**2 - self.r**2
+
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.ZCylinder
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        if vx == 0.0 and vy == 0.0:
+            return self
+        else:
+            x0 = self.x0 + vx
+            y0 = self.y0 + vy
+            return type(self)(x0=x0, y0=y0, R=self.r)
 
 
 class Sphere(Surface):
@@ -1301,8 +1469,33 @@ class Sphere(Surface):
         z = point[2] - self.z0
         return x**2 + y**2 + z**2 - self.r**2
 
+    def translate(self, vector):
+        """Translate surface in given direction
 
-class Cone(Surface, metaclass=ABCMeta):
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.Sphere
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        if vx == 0.0 and vy == 0.0 and vz == 0.0:
+            return self
+        else:
+            x0 = self.x0 + vx
+            y0 = self.y0 + vy
+            z0 = self.z0 + vz
+            return type(self)(x0=x0, y0=y0, z0=z0, R=self.r)
+
+
+class Cone(Surface):
     """A conical surface parallel to the x-, y-, or z-axis.
 
     Parameters
@@ -1393,6 +1586,31 @@ class Cone(Surface, metaclass=ABCMeta):
     def r2(self, R2):
         check_type('R^2 coefficient', R2, Real)
         self._coefficients['R2'] = R2
+
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.Cone
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        if vx == 0.0 and vy == 0.0 and vz == 0.0:
+            return self
+        else:
+            x0 = self.x0 + vx
+            y0 = self.y0 + vy
+            z0 = self.z0 + vz
+            return type(self)(x0=x0, y0=y0, z0=z0, R2=self.r2)
 
 
 class XCone(Cone):
@@ -1788,6 +2006,32 @@ class Quadric(Surface):
             y*(self.b*y + self.e*z + self.h) + \
             z*(self.c*z + self.f*x + self.j) + self.k
 
+    def translate(self, vector):
+        """Translate surface in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which surface should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.Quadric
+            Translated surface
+
+        """
+        vx, vy, vz = vector
+        a, b, c, d, e, f, g, h, j, k = (getattr(self, key) for key in
+                                        self._coeff_keys)
+        g = g - 2*a*vx - d*vy - f*vz
+        h = h - 2*b*vy - d*vx - e*vz
+        j = j - 2*c*cz - e*vy - f*vx
+        k = (k + vx*vx + vy*vy + vz*vz + d*vx*vy + e*vy*vz + f*vx*vz
+             - g*vx - h*vy - j*vz)
+        return type(self)(a=a, b=b, c=c, d=d, e=e, f=f, g=g, h=h, j=j, k=k)
+
 
 class Halfspace(Region):
     """A positive or negative half-space region.
@@ -1933,3 +2177,30 @@ class Halfspace(Region):
         clone = deepcopy(self)
         clone.surface = self.surface.clone(memo)
         return clone
+
+    def translate(self, vector, memo=None):
+        """Translate half-space in given direction
+
+        Parameters
+        ----------
+        vector : iterable of float
+            Direction in which region should be translated
+        memo : dict or None
+            Dictionary used for memoization
+
+        Returns
+        -------
+        openmc.Halfspace
+            Translated half-space
+
+        """
+        if memo is None:
+            memo = {}
+
+        # If translated surface not in memo, add it
+        key = (self.surface, tuple(vector))
+        if key not in memo:
+            memo[key] = self.surface.translate(vector)
+
+        # Return translated surface
+        return type(self)(memo[key], self.side)
