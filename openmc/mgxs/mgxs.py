@@ -2717,9 +2717,9 @@ class TransportXS(MGXS):
     @property
     def scores(self):
         if not self.nu:
-            return ['flux', 'total', 'flux', 'scatter-1']
+            return ['flux', 'total', 'flux', 'scatter']
         else:
-            return ['flux', 'total', 'flux', 'nu-scatter-1']
+            return ['flux', 'total', 'flux', 'nu-scatter']
 
     @property
     def tally_keys(self):
@@ -2730,8 +2730,9 @@ class TransportXS(MGXS):
         group_edges = self.energy_groups.group_edges
         energy_filter = openmc.EnergyFilter(group_edges)
         energyout_filter = openmc.EnergyoutFilter(group_edges)
+        p1_filter = openmc.LegendreFilter(1)
         filters = [[energy_filter], [energy_filter],
-                   [energy_filter], [energyout_filter]]
+                   [energy_filter], [energyout_filter, p1_filter]]
 
         return self._add_angle_filters(filters)
 
@@ -2739,12 +2740,18 @@ class TransportXS(MGXS):
     def rxn_rate_tally(self):
         if self._rxn_rate_tally is None:
             # Switch EnergyoutFilter to EnergyFilter.
-            old_filt = self.tallies['scatter-1'].filters[-1]
+            p1_tally = self.tallies['scatter-1']
+            old_filt = p1_tally.filters[-2]
             new_filt = openmc.EnergyFilter(old_filt.values)
-            self.tallies['scatter-1'].filters[-1] = new_filt
+            p1_tally.filters[-2] = new_filt
 
-            self._rxn_rate_tally = \
-                self.tallies['total'] - self.tallies['scatter-1']
+            # Slice Legendre expansion filter and change name of score
+            p1_tally = p1_tally.get_slice(filters=[openmc.LegendreFilter],
+                                          filter_bins=[('P1',)],
+                                          squeeze=True)
+            p1_tally.scores = ['scatter-1']
+
+            self._rxn_rate_tally = self.tallies['total'] - p1_tally
             self._rxn_rate_tally.sparse = self.sparse
 
         return self._rxn_rate_tally
@@ -2758,15 +2765,22 @@ class TransportXS(MGXS):
                 raise ValueError(msg)
 
             # Switch EnergyoutFilter to EnergyFilter.
-            old_filt = self.tallies['scatter-1'].filters[-1]
+            p1_tally = self.tallies['scatter-1']
+            old_filt = p1_tally.filters[-2]
             new_filt = openmc.EnergyFilter(old_filt.values)
-            self.tallies['scatter-1'].filters[-1] = new_filt
+            p1_tally.filters[-2] = new_filt
+
+            # Slice Legendre expansion filter and change name of score
+            p1_tally = p1_tally.get_slice(filters=[openmc.LegendreFilter],
+                                          filter_bins=[('P1',)],
+                                          squeeze=True)
+            p1_tally.scores = ['scatter-1']
 
             # Compute total cross section
             total_xs = self.tallies['total'] / self.tallies['flux (tracklength)']
 
             # Compute transport correction term
-            trans_corr = self.tallies['scatter-1'] / self.tallies['flux (analog)']
+            trans_corr = p1_tally / self.tallies['flux (analog)']
 
             # Compute the transport-corrected total cross section
             self._xs_tally = total_xs - trans_corr
@@ -3598,10 +3612,10 @@ class ScatterMatrixXS(MatrixMGXS):
     name : str, optional
         Name of the multi-group cross section. Used as a label to identify
         tallies in OpenMC 'tallies.xml' file.
-    num_polar : Integral, optional
+    num_polar : int, optional
         Number of equi-width polar angle bins for angle discretization;
         defaults to one bin
-    num_azimuthal : Integral, optional
+    num_azimuthal : int, optional
         Number of equi-width azimuthal angle bins for angle discretization;
         defaults to one bin
     nu : bool
@@ -3647,9 +3661,9 @@ class ScatterMatrixXS(MatrixMGXS):
         Domain type for spatial homogenization
     energy_groups : openmc.mgxs.EnergyGroups
         Energy group structure for energy condensation
-    num_polar : Integral
+    num_polar : int
         Number of equi-width polar angle bins for angle discretization
-    num_azimuthal : Integral
+    num_azimuthal : int
         Number of equi-width azimuthal angle bins for angle discretization
     tally_trigger : openmc.Trigger
         An (optional) tally precision trigger given to each tally used to

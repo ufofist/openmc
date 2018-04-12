@@ -14,6 +14,12 @@ class ExpansionFilter(Filter):
         self.order = order
         self.id = filter_id
 
+    def __eq__(self, other):
+        if type(self) is not type(other):
+            return False
+        else:
+            return self.bins == other.bins
+
     @property
     def order(self):
         return self._order

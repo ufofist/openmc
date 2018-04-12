@@ -323,7 +323,10 @@
   <filter id="5" type="energyout">
     <bins>0.0 20000000.0</bins>
   </filter>
-  <filter id="59" type="delayedgroup">
+  <filter id="6" type="legendre">
+    <order>1</order>
+  </filter>
+  <filter id="61" type="delayedgroup">
     <bins>1 2 3 4 5 6</bins>
   </filter>
   <tally id="1">
@@ -357,9 +360,9 @@
     <estimator>analog</estimator>
   </tally>
   <tally id="6">
-    <filters>1 5</filters>
+    <filters>1 5 6</filters>
     <nuclides>total</nuclides>
-    <scores>scatter-1</scores>
+    <scores>scatter</scores>
     <estimator>analog</estimator>
   </tally>
   <tally id="7">
@@ -381,9 +384,9 @@
     <estimator>analog</estimator>
   </tally>
   <tally id="10">
-    <filters>1 5</filters>
+    <filters>1 5 6</filters>
     <nuclides>total</nuclides>
-    <scores>nu-scatter-1</scores>
+    <scores>nu-scatter</scores>
     <estimator>analog</estimator>
   </tally>
   <tally id="11">
@@ -645,19 +648,19 @@
     <estimator>tracklength</estimator>
   </tally>
   <tally id="54">
-    <filters>1 59 2</filters>
+    <filters>1 61 2</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>tracklength</estimator>
   </tally>
   <tally id="55">
-    <filters>1 59 2</filters>
+    <filters>1 61 2</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>analog</estimator>
   </tally>
   <tally id="56">
-    <filters>1 59 5</filters>
+    <filters>1 61 5</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>analog</estimator>
@@ -669,19 +672,19 @@
     <estimator>tracklength</estimator>
   </tally>
   <tally id="58">
-    <filters>1 59 2</filters>
+    <filters>1 61 2</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>tracklength</estimator>
   </tally>
   <tally id="59">
-    <filters>1 59 2</filters>
+    <filters>1 61 2</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>tracklength</estimator>
   </tally>
   <tally id="60">
-    <filters>1 59 2</filters>
+    <filters>1 61 2</filters>
     <nuclides>total</nuclides>
     <scores>decay-rate</scores>
     <estimator>tracklength</estimator>
@@ -693,7 +696,7 @@
     <estimator>analog</estimator>
   </tally>
   <tally id="62">
-    <filters>1 59 2 5</filters>
+    <filters>1 61 2 5</filters>
     <nuclides>total</nuclides>
     <scores>delayed-nu-fission</scores>
     <estimator>analog</estimator>

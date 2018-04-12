@@ -1180,7 +1180,7 @@ class Tally(IDManagerMixin):
 
         # Determine the score indices from any of the requested scores
         if nuclides:
-            nuclide_indices = np.zeros(len(nuclides), dtype=np.int)
+            nuclide_indices = np.zeros(len(nuclides), dtype=int)
             for i, nuclide in enumerate(nuclides):
                 nuclide_indices[i] = self.get_nuclide_index(nuclide)
 
@@ -1219,7 +1219,7 @@ class Tally(IDManagerMixin):
 
         # Determine the score indices from any of the requested scores
         if scores:
-            score_indices = np.zeros(len(scores), dtype=np.int)
+            score_indices = np.zeros(len(scores), dtype=int)
             for i, score in enumerate(scores):
                 score_indices[i] = self.get_score_index(score)
 
@@ -1491,11 +1491,8 @@ class Tally(IDManagerMixin):
         data = self.get_values(value=value)
 
         # Build a new array shape with one dimension per filter
-        new_shape = ()
-        for self_filter in self.filters:
-            new_shape += (self_filter.num_bins, )
-        new_shape += (self.num_nuclides,)
-        new_shape += (self.num_scores,)
+        new_shape = tuple(f.num_bins for f in self.filters)
+        new_shape += (self.num_nuclides, self.num_scores)
 
         # Reshape the data with one dimension for each filter
         data = np.reshape(data, new_shape)
@@ -3042,8 +3039,8 @@ class Tally(IDManagerMixin):
         # by which the "base" indices should be repeated to account for all
         # other filter bins in the diagonalized tally
         indices = np.arange(0, new_filter.num_bins**2, new_filter.num_bins+1)
-        diag_factor = int(self.num_filter_bins / new_filter.num_bins)
-        diag_indices = np.zeros(self.num_filter_bins, dtype=np.int)
+        diag_factor = self.num_filter_bins // new_filter.num_bins
+        diag_indices = np.zeros(self.num_filter_bins, dtype=int)
 
         # Determine the filter indices along the new "diagonal"
         for i in range(diag_factor):
