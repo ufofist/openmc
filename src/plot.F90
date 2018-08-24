@@ -137,7 +137,7 @@ contains
     out_pixel = pl % width(2)/dble(height)
 
     ! Allocate and initialize results array
-    allocate(data(3, width, height))
+    allocate(data(4, width, height))
     data(:,:,:) = 0
 
     if (pl % basis == PLOT_BASIS_XY) then
@@ -178,7 +178,8 @@ contains
         call position_rgb(p, pl, rgb, id)
 
         ! Create a pixel at (x,y) with color (r,g,b)
-        data(:, x, y) = rgb
+        data(1:3, x, y) = rgb
+        data(4, x, y) = id
       end do
     end do
 !$omp end parallel do
@@ -271,18 +272,18 @@ contains
             ! draw lines
             do out_ = outrange(1), outrange(2)
               do plus = 0, pl % meshlines_width
-                data(:, out_ + 1, inrange(1) + plus + 1) = rgb
-                data(:, out_ + 1, inrange(2) + plus + 1) = rgb
-                data(:, out_ + 1, inrange(1) - plus + 1) = rgb
-                data(:, out_ + 1, inrange(2) - plus + 1) = rgb
+                data(1:3, out_ + 1, inrange(1) + plus + 1) = rgb
+                data(1:3, out_ + 1, inrange(2) + plus + 1) = rgb
+                data(1:3, out_ + 1, inrange(1) - plus + 1) = rgb
+                data(1:3, out_ + 1, inrange(2) - plus + 1) = rgb
               end do
             end do
             do in_ = inrange(1), inrange(2)
               do plus = 0, pl % meshlines_width
-                data(:, outrange(1) + plus + 1, in_ + 1) = rgb
-                data(:, outrange(2) + plus + 1, in_ + 1) = rgb
-                data(:, outrange(1) - plus + 1, in_ + 1) = rgb
-                data(:, outrange(2) - plus + 1, in_ + 1) = rgb
+                data(1:3, outrange(1) + plus + 1, in_ + 1) = rgb
+                data(1:3, outrange(2) + plus + 1, in_ + 1) = rgb
+                data(1:3, outrange(1) - plus + 1, in_ + 1) = rgb
+                data(1:3, outrange(2) - plus + 1, in_ + 1) = rgb
               end do
             end do
 
@@ -323,6 +324,18 @@ contains
 
     ! Close plot file
     close(UNIT=unit_plot)
+
+    ! Create binary file with ID information
+    open(NEWUNIT=unit_plot, FILE="plot_ids.binary", STATUS="replace", ACCESS="stream")
+    write(unit_plot) pl%pixels(1:2)
+    write(unit_plot) pl%width(1:2)
+    do y = 1, pl % pixels(2)
+      do x = 1, pl % pixels(1)
+        write(unit_plot) data(4, x, y)
+      end do
+    end do
+    close(UNIT=unit_plot)
+
   end subroutine output_ppm
 
 !===============================================================================
